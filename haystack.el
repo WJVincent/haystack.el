@@ -21,7 +21,8 @@
 ;; branching filter tree you can traverse, compare, and kill at will.
 ;; No categories, no tags, no upfront organisation required.
 ;;
-;; The design rests on three principles:
+
+;;; Design Principles:
 ;;
 ;; * No cognitive overhead :: The friction that kills note-taking
 ;;   habits is rarely the writing — it is the pressure to file things
