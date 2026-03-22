@@ -63,6 +63,12 @@
   :type 'directory
   :group 'haystack)
 
+(defcustom haystack-default-extension "org"
+  "Default file extension for new notes created with `haystack-new-note'.
+Must be a string without a leading dot (e.g. \"org\", \"md\", \"txt\")."
+  :type 'string
+  :group 'haystack)
+
 (defcustom haystack-file-glob nil
   "Restrict searches to files matching these glob patterns.
 Each entry is passed as a separate --glob argument to ripgrep, limiting
@@ -111,6 +117,215 @@ Each filter plist:
   (unless (file-directory-p haystack-notes-directory)
     (user-error "Haystack: notes directory does not exist: %s"
                 haystack-notes-directory)))
+
+;;;; Creation engine
+
+;;; Frontmatter generators — one function per file type.
+;;; Each takes TITLE (string) and returns a complete frontmatter block
+;;; including the pkm-end-frontmatter sentinel on the final line.
+
+(defun haystack--frontmatter-org (title)
+  "Return Org-mode frontmatter for TITLE."
+  (concat "#+TITLE: " title "\n"
+          "#+DATE: " (format-time-string "%Y-%m-%d") "\n"
+          "# %%% pkm-end-frontmatter %%%\n\n"))
+
+(defun haystack--frontmatter-md (title)
+  "Return Markdown (YAML) frontmatter for TITLE."
+  (concat "---\n"
+          "title: " title "\n"
+          "date: " (format-time-string "%Y-%m-%d") "\n"
+          "---\n"
+          "<!-- %%% pkm-end-frontmatter %%% -->\n\n"))
+
+(defun haystack--frontmatter-c-block (title)
+  "Return frontmatter for TITLE using /* */ block comments (C, CSS)."
+  (concat "/* title: " title " */\n"
+          "/* date: " (format-time-string "%Y-%m-%d") " */\n"
+          "/* %%% pkm-end-frontmatter %%% */\n\n"))
+
+(defun haystack--frontmatter-dash (title)
+  "Return frontmatter for TITLE using -- line comments (Lua, Haskell, SQL)."
+  (concat "-- title: " title "\n"
+          "-- date: " (format-time-string "%Y-%m-%d") "\n"
+          "-- %%% pkm-end-frontmatter %%%\n\n"))
+
+(defun haystack--frontmatter-semi (title)
+  "Return frontmatter for TITLE using ;; line comments (Lisps)."
+  (concat ";; title: " title "\n"
+          ";; date: " (format-time-string "%Y-%m-%d") "\n"
+          ";; %%% pkm-end-frontmatter %%%\n\n"))
+
+(defun haystack--frontmatter-slash (title)
+  "Return frontmatter for TITLE using // line comments (JS, TS, Rust, Go)."
+  (concat "// title: " title "\n"
+          "// date: " (format-time-string "%Y-%m-%d") "\n"
+          "// %%% pkm-end-frontmatter %%%\n\n"))
+
+(defun haystack--frontmatter-hash (title)
+  "Return frontmatter for TITLE using # line comments (Python, Ruby, Shell)."
+  (concat "# title: " title "\n"
+          "# date: " (format-time-string "%Y-%m-%d") "\n"
+          "# %%% pkm-end-frontmatter %%%\n\n"))
+
+(defun haystack--frontmatter-html-block (title)
+  "Return frontmatter for TITLE using <!-- --> block comments (HTML)."
+  (concat "<!-- title: " title " -->\n"
+          "<!-- date: " (format-time-string "%Y-%m-%d") " -->\n"
+          "<!-- %%% pkm-end-frontmatter %%% -->\n\n"))
+
+(defun haystack--frontmatter-ml-block (title)
+  "Return frontmatter for TITLE using (* *) block comments (OCaml, SML)."
+  (concat "(* title: " title " *)\n"
+          "(* date: " (format-time-string "%Y-%m-%d") " *)\n"
+          "(* %%% pkm-end-frontmatter %%% *)\n\n"))
+
+(defcustom haystack-frontmatter-functions
+  '(;; Markup / unique formats
+    ("org"      . haystack--frontmatter-org)
+    ("md"       . haystack--frontmatter-md)
+    ("markdown" . haystack--frontmatter-md)
+    ("html"     . haystack--frontmatter-html-block)
+    ("htm"      . haystack--frontmatter-html-block)
+    ;; // line comments
+    ("js"       . haystack--frontmatter-slash)
+    ("mjs"      . haystack--frontmatter-slash)
+    ("ts"       . haystack--frontmatter-slash)
+    ("tsx"      . haystack--frontmatter-slash)
+    ("rs"       . haystack--frontmatter-slash)
+    ("go"       . haystack--frontmatter-slash)
+    ;; /* */ block comments
+    ("c"        . haystack--frontmatter-c-block)
+    ("h"        . haystack--frontmatter-c-block)
+    ("css"      . haystack--frontmatter-c-block)
+    ;; -- line comments
+    ("lua"      . haystack--frontmatter-dash)
+    ("hs"       . haystack--frontmatter-dash)
+    ("sql"      . haystack--frontmatter-dash)
+    ;; # line comments
+    ("txt"      . haystack--frontmatter-hash)
+    ("py"       . haystack--frontmatter-hash)
+    ("rb"       . haystack--frontmatter-hash)
+    ("sh"       . haystack--frontmatter-hash)
+    ("bash"     . haystack--frontmatter-hash)
+    ;; ;; line comments
+    ("el"       . haystack--frontmatter-semi)
+    ("lisp"     . haystack--frontmatter-semi)
+    ("cl"       . haystack--frontmatter-semi)
+    ("rkt"      . haystack--frontmatter-semi)
+    ("scm"      . haystack--frontmatter-semi)
+    ("ss"       . haystack--frontmatter-semi)
+    ("clj"      . haystack--frontmatter-semi)
+    ("cljs"     . haystack--frontmatter-semi)
+    ("cljc"     . haystack--frontmatter-semi)
+    ("fnl"      . haystack--frontmatter-semi)
+    ("fennel"   . haystack--frontmatter-semi)
+    ;; (* *) block comments
+    ("ml"       . haystack--frontmatter-ml-block)
+    ("mli"      . haystack--frontmatter-ml-block))
+  "Alist mapping file extensions to frontmatter generator functions.
+Each entry is (EXT . FUNCTION) where EXT is a lowercase extension string
+without the leading dot, and FUNCTION takes a single TITLE argument and
+returns a frontmatter string ending with the pkm-end-frontmatter sentinel.
+
+To add support for a new file type, define a function and add it:
+
+  (defun my-python-frontmatter (title)
+    (concat \"# title: \" title \"\\n\"
+            \"# date: \" (format-time-string \"%Y-%m-%d\") \"\\n\"
+            \"# %%% pkm-end-frontmatter %%%\\n\\n\"))
+
+  (add-to-list \\='haystack-frontmatter-functions
+               \\='(\"py\" . my-python-frontmatter))"
+  :type '(alist :key-type string :value-type function)
+  :group 'haystack)
+
+(defconst haystack--sentinel-regexp "%%% pkm-end-frontmatter %%%"
+  "Pattern used to locate the end of a Haystack frontmatter block.")
+
+(defun haystack--frontmatter (title ext)
+  "Return frontmatter string for TITLE and file extension EXT.
+Looks up EXT in `haystack-frontmatter-functions'.  Returns nil and emits
+a message if EXT is not recognised — callers should create the note
+without frontmatter in that case."
+  (let ((fn (cdr (assoc ext haystack-frontmatter-functions))))
+    (if fn
+        (funcall fn title)
+      (message "Haystack: no frontmatter template for .%s — note created without frontmatter" ext)
+      nil)))
+
+(defun haystack--pretty-title (filename)
+  "Derive a human-readable title from FILENAME (basename, no directory).
+If the name starts with a 14-digit timestamp, strip it and the following
+hyphen.  Always strips the file extension."
+  (let* ((base (file-name-sans-extension filename))
+         (stripped (if (string-match "\\`[0-9]\\{14\\}-" base)
+                       (substring base (match-end 0))
+                     base)))
+    (replace-regexp-in-string "-" " " stripped)))
+
+(defun haystack--timestamp ()
+  "Return the current time as a YYYYMMDDHHMMSS string."
+  (format-time-string "%Y%m%d%H%M%S"))
+
+;;;###autoload
+(defun haystack-new-note ()
+  "Create a new timestamped note in `haystack-notes-directory'.
+Prompts for a slug and file extension, writes frontmatter, opens the
+file, and runs `haystack-after-create-hook'."
+  (interactive)
+  (haystack--assert-notes-directory)
+  (let* ((slug (read-string "Slug: "))
+         (ext  (read-string (format "Extension (default %s): " haystack-default-extension)
+                            nil nil haystack-default-extension))
+         (filename (concat (haystack--timestamp) "-" slug "." ext))
+         (path (expand-file-name filename haystack-notes-directory))
+         (title (haystack--pretty-title filename))
+         (fm (haystack--frontmatter title ext)))
+    (when (file-exists-p path)
+      (user-error "Haystack: file already exists: %s" path))
+    (with-temp-file path
+      (when fm (insert fm)))
+    (find-file path)
+    (goto-char (point-max))
+    (run-hooks 'haystack-after-create-hook)))
+
+;;;###autoload
+(defun haystack-regenerate-frontmatter ()
+  "Regenerate the frontmatter block in the current buffer.
+If a pkm-end-frontmatter sentinel is found, everything from the top of
+the file up to and including the sentinel line is replaced.  If no
+sentinel exists, the new frontmatter is inserted at the top.
+
+Warns the user that any custom frontmatter fields (e.g. TAGS) will be
+lost, and offers to abort before making any changes."
+  (interactive)
+  (unless (buffer-file-name)
+    (user-error "Haystack: buffer is not visiting a file"))
+  (let* ((ext   (file-name-extension (buffer-file-name)))
+         (title (haystack--pretty-title (file-name-nondirectory (buffer-file-name))))
+         (fm    (haystack--frontmatter title ext)))
+    (unless fm
+      (user-error "Haystack: no frontmatter template for .%s" ext))
+    (unless (y-or-n-p
+             "Regenerating frontmatter will overwrite any custom fields \
+(e.g. TAGS).  Save them first if needed.  Continue? ")
+      (user-error "Haystack: frontmatter regeneration aborted"))
+    (save-excursion
+      (let ((inhibit-read-only t))
+        (goto-char (point-min))
+        (if (re-search-forward (regexp-quote haystack--sentinel-regexp) nil t)
+            ;; Replace from top of file through the sentinel line.
+            (let ((delete-to (save-excursion
+                               (goto-char (line-end-position))
+                               (skip-chars-forward "\n")
+                               (point))))
+              (delete-region (point-min) delete-to)
+              (goto-char (point-min))
+              (insert fm))
+          ;; No sentinel found — insert at top.
+          (goto-char (point-min))
+          (insert fm))))))
 
 (provide 'haystack)
 ;;; haystack.el ends here

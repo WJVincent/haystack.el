@@ -370,6 +370,33 @@ are independent booleans on the filter plist.
 
 ---
 
+## Settled Design Decisions
+
+These were decided before implementation began. Do not relitigate them.
+
+- **Derived mode, not grep-mode directly**: Results buffers use
+  `haystack-results-mode`, defined with `define-derived-mode` from
+  `grep-mode`. This gives a clean keymap for `haystack-filter-further`,
+  `haystack-go-up`, `haystack-yank-moc`, etc. without clobbering
+  grep-mode globally. `compile-goto-error` is inherited automatically.
+
+- **Absolute paths in `--files-from` tmpfiles**: All filenames written
+  to tmpfiles are absolute. Never pass a directory argument alongside
+  `--files-from` — absolute paths remove any ambiguity about rg's
+  working directory.
+
+- **Phase 1 input pipeline is intentionally minimal**: Without expansion
+  groups, every single-word term is just `regexp-quote`'d (unless `~`
+  prefix). No group lookup, no exclusivity guardrail, no expanded query
+  feedback. Leave a clear hook point where expansion slots in during
+  Phase 2.
+
+- **Spec uses `pkm-` prefix, code uses `haystack-`**: The design doc
+  (`pkm.md`) predates the rename. The translation is mechanical —
+  don't rename the spec, just know they map 1:1.
+
+---
+
 ## Key Conventions
 
 - **Output format**: Always `filename:line:content` (rg -n). Never
@@ -377,7 +404,9 @@ are independent booleans on the filter plist.
 - **Filename extraction**: Parse colon-delimited output. Timestamped
   slugs avoid colons in filenames.
 - **Header protection**: Header lines get `read-only` text
-  property. Filter extraction skips them via line offset.
+  property. Filter extraction skips them using the `read-only`
+  property as the predicate — never a hardcoded line count. This
+  stays correct if a composite-surfacing line is added later.
 - **Pretty titles**: `YYYYMMDDHHMMSS-slug.ext` → strip timestamp +
   ext. Fallback: strip ext only.
 - **Composite slugs**: `@comp__canonical-chain.ext`. No timestamp. `@`

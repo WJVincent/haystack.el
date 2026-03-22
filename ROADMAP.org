@@ -15,15 +15,15 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - [ ] Manually tested against a 100+ note corpus
 
 ** Package Scaffolding
-*** TODO Set up haystack.el package skeleton
+*** DONE Set up haystack.el package skeleton
 - ~provide~, ~require~, package header, autoloads
 - =haystack-notes-directory= defcustom
 - =haystack-file-glob= defcustom (default nil)
-*** TODO Define =haystack--search-descriptor= plist structure
+*** DONE Define =haystack--search-descriptor= plist structure
 - =:root-term=, =:root-expanded=, =:root-literal=, =:root-regex=
 - =:filters= (ordered list of plists)
 - =:composite-filter= (always =exclude= in Phase 1)
-*** TODO Set up buffer-local variables
+*** DONE Set up buffer-local variables
 - =haystack--parent-buffer=
 - =haystack--search-descriptor=
 
