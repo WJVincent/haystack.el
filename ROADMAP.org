@@ -1,0 +1,288 @@
+#+TITLE: Haystack — Development Roadmap
+#+STARTUP: overview
+
+* Phase 1 — MVP: The Core Loop
+Create notes, search them progressively, export links. Ship this and use it daily.
+
+** Definition of Done
+- [ ] Can create a note with timestamped slug, frontmatter, and sentinel
+- [ ] Can run a root search and get a grep-mode buffer with header
+- [ ] Can filter that buffer (positive and negated) and get child buffers
+- [ ] Can navigate the buffer tree (up, kill node, kill subtree, kill all, kill orphans)
+- [ ] Can yank a MOC from any results buffer
+- [ ] ~compile-goto-error~ works from every results buffer
+- [ ] Vertico/Orderless buffer switching works with the naming scheme
+- [ ] Manually tested against a 100+ note corpus
+
+** Package Scaffolding
+*** TODO Set up haystack.el package skeleton
+- ~provide~, ~require~, package header, autoloads
+- =haystack-notes-directory= defcustom
+- =haystack-file-glob= defcustom (default nil)
+*** TODO Define =haystack--search-descriptor= plist structure
+- =:root-term=, =:root-expanded=, =:root-literal=, =:root-regex=
+- =:filters= (ordered list of plists)
+- =:composite-filter= (always =exclude= in Phase 1)
+*** TODO Set up buffer-local variables
+- =haystack--parent-buffer=
+- =haystack--search-descriptor=
+
+** Creation Engine
+*** TODO Timestamped slug generation
+- YYYYMMDDHHMMSS-slug.ext format
+- Prompt for slug and extension
+*** TODO Filetype-aware frontmatter insertion
+- YAML for Markdown, =#+= for Org, comments for C/Lua/Fennel
+- Universal =%%% pkm-end-frontmatter %%%= sentinel in appropriate comment syntax
+*** TODO Pretty title extraction
+- Strip timestamp prefix and extension from filename
+- Fallback: strip only extension for non-timestamped files
+*** TODO =haystack-after-create-hook=
+- defvar, run-hooks after note creation completes
+
+** Input Processing Pipeline
+*** TODO Prefix detection and stripping
+- =!= (negate — filter only), ~=~ (literal bypass), =~= (raw regex)
+- Composition: =!=term=, =!~pattern=, ~=~pattern~
+- Strip in order, pass flags downstream
+*** TODO Single-word vs multi-word classification
+- Whitespace boundary after trimming
+- Hyphenated/dotted terms are single-word
+*** TODO Regex escaping layer
+- Default: =regexp-quote= on bare term
+- Skip if =~= prefix present
+- Skip if expansion fired (alternation is controlled regex)
+- This is the literal-by-default guarantee
+
+** Progressive Filter — Root Search
+*** TODO =haystack-run-root-search=
+- Run input through prefix detection → classification → escaping
+- In Phase 1: no expansion groups, all single-word terms are literal
+- =rg -n -i= with =--files-from= or directory scope
+- Apply =haystack-file-glob= if set
+- Apply composite filter glob (=--glob '!@*'= by default)
+*** TODO Spawn results buffer
+- Name: =*haystack:1:TERM*=
+- Insert header: =;;; haystack: root=TERM | N files, M matches=
+- Header lines get =read-only= text property
+- Set buffer-local =haystack--search-descriptor= and =haystack--parent-buffer= (nil)
+*** TODO =haystack-search-region=
+- Take active region, feed into =haystack-run-root-search=
+*** TODO Result statistics from rg output
+- File count = unique filenames in output
+- Match count = total output lines minus header lines
+
+** Progressive Filter — Child Filters
+*** TODO =haystack-filter-further=
+- Prompt for filter term, run through input pipeline
+- Extract unique filenames from current buffer (skip header lines)
+- Write filenames to temp file
+- Run =rg --files-from=<tmpfile>= with new term scoped to those files
+- Delete temp file after search
+*** TODO Negation filter (=!= prefix)
+- Step 1: =rg --files-without-match <term> --files-from=<tmpfile>=
+- Step 2: Re-run root search terms scoped to narrowed file set
+- Both steps needed for grep-mode output
+*** TODO Spawn child buffer
+- Name: =*haystack:DEPTH:term1:term2:...*=
+- Build descriptor by copying parent's and appending to =:filters=
+- Set =haystack--parent-buffer= to current buffer
+
+** Buffer Tree Navigation
+*** TODO =haystack-go-up=
+- Check =haystack--parent-buffer=, switch if live, no-op + message if nil/dead
+*** TODO =haystack-kill-node=
+- Kill just this buffer
+*** TODO =haystack-kill-subtree=
+- Recursively kill this buffer and all descendants
+- Needs a way to find children (scan all haystack buffers for =haystack--parent-buffer= match)
+*** TODO =haystack-kill-all=
+- Walk to root via parent chain, then kill subtree
+*** TODO =haystack-kill-orphans=
+- Kill buffers whose parent is dead AND have no living children
+- Orphans with children become de facto roots — leave them
+
+** MOC Generator
+*** TODO =haystack-yank-moc=
+- Deduplicate results by filename (first match per file)
+- Format links based on file extension:
+  - Org: =[[file:path::line][Pretty Title]]=
+  - Markdown: =[Pretty Title](path#Lline)=
+  - Plaintext: =Pretty Title — path:line=
+- Push to kill ring
+
+** Phase 1 Polish
+*** TODO Keybinding map (=haystack-mode-map=, =haystack-results-mode-map=)
+*** TODO =grep-mode= compatibility audit
+- Verify =compile-goto-error= works from every buffer
+- Verify =wgrep= doesn't touch header lines
+*** TODO Manual smoke test with real corpus
+
+
+* Phase 2 — Retrieval Memory
+Expansion groups and frecency. Force multipliers that make the most sense once a base corpus exists.
+
+** Definition of Done
+- [ ] Expansion groups load, validate, and expand search terms
+- [ ] =haystack-associate= handles all three states correctly
+- [ ] =haystack-rename-group-root= updates groups, frecency, composites atomically
+- [ ] Exclusivity guardrail blocks redundant filters and suggests ~=~
+- [ ] Frecency records every buffer, scores on read, replays leaf-only
+- [ ] Deferred writes flush on idle timer and shutdown
+- [ ] ~=~ literal prefix works in both root search and filter
+- [ ] Buffer headers show expanded query feedback
+
+** Expansion Groups — Data Layer
+*** TODO Load =.expansion-groups.el= with =condition-case=
+- On failure: warn, set empty alist, continue
+*** TODO =haystack-validate-groups=
+- Iterate all groups, collect terms in hash table, flag duplicates
+- Emit warning buffer on conflicts
+- Run on every load
+*** TODO =haystack-describe-expansion-groups=
+- Dump full alist in readable format
+
+** Expansion Groups — Search Integration
+*** TODO Expansion group lookup in input pipeline
+- Single-word, no ~=~ prefix: look up group (case-insensitive)
+- If found: construct =(escaped_A|escaped_B|escaped_C)= alternation
+- Each member through =regexp-quote= before insertion
+*** TODO Expanded query feedback in buffer header
+- Show full expansion: =root=(Programming|Coding|Code|Scripting)=
+*** TODO Exclusivity guardrail for filtering
+- Block single-word filter if term already in root expansion (either direction)
+- Suggest ~=~ prefix
+- Multi-word phrases bypass this check entirely
+
+** Expansion Groups — Management
+*** TODO =haystack-associate= three-state flow
+- State 1: B unassigned → prompt to add B to A's group or create new
+- State 2: B in different group → fail, show both groups, offer move/abort
+  - Move = detach single term, add to other group
+  - If moved term was root, next member becomes root
+  - If only member, dissolve group
+- State 3: B already in A's group → no-op, inform
+- Reject multi-word terms (whitespace check)
+*** TODO =haystack-rename-group-root=
+- Update groups file
+- Update frecency entries
+- Update composite =SOURCE-CHAIN= fields
+- Rename composite files
+- Atomic: all or warn
+*** TODO =haystack-dissolve-group=
+- Remove group entirely
+- Downstream composites/frecency remain valid (lose expansion on replay)
+
+** Frecency Engine — Core
+*** TODO Data structure: =haystack-frecency-data=
+- Alist in =.haystack-frecency.el=
+- Entry: =((term1 term2 ...) :count N :last-access TIMESTAMP)=
+- Terms preserve prefix characters (=!=, ~=~, =~=)
+*** TODO Load frecency data with =condition-case=
+*** TODO =haystack--frecency-record=
+- Called on every buffer creation (root search and filter)
+- Derive chain from =haystack--search-descriptor= (not buffer name)
+- Increment count, update timestamp in memory
+- Set =haystack--frecency-dirty= flag
+*** TODO Scoring function
+- =score = visit_count / max(days_since_last_access, 1)=
+- Computed on read, never stored
+
+** Frecency Engine — Persistence
+*** TODO Deferred write system
+- =haystack--frecency-dirty= boolean flag
+- Idle timer (60 seconds) checks flag, writes if dirty
+- =kill-emacs-hook= also flushes
+- Never write on individual buffer creation
+*** TODO =haystack-describe-frecent=
+- Dump frecency list with computed scores for inspection
+
+** Frecency Engine — Completion & Replay
+*** TODO =haystack-frecent= via =completing-read=
+- Present all recorded paths sorted by score descending
+- Vertico/Orderless work immediately
+*** TODO Replay: leaf buffer only
+- Apply root expansion and each filter step internally
+- Materialize only final result buffer
+- Full =haystack--search-descriptor=, nil =haystack--parent-buffer=
+- Buffer name reflects full chain
+*** TODO All/Leaf toggle
+- Transient menu switch between all atoms and leaf-only display
+- Leaf = entries not a prefix of any higher-scored entry
+
+** Composite Filter (Transient Menu)
+*** TODO Three-state toggle: exclude / only / all
+- =--glob '!@*'= to exclude (default)
+- =--glob '@*'= to isolate
+- No glob for all
+- Child buffers inherit from parent descriptor, not transient state
+
+
+* Phase 3 — Synthesis & Diagnostics
+The most complex subsystems. Benefit from real usage data.
+
+** Definition of Done
+- [ ] =haystack-compose= creates read-only buffer from search results
+- [ ] =C-c C-c= writes composite with correct slug, frontmatter, sentinel
+- [ ] =C-c C-k= kills without saving
+- [ ] One composite per canonical chain, overwrites on regeneration
+- [ ] Composites surface in buffer headers regardless of filter state
+- [ ] Discoverability command produces diagnostic buffer with reach/isolated terms
+- [ ] Stop words load, seed, add, remove, describe all work
+
+** Composite Notes
+*** TODO Canonical chain normalization
+- Resolve each term to expansion group root, lowercase
+- =programming > rust > bevy= from either "coding" or "programming" input
+*** TODO Check for existing composite
+- =rg --files-from= scoped to =@*= files, match =SOURCE-CHAIN=
+*** TODO =haystack-compose=
+- Extract filenames from current buffer
+- Read full file contents for each
+- Build read-only buffer with delimiters and links
+- Pre-populate from existing composite if found
+*** TODO Composite buffer keybindings
+- =C-c C-c=: write to =@comp__canonical-chain.ext=
+  - Generate frontmatter (TITLE, LAST-GENERATED, SOURCE-CHAIN, SOURCE-COUNT)
+  - Insert sentinel
+  - Overwrite existing with =y-or-n-p= confirmation
+- =C-c C-k=: kill buffer without saving
+- Intercept =write-file= and =save-buffer=
+*** TODO Composite slug convention
+- =@comp__canonical-chain.ext=
+- Extension from =haystack-composite-format= defcustom (default =org=)
+*** TODO Composite surfacing in buffer headers
+- On every root search and filter: one extra =rg= scoped to =@*= files
+- Display =;;; haystack-composite: @comp__chain.ext= if found
+- Machine-parseable, navigable link
+- Runs regardless of composite filter state
+*** TODO Composite format templates
+- Org (default), Markdown, Plaintext — per spec Section 3F
+
+** Discoverability Engine
+*** TODO Stop word infrastructure
+- =.haystack-stop-words.el= in notes directory
+- Auto-seed from hardcoded 200–300 English stop words on first access
+- =haystack-add-stop-word=, =haystack-remove-stop-word=, =haystack-describe-stop-words=
+*** TODO =haystack-describe-discoverability=
+- Tokenize current note buffer
+- Strip stop words
+- Search corpus for each term (literal, no expansion, exclude composites, exclude self)
+- Target entire file contents
+- Report =PKM-REACH= (unique files sharing any term)
+- Report =PKM-ISOLATED= (terms with zero external hits)
+- Full term-by-term breakdown in dedicated results buffer
+
+
+* Stretch Goals                                                     :stretch:
+Not in scope for 1.0. Recorded so they don't get lost.
+
+** TODO Boolean DSL (=&=, =|=, =()= operators)
+** TODO Search scope modes (body-only, frontmatter-only via sentinel)
+** TODO Discoverability save-hook mode
+** TODO Backlink support (=rg= for slug on =find-file=)
+** TODO Dired integration ("Search Here")
+** TODO Date-range filtering via =DATE:= metadata
+** TODO Search tree visualization (=haystack-show-tree=)
+** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
+** TODO Capture from search (=haystack-capture-from-search=)
