@@ -59,22 +59,28 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - All implemented via =haystack--parse-input= pipeline
 
 ** Progressive Filter — Root Search
-*** TODO =haystack-run-root-search=
+*** DONE =haystack-run-root-search=
 - Run input through prefix detection → classification → escaping
 - In Phase 1: no expansion groups, all single-word terms are literal
-- =rg -n -i= with =--files-from= or directory scope
+- =rg -n -i= with directory scope
 - Apply =haystack-file-glob= if set
 - Apply composite filter glob (=--glob '!@*'= by default)
-*** TODO Spawn results buffer
+- =composite-filter= parameter (='exclude= / ='only= / ='all=) wired through for Phase 2 transient
+*** DONE Spawn results buffer
 - Name: =*haystack:1:TERM*=
 - Insert header: =;;; haystack: root=TERM | N files, M matches=
 - Header lines get =read-only= text property
 - Set buffer-local =haystack--search-descriptor= and =haystack--parent-buffer= (nil)
-*** TODO =haystack-search-region=
+- =pop-to-buffer= moves cursor to results window
+*** DONE =haystack-search-region=
 - Take active region, feed into =haystack-run-root-search=
-*** TODO Result statistics from rg output
+*** DONE Result statistics from rg output
 - File count = unique filenames in output
 - Match count = total output lines minus header lines
+*** DONE Result line truncation
+- Content truncated to =haystack-context-width= chars (default 60) around the match
+- =...= ellipsis at truncated ends; =file:line:= prefix preserved for =compile-goto-error=
+- =haystack-context-width= defcustom for user tuning
 
 ** Progressive Filter — Child Filters
 *** TODO =haystack-filter-further=
