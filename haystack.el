@@ -4,7 +4,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
-;; URL: https://github.com/wv/haystack
+;; URL: https://github.com/WJVincent/haystack.el
 
 ;;; Commentary:
 
@@ -118,9 +118,22 @@ Each filter plist:
     (user-error "Haystack: notes directory does not exist: %s"
                 haystack-notes-directory)))
 
+(defun haystack--ensure-notes-directory ()
+  "Ensure `haystack-notes-directory' is set and exists.
+If the directory is missing, offer to create it.  Signals a
+`user-error' if unset or if the user declines to create it."
+  (unless haystack-notes-directory
+    (user-error "Haystack: `haystack-notes-directory' is not set"))
+  (unless (file-directory-p haystack-notes-directory)
+    (if (y-or-n-p (format "Directory %s does not exist.  Create it? "
+                          haystack-notes-directory))
+        (make-directory haystack-notes-directory t)
+      (user-error "Haystack: notes directory does not exist: %s"
+                  haystack-notes-directory))))
+
 ;;;; Creation engine
 
-;;; Frontmatter generators — one function per file type.
+;;; Frontmatter generators — one function per comment type.
 ;;; Each takes TITLE (string) and returns a complete frontmatter block
 ;;; including the pkm-end-frontmatter sentinel on the final line.
 
@@ -274,7 +287,7 @@ hyphen.  Always strips the file extension."
 Prompts for a slug and file extension, writes frontmatter, opens the
 file, and runs `haystack-after-create-hook'."
   (interactive)
-  (haystack--assert-notes-directory)
+  (haystack--ensure-notes-directory)
   (let* ((slug (read-string "Slug: "))
          (ext  (read-string (format "Extension (default %s): " haystack-default-extension)
                             nil nil haystack-default-extension))
