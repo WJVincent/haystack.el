@@ -354,5 +354,146 @@
   (let ((result (haystack--parse-input "C++")))
     (should (equal (plist-get result :pattern) (regexp-quote "C++")))))
 
+;;;; haystack--build-rg-args
+
+(ert-deftest haystack-test/rg-args-excludes-composites-by-default ()
+  "No composite-filter argument produces --glob=!@*."
+  (let ((haystack-notes-directory "/notes")
+        (haystack-file-glob nil))
+    (should (member "--glob=!@*" (haystack--build-rg-args "rust")))))
+
+(ert-deftest haystack-test/rg-args-exclude-symbol ()
+  "'exclude produces --glob=!@*."
+  (let ((haystack-notes-directory "/notes")
+        (haystack-file-glob nil))
+    (should (member "--glob=!@*" (haystack--build-rg-args "rust" 'exclude)))))
+
+(ert-deftest haystack-test/rg-args-only-symbol ()
+  "'only produces --glob=@* with no negation variant."
+  (let ((haystack-notes-directory "/notes")
+        (haystack-file-glob nil))
+    (let ((args (haystack--build-rg-args "rust" 'only)))
+      (should (member "--glob=@*" args))
+      (should-not (member "--glob=!@*" args)))))
+
+(ert-deftest haystack-test/rg-args-all-symbol ()
+  "'all produces no @* glob at all."
+  (let ((haystack-notes-directory "/notes")
+        (haystack-file-glob nil))
+    (should-not (cl-some (lambda (a) (string-match-p "@\\*" a))
+                         (haystack--build-rg-args "rust" 'all)))))
+
+(ert-deftest haystack-test/rg-args-applies-file-glob ()
+  "`haystack-file-glob' entries appear as --glob= arguments."
+  (let ((haystack-notes-directory "/notes")
+        (haystack-file-glob '("*.org" "*.md")))
+    (let ((args (haystack--build-rg-args "rust" 'exclude)))
+      (should (member "--glob=*.org" args))
+      (should (member "--glob=*.md" args)))))
+
+(ert-deftest haystack-test/rg-args-contains-pattern-and-directory ()
+  "Pattern and notes directory appear as the final two arguments."
+  (let ((haystack-notes-directory "/my/notes")
+        (haystack-file-glob nil))
+    (let ((args (haystack--build-rg-args "mypattern" 'exclude)))
+      (should (member "mypattern" args))
+      (should (member "/my/notes" args)))))
+
+(ert-deftest haystack-test/rg-args-expands-tilde-in-directory ()
+  "A ~ in `haystack-notes-directory' is expanded to an absolute path."
+  (let ((haystack-notes-directory "~/notes")
+        (haystack-file-glob nil))
+    (let ((args (haystack--build-rg-args "rust" 'exclude)))
+      (should-not (member "~/notes" args))
+      (should (member (expand-file-name "~/notes") args)))))
+
+;;;; haystack--count-search-stats
+
+(ert-deftest haystack-test/count-stats-empty-output ()
+  "Empty output yields 0 files and 0 matches."
+  (should (equal (haystack--count-search-stats "") '(0 . 0))))
+
+(ert-deftest haystack-test/count-stats-single-file ()
+  "One matching line yields 1 file and 1 match."
+  (should (equal (haystack--count-search-stats "/notes/foo.org:12:some content")
+                 '(1 . 1))))
+
+(ert-deftest haystack-test/count-stats-multiple-matches-same-file ()
+  "Multiple matches in one file count as 1 file, N matches."
+  (let ((output (mapconcat #'identity
+                           '("/notes/foo.org:1:line one"
+                             "/notes/foo.org:2:line two"
+                             "/notes/foo.org:3:line three")
+                           "\n")))
+    (should (equal (haystack--count-search-stats output) '(1 . 3)))))
+
+(ert-deftest haystack-test/count-stats-multiple-files ()
+  "Matches across two distinct files count as 2 files."
+  (let ((output (mapconcat #'identity
+                           '("/notes/foo.org:1:match"
+                             "/notes/bar.md:5:match")
+                           "\n")))
+    (should (equal (haystack--count-search-stats output) '(2 . 2)))))
+
+;;;; haystack-run-root-search
+
+(ert-deftest haystack-test/run-root-search-errors-without-directory ()
+  "Signals user-error when `haystack-notes-directory' is unset."
+  (let ((haystack-notes-directory nil))
+    (should-error (haystack-run-root-search "rust") :type 'user-error)))
+
+(ert-deftest haystack-test/run-root-search-errors-on-missing-directory ()
+  "Signals user-error when the notes directory does not exist."
+  (let ((haystack-notes-directory "/tmp/haystack-nonexistent-xyz/"))
+    (should-error (haystack-run-root-search "rust") :type 'user-error)))
+
+(ert-deftest haystack-test/run-root-search-creates-buffer ()
+  "Creates a buffer named *haystack:1:TERM* with a header."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "nomatchxyz99")
+     (let ((buf (get-buffer "*haystack:1:nomatchxyz99*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p ";;; haystack: root=nomatchxyz99"
+                                     (buffer-string))))
+         (kill-buffer buf))))))
+
+(ert-deftest haystack-test/run-root-search-descriptor-stored ()
+  "Buffer-local descriptor reflects the search term and composite-filter."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "nomatchxyz99" 'only)
+     (let ((buf (get-buffer "*haystack:1:nomatchxyz99*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (equal (plist-get haystack--search-descriptor :root-term)
+                            "nomatchxyz99"))
+             (should (eq (plist-get haystack--search-descriptor :composite-filter)
+                         'only))
+             (should (null haystack--parent-buffer)))
+         (kill-buffer buf))))))
+
+(ert-deftest haystack-test/run-root-search-header-is-read-only ()
+  "The header line carries the read-only text property."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "nomatchxyz99")
+     (let ((buf (get-buffer "*haystack:1:nomatchxyz99*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (get-text-property (point-min) 'read-only)))
+         (kill-buffer buf))))))
+
+;;;; haystack-search-region
+
+(ert-deftest haystack-test/search-region-errors-without-region ()
+  "Signals user-error when there is no active region."
+  (with-temp-buffer
+    (should-error (haystack-search-region) :type 'user-error)))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

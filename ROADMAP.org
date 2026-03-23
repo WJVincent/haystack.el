@@ -45,18 +45,18 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - defvar, run-hooks after note creation completes
 
 ** Input Processing Pipeline
-*** TODO Prefix detection and stripping
+*** DONE Prefix detection and stripping
 - =!= (negate — filter only), ~=~ (literal bypass), =~= (raw regex)
 - Composition: =!=term=, =!~pattern=, ~=~pattern~
 - Strip in order, pass flags downstream
-*** TODO Single-word vs multi-word classification
+*** DONE Single-word vs multi-word classification
 - Whitespace boundary after trimming
 - Hyphenated/dotted terms are single-word
-*** TODO Regex escaping layer
+*** DONE Regex escaping layer
 - Default: =regexp-quote= on bare term
 - Skip if =~= prefix present
-- Skip if expansion fired (alternation is controlled regex)
-- This is the literal-by-default guarantee
+- Phase 2 expansion hook point noted in =haystack--build-pattern=
+- All implemented via =haystack--parse-input= pipeline
 
 ** Progressive Filter — Root Search
 *** TODO =haystack-run-root-search=

@@ -49,6 +49,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'grep)
 
 ;;;; Customization
@@ -393,6 +394,99 @@ Returns a plist:
           :regex      regex
           :multi-word (haystack--multi-word-p term)
           :pattern    (haystack--build-pattern term regex))))
+
+;;;; Search engine
+
+(defun haystack--build-rg-args (pattern &optional composite-filter)
+  "Return a list of rg arguments to search PATTERN in `haystack-notes-directory'.
+COMPOSITE-FILTER controls how composite files (@*) are handled:
+  \\='exclude  — exclude them (default, adds --glob=!@*)
+  \\='only     — restrict to them (adds --glob=@*)
+  \\='all      — no composite filter applied
+Applies `haystack-file-glob' restrictions if set."
+  (let ((args (list "--line-number" "--ignore-case"
+                    "--color=never" "--no-heading" "--with-filename")))
+    (pcase (or composite-filter 'exclude)
+      ('exclude (setq args (nconc args (list "--glob=!@*"))))
+      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('all     nil))
+    (when haystack-file-glob
+      (dolist (glob haystack-file-glob)
+        (setq args (nconc args (list (concat "--glob=" glob))))))
+    (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
+
+(defun haystack--count-search-stats (output)
+  "Return (FILES . MATCHES) from ripgrep OUTPUT string.
+FILES is the count of unique file paths; MATCHES is the total line count."
+  (let ((files (make-hash-table :test #'equal))
+        (matches 0))
+    (dolist (line (split-string output "\n" t))
+      (when (string-match "\\`\\([^\n:]+\\):[0-9]+:" line)
+        (puthash (match-string 1 line) t files)
+        (cl-incf matches)))
+    (cons (hash-table-count files) matches)))
+
+(defun haystack--setup-results-buffer (buf-name header output descriptor)
+  "Prepare a grep-mode results buffer named BUF-NAME.
+Inserts HEADER (marked read-only) then OUTPUT, enables `grep-mode',
+and stores DESCRIPTOR and a nil parent buffer as buffer-locals."
+  (let ((buf (get-buffer-create buf-name)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert header)
+        (let ((header-end (point)))
+          (insert output)
+          (grep-mode)
+          ;; Keep header lines read-only even when wgrep is active.
+          (let ((inhibit-read-only t))
+            (put-text-property (point-min) header-end 'read-only t))))
+      (setq haystack--search-descriptor descriptor
+            haystack--parent-buffer nil)
+      (goto-char (point-min)))
+    buf))
+
+;;;###autoload
+(defun haystack-run-root-search (raw-input &optional composite-filter)
+  "Search for RAW-INPUT in `haystack-notes-directory'.
+Parses prefixes, builds a ripgrep command, and opens a grep-mode
+results buffer named *haystack:1:TERM* with a statistics header.
+
+COMPOSITE-FILTER is a symbol controlling how @* composite files are
+treated: \\='exclude (default), \\='only, or \\='all."
+  (interactive "sHaystack search: ")
+  (haystack--assert-notes-directory)
+  (let* ((cf       (or composite-filter 'exclude))
+         (parsed   (haystack--parse-input raw-input))
+         (term     (plist-get parsed :term))
+         (pattern  (plist-get parsed :pattern))
+         (args     (haystack--build-rg-args pattern cf))
+         (output   (with-temp-buffer
+                     (let ((exit-code (apply #'call-process "rg" nil t nil args)))
+                       (when (= exit-code 2)
+                         (user-error "Haystack: rg error: %s" (buffer-string))))
+                     (buffer-string)))
+         (stats    (haystack--count-search-stats output))
+         (buf-name (format "*haystack:1:%s*" term))
+         (header   (format ";;; haystack: root=%s | %d files, %d matches\n"
+                           term (car stats) (cdr stats)))
+         (descriptor (list :root-term        raw-input
+                           :root-expanded    pattern
+                           :root-literal     (plist-get parsed :literal)
+                           :root-regex       (plist-get parsed :regex)
+                           :filters          nil
+                           :composite-filter cf)))
+    (pop-to-buffer
+     (haystack--setup-results-buffer buf-name header output descriptor))))
+
+;;;###autoload
+(defun haystack-search-region ()
+  "Search for the active region text via `haystack-run-root-search'."
+  (interactive)
+  (unless (use-region-p)
+    (user-error "Haystack: no active region"))
+  (haystack-run-root-search
+   (buffer-substring-no-properties (region-beginning) (region-end))))
 
 (provide 'haystack)
 ;;; haystack.el ends here
