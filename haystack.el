@@ -340,5 +340,59 @@ lost, and offers to abort before making any changes."
           (goto-char (point-min))
           (insert fm))))))
 
+;;;; Input processing pipeline
+
+(defun haystack--strip-prefixes (raw)
+  "Strip leading prefix characters from RAW user input.
+Returns a list (TERM NEGATED LITERAL REGEX) where each flag is non-nil
+if its corresponding prefix was present.  Detection order: ! then = then ~."
+  (let ((negated nil)
+        (literal nil)
+        (regex   nil)
+        (term    raw))
+    (when (string-prefix-p "!" term)
+      (setq negated t
+            term (substring term 1)))
+    (when (string-prefix-p "=" term)
+      (setq literal t
+            term (substring term 1)))
+    (when (string-prefix-p "~" term)
+      (setq regex t
+            term (substring term 1)))
+    (list term negated literal regex)))
+
+(defun haystack--multi-word-p (term)
+  "Return non-nil if TERM contains any whitespace (multi-word query)."
+  (string-match-p "[[:space:]]" term))
+
+(defun haystack--build-pattern (term regex)
+  "Return the ripgrep pattern string for TERM.
+If REGEX is non-nil, TERM is used as-is (raw ripgrep regex).
+Otherwise, `regexp-quote' is applied for literal-by-default matching.
+
+Phase 2 hook point: for single-word, non-literal terms, expansion
+group lookup will slot in here before the `regexp-quote' fallback."
+  (if regex
+      term
+    (regexp-quote term)))
+
+(defun haystack--parse-input (raw)
+  "Parse RAW user input through the prefix/classification/escaping pipeline.
+Returns a plist:
+  :term       — input after prefix stripping
+  :negated    — ! prefix: exclude files that match this term
+  :literal    — = prefix: suppress expansion group lookup (Phase 2)
+  :regex      — ~ prefix: treat term as raw ripgrep regex, skip escaping
+  :multi-word — non-nil if term contains whitespace after stripping
+  :pattern    — final regex string to pass to ripgrep"
+  (cl-destructuring-bind (term negated literal regex)
+      (haystack--strip-prefixes raw)
+    (list :term       term
+          :negated    negated
+          :literal    literal
+          :regex      regex
+          :multi-word (haystack--multi-word-p term)
+          :pattern    (haystack--build-pattern term regex))))
+
 (provide 'haystack)
 ;;; haystack.el ends here

@@ -5,7 +5,7 @@
 Create notes, search them progressively, export links. Ship this and use it daily.
 
 ** Definition of Done
-- [ ] Can create a note with timestamped slug, frontmatter, and sentinel
+- [X] Can create a note with timestamped slug, frontmatter, and sentinel
 - [ ] Can run a root search and get a grep-mode buffer with header
 - [ ] Can filter that buffer (positive and negated) and get child buffers
 - [ ] Can navigate the buffer tree (up, kill node, kill subtree, kill all, kill orphans)
@@ -28,16 +28,20 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - =haystack--search-descriptor=
 
 ** Creation Engine
-*** TODO Timestamped slug generation
+*** DONE Timestamped slug generation
 - YYYYMMDDHHMMSS-slug.ext format
 - Prompt for slug and extension
-*** TODO Filetype-aware frontmatter insertion
-- YAML for Markdown, =#+= for Org, comments for C/Lua/Fennel
+- =haystack-default-extension= defcustom (default org)
+*** DONE Filetype-aware frontmatter insertion
+- YAML for Markdown, =#+= for Org, comment styles for code files
 - Universal =%%% pkm-end-frontmatter %%%= sentinel in appropriate comment syntax
-*** TODO Pretty title extraction
+- =haystack-frontmatter-functions= defcustom alist — user-extensible per extension
+- =haystack-regenerate-frontmatter= to rebuild frontmatter in existing notes
+- Missing directory offers to create via =y-or-n-p= (=haystack--ensure-notes-directory=)
+*** DONE Pretty title extraction
 - Strip timestamp prefix and extension from filename
 - Fallback: strip only extension for non-timestamped files
-*** TODO =haystack-after-create-hook=
+*** DONE =haystack-after-create-hook=
 - defvar, run-hooks after note creation completes
 
 ** Input Processing Pipeline

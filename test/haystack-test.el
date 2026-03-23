@@ -257,5 +257,102 @@
   (with-temp-buffer
     (should-error (haystack-regenerate-frontmatter) :type 'user-error)))
 
+;;;; Input processing pipeline
+
+;;; haystack--strip-prefixes
+
+(ert-deftest haystack-test/strip-prefixes-bare-term ()
+  "A bare term returns no flags and the term unchanged."
+  (should (equal (haystack--strip-prefixes "rust")
+                 '("rust" nil nil nil))))
+
+(ert-deftest haystack-test/strip-prefixes-negate ()
+  (should (equal (haystack--strip-prefixes "!rust")
+                 '("rust" t nil nil))))
+
+(ert-deftest haystack-test/strip-prefixes-literal ()
+  (should (equal (haystack--strip-prefixes "=rust")
+                 '("rust" nil t nil))))
+
+(ert-deftest haystack-test/strip-prefixes-regex ()
+  (should (equal (haystack--strip-prefixes "~rus+t")
+                 '("rus+t" nil nil t))))
+
+(ert-deftest haystack-test/strip-prefixes-negate-and-literal ()
+  (should (equal (haystack--strip-prefixes "!=rust")
+                 '("rust" t t nil))))
+
+(ert-deftest haystack-test/strip-prefixes-negate-and-regex ()
+  (should (equal (haystack--strip-prefixes "!~rus+t")
+                 '("rus+t" t nil t))))
+
+(ert-deftest haystack-test/strip-prefixes-literal-and-regex ()
+  (should (equal (haystack--strip-prefixes "=~rus+t")
+                 '("rus+t" nil t t))))
+
+(ert-deftest haystack-test/strip-prefixes-order-matters ()
+  "= before ! is not treated as the literal prefix."
+  (should (equal (haystack--strip-prefixes "=!rust")
+                 '("!rust" nil t nil))))
+
+;;; haystack--multi-word-p
+
+(ert-deftest haystack-test/multi-word-single ()
+  (should-not (haystack--multi-word-p "rust")))
+
+(ert-deftest haystack-test/multi-word-hyphenated ()
+  "Hyphenated terms are single-word."
+  (should-not (haystack--multi-word-p "data-structures")))
+
+(ert-deftest haystack-test/multi-word-dotted ()
+  "Dotted terms are single-word."
+  (should-not (haystack--multi-word-p "std.io")))
+
+(ert-deftest haystack-test/multi-word-with-space ()
+  (should (haystack--multi-word-p "rust ownership")))
+
+(ert-deftest haystack-test/multi-word-with-tab ()
+  (should (haystack--multi-word-p "rust\townership")))
+
+;;; haystack--build-pattern
+
+(ert-deftest haystack-test/build-pattern-bare-term-is-quoted ()
+  "Bare terms are passed through regexp-quote."
+  (should (equal (haystack--build-pattern "C++" nil)
+                 (regexp-quote "C++"))))
+
+(ert-deftest haystack-test/build-pattern-regex-is-unquoted ()
+  "Raw regex terms are returned as-is."
+  (should (equal (haystack--build-pattern "rus+t" t)
+                 "rus+t")))
+
+;;; haystack--parse-input (integration)
+
+(ert-deftest haystack-test/parse-input-bare ()
+  (let ((result (haystack--parse-input "rust")))
+    (should (equal (plist-get result :term)       "rust"))
+    (should (equal (plist-get result :negated)    nil))
+    (should (equal (plist-get result :literal)    nil))
+    (should (equal (plist-get result :regex)      nil))
+    (should (equal (plist-get result :multi-word) nil))
+    (should (equal (plist-get result :pattern)    (regexp-quote "rust")))))
+
+(ert-deftest haystack-test/parse-input-negated-regex ()
+  (let ((result (haystack--parse-input "!~rus+t")))
+    (should (equal (plist-get result :term)    "rus+t"))
+    (should (equal (plist-get result :negated) t))
+    (should (equal (plist-get result :regex)   t))
+    (should (equal (plist-get result :pattern) "rus+t"))))
+
+(ert-deftest haystack-test/parse-input-multi-word ()
+  (let ((result (haystack--parse-input "rust ownership")))
+    (should (plist-get result :multi-word))
+    (should (equal (plist-get result :pattern) (regexp-quote "rust ownership")))))
+
+(ert-deftest haystack-test/parse-input-special-chars-quoted ()
+  "Special regex characters in bare terms are escaped."
+  (let ((result (haystack--parse-input "C++")))
+    (should (equal (plist-get result :pattern) (regexp-quote "C++")))))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here
