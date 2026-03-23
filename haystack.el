@@ -70,6 +70,14 @@ Must be a string without a leading dot (e.g. \"org\", \"md\", \"txt\")."
   :type 'string
   :group 'haystack)
 
+(defcustom haystack-context-width 60
+  "Number of content characters to show around a match in results buffers.
+When a result line's content exceeds this width, it is truncated to a
+window of this many characters centred on the match, with ... at either
+truncated end.  Increase for more context; decrease for tighter lines."
+  :type 'integer
+  :group 'haystack)
+
 (defcustom haystack-file-glob nil
   "Restrict searches to files matching these glob patterns.
 Each entry is passed as a separate --glob argument to ripgrep, limiting
@@ -426,6 +434,39 @@ FILES is the count of unique file paths; MATCHES is the total line count."
         (cl-incf matches)))
     (cons (hash-table-count files) matches)))
 
+(defun haystack--truncate-content (content pattern)
+  "Return CONTENT windowed to `haystack-context-width' chars around PATTERN.
+If CONTENT fits within the width it is returned unchanged.  Otherwise a
+window centred on the first match is returned, with ... at truncated ends."
+  (let ((width haystack-context-width))
+    (if (<= (length content) width)
+        content
+      (let* ((case-fold-search t)
+             (_           (string-match pattern content))
+             (match-start (or (match-beginning 0) 0))
+             (match-end   (or (match-end 0) 0))
+             (match-len   (- match-end match-start))
+             (pad         (max 0 (/ (- width match-len) 2)))
+             (win-start   (max 0 (- match-start pad)))
+             (win-end     (min (length content) (+ win-start width)))
+             (win-start   (max 0 (- win-end width)))
+             (prefix      (if (> win-start 0) "..." ""))
+             (suffix      (if (< win-end (length content)) "..." "")))
+        (concat prefix (substring content win-start win-end) suffix)))))
+
+(defun haystack--truncate-output (output pattern)
+  "Truncate content of every grep-format line in OUTPUT around PATTERN.
+The file:line: prefix of each line is preserved so `compile-goto-error'
+continues to work."
+  (mapconcat
+   (lambda (line)
+     (if (string-match "\\`\\([^:]+:[0-9]+:\\)\\(.*\\)" line)
+         (concat (match-string 1 line)
+                 (haystack--truncate-content (match-string 2 line) pattern))
+       line))
+   (split-string output "\n")
+   "\n"))
+
 (defun haystack--setup-results-buffer (buf-name header output descriptor)
   "Prepare a grep-mode results buffer named BUF-NAME.
 Inserts HEADER (marked read-only) then OUTPUT, enables `grep-mode',
@@ -467,6 +508,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
                          (user-error "Haystack: rg error: %s" (buffer-string))))
                      (buffer-string)))
          (stats    (haystack--count-search-stats output))
+         (output   (haystack--truncate-output output pattern))
          (buf-name (format "*haystack:1:%s*" term))
          (header   (format ";;; haystack: root=%s | %d files, %d matches\n"
                            term (car stats) (cdr stats)))

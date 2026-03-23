@@ -407,6 +407,66 @@
       (should-not (member "~/notes" args))
       (should (member (expand-file-name "~/notes") args)))))
 
+;;;; haystack--truncate-content
+
+(ert-deftest haystack-test/truncate-content-short-unchanged ()
+  "Content within the width is returned as-is."
+  (let ((haystack-context-width 60))
+    (should (equal (haystack--truncate-content "short content" "short")
+                   "short content"))))
+
+(ert-deftest haystack-test/truncate-content-long-adds-ellipsis ()
+  "Content longer than width is truncated with ellipsis."
+  (let* ((haystack-context-width 20)
+         (content (concat (make-string 30 ?a) "MATCH" (make-string 30 ?b)))
+         (result (haystack--truncate-content content "MATCH")))
+    (should (<= (length result) (+ 20 6))) ; width + two "..."
+    (should (string-match-p "MATCH" result))))
+
+(ert-deftest haystack-test/truncate-content-match-at-start-no-left-ellipsis ()
+  "Match near the start produces no left ellipsis."
+  (let* ((haystack-context-width 20)
+         (content (concat "MATCH" (make-string 50 ?x)))
+         (result (haystack--truncate-content content "MATCH")))
+    (should-not (string-prefix-p "..." result))
+    (should (string-suffix-p "..." result))))
+
+(ert-deftest haystack-test/truncate-content-match-at-end-no-right-ellipsis ()
+  "Match near the end produces no right ellipsis."
+  (let* ((haystack-context-width 20)
+         (content (concat (make-string 50 ?x) "MATCH"))
+         (result (haystack--truncate-content content "MATCH")))
+    (should (string-prefix-p "..." result))
+    (should-not (string-suffix-p "..." result))))
+
+(ert-deftest haystack-test/truncate-content-case-insensitive ()
+  "Pattern matching is case-insensitive."
+  (let* ((haystack-context-width 20)
+         (content (concat (make-string 30 ?a) "match" (make-string 30 ?b)))
+         (result (haystack--truncate-content content "MATCH")))
+    (should (string-match-p "match" result))))
+
+;;;; haystack--truncate-output
+
+(ert-deftest haystack-test/truncate-output-preserves-prefix ()
+  "The file:line: prefix is preserved after truncation."
+  (let ((haystack-context-width 20)
+        (line (concat "/notes/foo.org:12:" (make-string 80 ?x) "TERM" (make-string 80 ?x))))
+    (let ((result (haystack--truncate-output line "TERM")))
+      (should (string-prefix-p "/notes/foo.org:12:" result)))))
+
+(ert-deftest haystack-test/truncate-output-leaves-short-lines-intact ()
+  "Lines whose content is within the width are not modified."
+  (let ((haystack-context-width 60)
+        (line "/notes/foo.org:1:short content"))
+    (should (equal (haystack--truncate-output line "short") line))))
+
+(ert-deftest haystack-test/truncate-output-handles-non-match-lines ()
+  "Lines that don't match the file:line: format are passed through unchanged."
+  (let ((haystack-context-width 20)
+        (line "this is not a grep line"))
+    (should (equal (haystack--truncate-output line "grep") line))))
+
 ;;;; haystack--count-search-stats
 
 (ert-deftest haystack-test/count-stats-empty-output ()
