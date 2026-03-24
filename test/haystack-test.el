@@ -264,36 +264,44 @@
 (ert-deftest haystack-test/strip-prefixes-bare-term ()
   "A bare term returns no flags and the term unchanged."
   (should (equal (haystack--strip-prefixes "rust")
-                 '("rust" nil nil nil))))
+                 '("rust" nil nil nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-negate ()
   (should (equal (haystack--strip-prefixes "!rust")
-                 '("rust" t nil nil))))
+                 '("rust" t nil nil nil))))
+
+(ert-deftest haystack-test/strip-prefixes-filename ()
+  (should (equal (haystack--strip-prefixes "/cargo")
+                 '("cargo" nil t nil nil))))
+
+(ert-deftest haystack-test/strip-prefixes-negate-and-filename ()
+  (should (equal (haystack--strip-prefixes "!/cargo")
+                 '("cargo" t t nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-literal ()
   (should (equal (haystack--strip-prefixes "=rust")
-                 '("rust" nil t nil))))
+                 '("rust" nil nil t nil))))
 
 (ert-deftest haystack-test/strip-prefixes-regex ()
   (should (equal (haystack--strip-prefixes "~rus+t")
-                 '("rus+t" nil nil t))))
+                 '("rus+t" nil nil nil t))))
 
 (ert-deftest haystack-test/strip-prefixes-negate-and-literal ()
   (should (equal (haystack--strip-prefixes "!=rust")
-                 '("rust" t t nil))))
+                 '("rust" t nil t nil))))
 
 (ert-deftest haystack-test/strip-prefixes-negate-and-regex ()
   (should (equal (haystack--strip-prefixes "!~rus+t")
-                 '("rus+t" t nil t))))
+                 '("rus+t" t nil nil t))))
 
 (ert-deftest haystack-test/strip-prefixes-literal-and-regex ()
   (should (equal (haystack--strip-prefixes "=~rus+t")
-                 '("rus+t" nil t t))))
+                 '("rus+t" nil nil t t))))
 
 (ert-deftest haystack-test/strip-prefixes-order-matters ()
   "= before ! is not treated as the literal prefix."
   (should (equal (haystack--strip-prefixes "=!rust")
-                 '("!rust" nil t nil))))
+                 '("!rust" nil nil t nil))))
 
 ;;; haystack--multi-word-p
 
@@ -332,10 +340,26 @@
   (let ((result (haystack--parse-input "rust")))
     (should (equal (plist-get result :term)       "rust"))
     (should (equal (plist-get result :negated)    nil))
+    (should (equal (plist-get result :filename)   nil))
     (should (equal (plist-get result :literal)    nil))
     (should (equal (plist-get result :regex)      nil))
     (should (equal (plist-get result :multi-word) nil))
     (should (equal (plist-get result :pattern)    (regexp-quote "rust")))))
+
+(ert-deftest haystack-test/parse-input-filename ()
+  "/prefix sets :filename and strips the slash."
+  (let ((result (haystack--parse-input "/cargo")))
+    (should (equal (plist-get result :term)     "cargo"))
+    (should (equal (plist-get result :filename) t))
+    (should (equal (plist-get result :negated)  nil))
+    (should (equal (plist-get result :pattern)  (regexp-quote "cargo")))))
+
+(ert-deftest haystack-test/parse-input-negated-filename ()
+  "!/prefix sets both :negated and :filename."
+  (let ((result (haystack--parse-input "!/cargo")))
+    (should (equal (plist-get result :term)     "cargo"))
+    (should (equal (plist-get result :filename) t))
+    (should (equal (plist-get result :negated)  t))))
 
 (ert-deftest haystack-test/parse-input-negated-regex ()
   (let ((result (haystack--parse-input "!~rus+t")))
@@ -495,6 +519,283 @@
                            "\n")))
     (should (equal (haystack--count-search-stats output) '(2 . 2)))))
 
+;;;; haystack--rg-base-args
+
+(ert-deftest haystack-test/rg-base-args-exclude ()
+  (should (member "--glob=!@*" (haystack--rg-base-args 'exclude))))
+
+(ert-deftest haystack-test/rg-base-args-only ()
+  (let ((args (haystack--rg-base-args 'only)))
+    (should (member "--glob=@*" args))
+    (should-not (member "--glob=!@*" args))))
+
+(ert-deftest haystack-test/rg-base-args-all ()
+  (should-not (cl-some (lambda (a) (string-match-p "@\\*" a))
+                       (haystack--rg-base-args 'all))))
+
+(ert-deftest haystack-test/rg-base-args-default-is-exclude ()
+  (should (member "--glob=!@*" (haystack--rg-base-args))))
+
+;;;; haystack--write-filelist
+
+(ert-deftest haystack-test/write-filelist-creates-file ()
+  "Creates a temp file containing one path per line."
+  (let* ((files '("/notes/a.org" "/notes/b.org"))
+         (tmp   (haystack--write-filelist files)))
+    (unwind-protect
+        (progn
+          (should (file-exists-p tmp))
+          (should (equal (split-string (with-temp-buffer
+                                         (insert-file-contents tmp)
+                                         (buffer-string))
+                                       "\n" t)
+                         files)))
+      (delete-file tmp))))
+
+;;;; haystack--xargs-rg
+
+(ert-deftest haystack-test/xargs-rg-returns-matches ()
+  "Returns grep-format output for a matching search."
+  (haystack-test--with-notes-dir
+   (let* ((note (expand-file-name "test.org" haystack-notes-directory))
+          (tmp  (progn (with-temp-file note (insert "hello world\n"))
+                       (haystack--write-filelist (list note)))))
+     (unwind-protect
+         (should (string-match-p "hello"
+                  (haystack--xargs-rg tmp (list "--ignore-case" "hello"))))
+       (delete-file tmp)))))
+
+(ert-deftest haystack-test/xargs-rg-empty-on-no-matches ()
+  "A search with no matches returns an empty string without signalling."
+  (haystack-test--with-notes-dir
+   (let* ((note (expand-file-name "test.org" haystack-notes-directory))
+          (tmp  (progn (with-temp-file note (insert "hello world\n"))
+                       (haystack--write-filelist (list note)))))
+     (unwind-protect
+         (should (string-empty-p
+                  (haystack--xargs-rg tmp (list "nomatchxyz99"))))
+       (delete-file tmp)))))
+
+(ert-deftest haystack-test/xargs-rg-errors-on-stderr ()
+  "Signals user-error when rg writes to stderr (e.g. bad pattern)."
+  (haystack-test--with-notes-dir
+   (let* ((note (expand-file-name "test.org" haystack-notes-directory))
+          (tmp  (progn (with-temp-file note (insert "hello\n"))
+                       (haystack--write-filelist (list note)))))
+     (unwind-protect
+         ;; An invalid regex causes rg to write to stderr and exit non-zero.
+         (should-error
+          (haystack--xargs-rg tmp (list "--line-number" "**invalid**"))
+          :type 'user-error)
+       (delete-file tmp)))))
+
+(ert-deftest haystack-test/xargs-rg-dollar-sign-not-expanded ()
+  "A pattern containing $ is not expanded — no shell involved."
+  (haystack-test--with-notes-dir
+   (let* ((note (expand-file-name "test.org" haystack-notes-directory))
+          (tmp  (progn (with-temp-file note (insert "price $100\n"))
+                       (haystack--write-filelist (list note)))))
+     (unwind-protect
+         (should (string-match-p "\\$100"
+                  (haystack--run-rg-for-filelist "\\$100" tmp 'all)))
+       (delete-file tmp)))))
+
+(ert-deftest haystack-test/xargs-rg-shell-metacharacters-literal ()
+  "Patterns containing & | ; are passed through without shell interpretation."
+  (haystack-test--with-notes-dir
+   (let* ((note (expand-file-name "test.org" haystack-notes-directory))
+          (tmp  (progn (with-temp-file note (insert "foo & bar | baz\n"))
+                       (haystack--write-filelist (list note)))))
+     (unwind-protect
+         (should (string-match-p "foo & bar"
+                  (haystack--run-rg-for-filelist "foo & bar" tmp 'all)))
+       (delete-file tmp)))))
+
+;;;; haystack--extract-filenames
+
+(ert-deftest haystack-test/extract-filenames-basic ()
+  "Extracts unique filenames from grep output."
+  (let ((text (mapconcat #'identity
+                         '("/notes/foo.org:1:match"
+                           "/notes/bar.org:5:match"
+                           "/notes/foo.org:9:match")
+                         "\n")))
+    (should (equal (haystack--extract-filenames text)
+                   '("/notes/foo.org" "/notes/bar.org")))))
+
+(ert-deftest haystack-test/extract-filenames-skips-header ()
+  "Header lines starting with ;;; are ignored."
+  (let ((text ";;; haystack: root=rust | 1 files, 1 matches\n/notes/foo.org:1:match"))
+    (should (equal (haystack--extract-filenames text)
+                   '("/notes/foo.org")))))
+
+(ert-deftest haystack-test/extract-filenames-empty ()
+  "Empty output returns nil."
+  (should (null (haystack--extract-filenames ""))))
+
+(ert-deftest haystack-test/extract-filenames-preserves-order ()
+  "Files are returned in first-seen order."
+  (let ((text (mapconcat #'identity
+                         '("/notes/a.org:1:x"
+                           "/notes/b.org:1:x"
+                           "/notes/c.org:1:x")
+                         "\n")))
+    (should (equal (haystack--extract-filenames text)
+                   '("/notes/a.org" "/notes/b.org" "/notes/c.org")))))
+
+;;;; haystack--format-search-chain
+
+(ert-deftest haystack-test/format-chain-single-filter ()
+  "Root + one positive filter shows both terms."
+  (let ((descriptor (list :root-term "rust" :filters nil)))
+    (should (equal (haystack--format-search-chain descriptor "async" nil)
+                   "root=rust > filter=async"))))
+
+(ert-deftest haystack-test/format-chain-negated-filter ()
+  "Negated filter shows as exclude=."
+  (let ((descriptor (list :root-term "rust" :filters nil)))
+    (should (equal (haystack--format-search-chain descriptor "ownership" t)
+                   "root=rust > exclude=ownership"))))
+
+(ert-deftest haystack-test/format-chain-deep-chain ()
+  "Full chain shows all prior filters plus the current one."
+  (let ((descriptor (list :root-term "rust"
+                          :filters (list (list :term "async"  :negated nil)
+                                         (list :term "tokio"  :negated nil)))))
+    (should (equal (haystack--format-search-chain descriptor "ownership" t)
+                   "root=rust > filter=async > filter=tokio > exclude=ownership"))))
+
+(ert-deftest haystack-test/format-chain-filename-filter ()
+  "Filename filter shows as filename=."
+  (let ((descriptor (list :root-term "rust" :filters nil)))
+    (should (equal (haystack--format-search-chain descriptor "cargo" nil t)
+                   "root=rust > filename=cargo"))))
+
+(ert-deftest haystack-test/format-chain-negated-filename-filter ()
+  "Negated filename filter shows as !filename=."
+  (let ((descriptor (list :root-term "rust" :filters nil)))
+    (should (equal (haystack--format-search-chain descriptor "cargo" t t)
+                   "root=rust > !filename=cargo"))))
+
+(ert-deftest haystack-test/format-chain-filename-root ()
+  "A filename root search shows filename= as the root label."
+  (let ((descriptor (list :root-term "cargo" :root-filename t :filters nil)))
+    (should (equal (haystack--format-search-chain descriptor "async" nil)
+                   "filename=cargo > filter=async"))))
+
+(ert-deftest haystack-test/format-chain-mixed-filters ()
+  "Chain with a filename filter in history renders correctly."
+  (let ((descriptor (list :root-term "rust"
+                          :filters (list (list :term "cargo" :negated nil :filename t)))))
+    (should (equal (haystack--format-search-chain descriptor "async" nil)
+                   "root=rust > filename=cargo > filter=async"))))
+
+;;;; haystack--child-buffer-name
+
+(ert-deftest haystack-test/child-buffer-name-depth-2 ()
+  "First filter produces depth 2 name."
+  (let ((descriptor (list :root-term "rust" :filters nil)))
+    (should (equal (haystack--child-buffer-name descriptor "async")
+                   "*haystack:2:rust:async*"))))
+
+(ert-deftest haystack-test/child-buffer-name-depth-3 ()
+  "Second filter produces depth 3 name with full chain."
+  (let ((descriptor (list :root-term "rust"
+                          :filters (list (list :term "async")))))
+    (should (equal (haystack--child-buffer-name descriptor "ownership")
+                   "*haystack:3:rust:async:ownership*"))))
+
+;;;; haystack-filter-further
+
+(ert-deftest haystack-test/filter-further-errors-outside-haystack-buffer ()
+  "Signals user-error when not in a haystack results buffer."
+  (with-temp-buffer
+    (should-error (haystack-filter-further "rust") :type 'user-error)))
+
+(ert-deftest haystack-test/filter-further-errors-on-empty-buffer ()
+  "Signals user-error when the current buffer has no result files."
+  (with-temp-buffer
+    (setq haystack--search-descriptor
+          (list :root-term "rust" :root-expanded "rust"
+                :filters nil :composite-filter 'exclude))
+    (insert ";;; haystack: root=rust | 0 files, 0 matches\n")
+    (should-error (haystack-filter-further "async") :type 'user-error)))
+
+(ert-deftest haystack-test/filter-further-creates-child-buffer ()
+  "Creates a correctly named child buffer with header and parent set."
+  (haystack-test--with-notes-dir
+   ;; Create a note that matches both terms.
+   (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust async content\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore))
+     ;; Run root search to get a real results buffer.
+     (haystack-run-root-search "rust")
+     (let ((root-buf (get-buffer "*haystack:1:rust*")))
+       (should root-buf)
+       (unwind-protect
+           (with-current-buffer root-buf
+             (haystack-filter-further "async")
+             (let ((child-buf (get-buffer "*haystack:2:rust:async*")))
+               (should child-buf)
+               (unwind-protect
+                   (with-current-buffer child-buf
+                     (should (string-match-p "root=rust > filter=async"
+                                             (buffer-string)))
+                     (should (eq haystack--parent-buffer root-buf)))
+                 (kill-buffer child-buf))))
+         (kill-buffer root-buf))))))
+
+(ert-deftest haystack-test/filter-further-filename-narrows-by-name ()
+  "A /term filename filter narrows to files whose basename matches."
+  (haystack-test--with-notes-dir
+   (let ((match-note (expand-file-name "20240101000000-cargo-notes.org"
+                                       haystack-notes-directory))
+         (other-note (expand-file-name "20240101000001-async-notes.org"
+                                       haystack-notes-directory)))
+     (with-temp-file match-note (insert "rust async content\n"))
+     (with-temp-file other-note (insert "rust other content\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore))
+     (haystack-run-root-search "rust")
+     (let ((root-buf (get-buffer "*haystack:1:rust*")))
+       (unwind-protect
+           (with-current-buffer root-buf
+             (haystack-filter-further "/cargo")
+             (let ((child-buf (get-buffer "*haystack:2:rust:cargo*")))
+               (unwind-protect
+                   (with-current-buffer child-buf
+                     (should (string-match-p "filename=cargo" (buffer-string)))
+                     (should (string-match-p "cargo-notes" (buffer-string)))
+                     (should-not (string-match-p "async-notes" (buffer-string))))
+                 (when child-buf (kill-buffer child-buf)))))
+         (kill-buffer root-buf))))))
+
+(ert-deftest haystack-test/filter-further-negated-filename ()
+  "A !/term filter excludes files whose basename matches."
+  (haystack-test--with-notes-dir
+   (let ((keep-note (expand-file-name "20240101000000-cargo-notes.org"
+                                      haystack-notes-directory))
+         (drop-note (expand-file-name "20240101000001-async-notes.org"
+                                      haystack-notes-directory)))
+     (with-temp-file keep-note (insert "rust content\n"))
+     (with-temp-file drop-note (insert "rust content\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore))
+     (haystack-run-root-search "rust")
+     (let ((root-buf (get-buffer "*haystack:1:rust*")))
+       (unwind-protect
+           (with-current-buffer root-buf
+             (haystack-filter-further "!/async")
+             (let ((child-buf (get-buffer "*haystack:2:rust:async*")))
+               (unwind-protect
+                   (with-current-buffer child-buf
+                     (should (string-match-p "!filename=async" (buffer-string)))
+                     (should (string-match-p "cargo-notes" (buffer-string)))
+                     (should-not (string-match-p "async-notes" (buffer-string))))
+                 (when child-buf (kill-buffer child-buf)))))
+         (kill-buffer root-buf))))))
+
 ;;;; haystack-run-root-search
 
 (ert-deftest haystack-test/run-root-search-errors-without-directory ()
@@ -516,7 +817,7 @@
        (should buf)
        (unwind-protect
            (with-current-buffer buf
-             (should (string-match-p ";;; haystack: root=nomatchxyz99"
+             (should (string-match-p "root=nomatchxyz99"
                                      (buffer-string))))
          (kill-buffer buf))))))
 
@@ -546,6 +847,26 @@
        (unwind-protect
            (with-current-buffer buf
              (should (get-text-property (point-min) 'read-only)))
+         (kill-buffer buf))))))
+
+(ert-deftest haystack-test/run-root-search-filename-prefix ()
+  "A /term root search shows filename= in header and matches by basename."
+  (haystack-test--with-notes-dir
+   (let ((match (expand-file-name "20240101000000-cargo-build.org"
+                                  haystack-notes-directory))
+         (no-match (expand-file-name "20240101000001-async-notes.org"
+                                     haystack-notes-directory)))
+     (with-temp-file match    (insert "some content here\n"))
+     (with-temp-file no-match (insert "other content here\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "/cargo")
+     (let ((buf (get-buffer "*haystack:1:cargo*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "filename=cargo" (buffer-string)))
+             (should (string-match-p "cargo-build" (buffer-string)))
+             (should-not (string-match-p "async-notes" (buffer-string))))
          (kill-buffer buf))))))
 
 ;;;; haystack-search-region

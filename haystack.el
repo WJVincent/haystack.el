@@ -353,14 +353,18 @@ lost, and offers to abort before making any changes."
 
 (defun haystack--strip-prefixes (raw)
   "Strip leading prefix characters from RAW user input.
-Returns a list (TERM NEGATED LITERAL REGEX) where each flag is non-nil
-if its corresponding prefix was present.  Detection order: ! then = then ~."
-  (let ((negated nil)
-        (literal nil)
-        (regex   nil)
-        (term    raw))
+Returns a list (TERM NEGATED FILENAME LITERAL REGEX) where each flag is non-nil
+if its corresponding prefix was present.  Detection order: ! then / then = then ~."
+  (let ((negated  nil)
+        (filename nil)
+        (literal  nil)
+        (regex    nil)
+        (term     raw))
     (when (string-prefix-p "!" term)
       (setq negated t
+            term (substring term 1)))
+    (when (string-prefix-p "/" term)
+      (setq filename t
             term (substring term 1)))
     (when (string-prefix-p "=" term)
       (setq literal t
@@ -368,7 +372,7 @@ if its corresponding prefix was present.  Detection order: ! then = then ~."
     (when (string-prefix-p "~" term)
       (setq regex t
             term (substring term 1)))
-    (list term negated literal regex)))
+    (list term negated filename literal regex)))
 
 (defun haystack--multi-word-p (term)
   "Return non-nil if TERM contains any whitespace (multi-word query)."
@@ -390,14 +394,16 @@ group lookup will slot in here before the `regexp-quote' fallback."
 Returns a plist:
   :term       — input after prefix stripping
   :negated    — ! prefix: exclude files that match this term
+  :filename   — / prefix: match against the file's basename, not content
   :literal    — = prefix: suppress expansion group lookup (Phase 2)
   :regex      — ~ prefix: treat term as raw ripgrep regex, skip escaping
   :multi-word — non-nil if term contains whitespace after stripping
-  :pattern    — final regex string to pass to ripgrep"
-  (cl-destructuring-bind (term negated literal regex)
+  :pattern    — final regex string to pass to ripgrep (or to match basenames)"
+  (cl-destructuring-bind (term negated filename literal regex)
       (haystack--strip-prefixes raw)
     (list :term       term
           :negated    negated
+          :filename   filename
           :literal    literal
           :regex      regex
           :multi-word (haystack--multi-word-p term)
@@ -405,23 +411,38 @@ Returns a plist:
 
 ;;;; Search engine
 
-(defun haystack--build-rg-args (pattern &optional composite-filter)
-  "Return a list of rg arguments to search PATTERN in `haystack-notes-directory'.
-COMPOSITE-FILTER controls how composite files (@*) are handled:
+(defun haystack--rg-base-args (&optional composite-filter)
+  "Return the rg flags shared by all haystack searches.
+Includes output formatting flags and the composite filter glob.
+COMPOSITE-FILTER controls how @* composite files are handled:
   \\='exclude  — exclude them (default, adds --glob=!@*)
   \\='only     — restrict to them (adds --glob=@*)
-  \\='all      — no composite filter applied
-Applies `haystack-file-glob' restrictions if set."
+  \\='all      — no composite filter applied"
   (let ((args (list "--line-number" "--ignore-case"
                     "--color=never" "--no-heading" "--with-filename")))
     (pcase (or composite-filter 'exclude)
       ('exclude (setq args (nconc args (list "--glob=!@*"))))
       ('only    (setq args (nconc args (list "--glob=@*"))))
       ('all     nil))
+    args))
+
+(defun haystack--build-rg-args (pattern &optional composite-filter)
+  "Return rg args for a root search of PATTERN in `haystack-notes-directory'.
+Applies `haystack-file-glob' restrictions and expands ~ in the directory path."
+  (let ((args (haystack--rg-base-args composite-filter)))
     (when haystack-file-glob
       (dolist (glob haystack-file-glob)
         (setq args (nconc args (list (concat "--glob=" glob))))))
     (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
+
+(defun haystack--build-rg-args-from-filelist (pattern filelist
+                                               &optional composite-filter)
+  "Return rg args to search PATTERN within the files listed in FILELIST.
+Does not apply `haystack-file-glob' — the filelist already reflects the
+file-type restrictions from the root search that produced it."
+  (nconc (list (concat "--files-from=" filelist))
+         (haystack--rg-base-args composite-filter)
+         (list pattern)))
 
 (defun haystack--count-search-stats (output)
   "Return (FILES . MATCHES) from ripgrep OUTPUT string.
@@ -467,10 +488,22 @@ continues to work."
    (split-string output "\n")
    "\n"))
 
-(defun haystack--setup-results-buffer (buf-name header output descriptor)
+(defun haystack--format-header (chain-string files matches)
+  "Return a formatted multi-line header string for a results buffer.
+CHAIN-STRING describes the full search path (e.g. \"root=rust > filter=async\").
+FILES and MATCHES are the result counts."
+  (let ((rule (concat ";;;;" (make-string 60 ?-))))
+    (concat rule "\n"
+            ";;;;  Haystack\n"
+            (format ";;;;  %s\n" chain-string)
+            (format ";;;;  %d files  ·  %d matches\n" files matches)
+            rule "\n")))
+
+(defun haystack--setup-results-buffer (buf-name header output descriptor
+                                               &optional parent-buf)
   "Prepare a grep-mode results buffer named BUF-NAME.
 Inserts HEADER (marked read-only) then OUTPUT, enables `grep-mode',
-and stores DESCRIPTOR and a nil parent buffer as buffer-locals."
+and stores DESCRIPTOR and PARENT-BUF as buffer-locals."
   (let ((buf (get-buffer-create buf-name)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
@@ -483,9 +516,210 @@ and stores DESCRIPTOR and a nil parent buffer as buffer-locals."
           (let ((inhibit-read-only t))
             (put-text-property (point-min) header-end 'read-only t))))
       (setq haystack--search-descriptor descriptor
-            haystack--parent-buffer nil)
+            haystack--parent-buffer parent-buf)
       (goto-char (point-min)))
     buf))
+
+(defun haystack--extract-filenames (text)
+  "Return a deduplicated list of file paths from grep-format TEXT.
+Header lines (starting with ;;;) are automatically skipped because they
+do not match the file:line: pattern."
+  (let ((seen  (make-hash-table :test #'equal))
+        (files nil))
+    (dolist (line (split-string text "\n" t))
+      (when (string-match "\\`\\([^:]+\\):[0-9]+:" line)
+        (let ((f (match-string 1 line)))
+          (unless (gethash f seen)
+            (puthash f t seen)
+            (push f files)))))
+    (nreverse files)))
+
+(defun haystack--filter-label (negated filename)
+  "Return the chain label string for a filter with NEGATED and FILENAME flags."
+  (cond ((and negated filename) "!filename")
+        (negated                "exclude")
+        (filename               "filename")
+        (t                      "filter")))
+
+(defun haystack--format-search-chain (descriptor current-term current-negated
+                                                 &optional current-filename)
+  "Return a string showing the full search chain for a child buffer header.
+Combines the root term, all existing filters from DESCRIPTOR, and the
+CURRENT-TERM being applied.  CURRENT-NEGATED and CURRENT-FILENAME control
+the label (filter=, exclude=, filename=, or !filename=)."
+  (let* ((root-label (if (plist-get descriptor :root-filename) "filename" "root"))
+         (parts (list (format "%s=%s" root-label (plist-get descriptor :root-term)))))
+    (dolist (f (plist-get descriptor :filters))
+      (setq parts (nconc parts
+                         (list (format "%s=%s"
+                                       (haystack--filter-label (plist-get f :negated)
+                                                               (plist-get f :filename))
+                                       (plist-get f :term))))))
+    (setq parts (nconc parts
+                       (list (format "%s=%s"
+                                     (haystack--filter-label current-negated
+                                                             current-filename)
+                                     current-term))))
+    (mapconcat #'identity parts " > ")))
+
+(defun haystack--child-buffer-name (descriptor new-term)
+  "Return the results buffer name for a child filter of DESCRIPTOR by NEW-TERM.
+Depth is the total chain length (root counts as 1)."
+  (let* ((root    (plist-get descriptor :root-term))
+         (filters (mapcar (lambda (f) (plist-get f :term))
+                          (plist-get descriptor :filters)))
+         (chain   (append (list root) filters (list new-term))))
+    (format "*haystack:%d:%s*"
+            (length chain)
+            (mapconcat #'identity chain ":"))))
+
+(defun haystack--write-filelist (files)
+  "Write FILES (list of absolute paths) to a temp file; return its path.
+One path per line.  Caller is responsible for deleting the file."
+  (let ((tmp (make-temp-file "haystack-files-")))
+    (with-temp-file tmp
+      (insert (mapconcat #'identity files "\n")))
+    tmp))
+
+(defun haystack--xargs-rg (filelist rg-args)
+  "Run xargs -r -a FILELIST rg RG-ARGS, return stdout as a string.
+Each element of RG-ARGS is passed through `shell-quote-argument'.
+Stderr is redirected to a temp file via shell grouping so that rg error
+messages never appear in search results.  Non-empty stderr signals a
+`user-error'.  Exit codes are not used: rg exits 1 for no matches
+(normal) and xargs propagates exit codes in a version-dependent way."
+  (let* ((err-file (make-temp-file "haystack-rg-err-"))
+         (cmd (concat "{ xargs -r -a "
+                      (shell-quote-argument filelist)
+                      " rg "
+                      (mapconcat #'shell-quote-argument rg-args " ")
+                      "; } 2>"
+                      (shell-quote-argument err-file))))
+    (unwind-protect
+        (let ((stdout (with-temp-buffer
+                        (call-process-shell-command cmd nil t)
+                        (buffer-string)))
+              (stderr (with-temp-buffer
+                        (insert-file-contents err-file)
+                        (string-trim (buffer-string)))))
+          (unless (string-empty-p stderr)
+            (user-error "Haystack: rg error: %s" stderr))
+          stdout)
+      (delete-file err-file))))
+
+(defun haystack--run-rg-for-filelist (pattern filelist cf)
+  "Search for PATTERN in files listed in FILELIST with composite filter CF.
+Uses xargs to pass file paths to rg, avoiding argument length limits."
+  (haystack--xargs-rg filelist
+                      (nconc (haystack--rg-base-args cf) (list pattern))))
+
+(defun haystack--files-for-root-search (&optional cf)
+  "Return a list of all files in `haystack-notes-directory' for a filename search.
+Applies `haystack-file-glob' and the composite filter CF (default \\='exclude)."
+  (let ((args (list "--files")))
+    (when haystack-file-glob
+      (dolist (g haystack-file-glob)
+        (setq args (nconc args (list (concat "--glob=" g))))))
+    (pcase (or cf 'exclude)
+      ('exclude (setq args (nconc args (list "--glob=!@*"))))
+      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('all     nil))
+    (setq args (nconc args (list (expand-file-name haystack-notes-directory))))
+    (split-string
+     (with-temp-buffer
+       (apply #'call-process "rg" nil t nil args)
+       (buffer-string))
+     "\n" t)))
+
+(defun haystack--run-negation-filter (term root-pattern filelist cf)
+  "Return rg output for a negation filter against files in FILELIST.
+Step 1: find files that do not contain TERM via xargs + --files-without-match.
+Step 2: write the narrowed set to a second temp file and re-run ROOT-PATTERN."
+  (let* ((narrowed
+          (split-string
+           (haystack--xargs-rg filelist
+                               (list "--files-without-match"
+                                     "--ignore-case"
+                                     term))
+           "\n" t)))
+    (if (null narrowed)
+        ""
+      (let ((tmp2 (haystack--write-filelist narrowed)))
+        (unwind-protect
+            (haystack--run-rg-for-filelist root-pattern tmp2 cf)
+          (delete-file tmp2))))))
+
+;;;###autoload
+(defun haystack-filter-further (raw-input &optional new-window)
+  "Narrow the current haystack results buffer by RAW-INPUT.
+Extracts files from the current buffer, runs rg scoped to those files,
+and replaces the current window with the child results buffer.
+With a prefix argument (NEW-WINDOW non-nil), open in a new window instead.
+Prefix RAW-INPUT with ! to exclude files containing the term."
+  (interactive "sFilter: \nP")
+  (unless (and (boundp 'haystack--search-descriptor)
+               haystack--search-descriptor)
+    (user-error "Haystack: not in a haystack results buffer"))
+  (let* ((parent-buf   (current-buffer))
+         (descriptor   haystack--search-descriptor)
+         (cf           (plist-get descriptor :composite-filter))
+         (root-pattern (plist-get descriptor :root-expanded))
+         (parsed       (haystack--parse-input raw-input))
+         (term         (plist-get parsed :term))
+         (pattern      (plist-get parsed :pattern))
+         (negated      (plist-get parsed :negated))
+         (filename     (plist-get parsed :filename))
+         (filenames    (haystack--extract-filenames (buffer-string))))
+    (when (null filenames)
+      (user-error "Haystack: no files in current buffer to filter"))
+    (let* ((raw-output
+            (if filename
+                ;; Filename filter: narrow filelist by basename match in elisp,
+                ;; then re-run root-pattern for content.
+                (let* ((narrowed (cl-remove-if-not
+                                  (lambda (f)
+                                    (let ((match (string-match-p
+                                                  pattern (file-name-nondirectory f))))
+                                      (if negated (not match) match)))
+                                  filenames)))
+                  (if (null narrowed)
+                      ""
+                    (let ((tmp2 (haystack--write-filelist narrowed)))
+                      (unwind-protect
+                          (haystack--run-rg-for-filelist root-pattern tmp2 cf)
+                        (delete-file tmp2)))))
+              ;; Content filter: write filelist to temp file, run rg.
+              (let ((tmp (haystack--write-filelist filenames)))
+                (unwind-protect
+                    (if negated
+                        (haystack--run-negation-filter term root-pattern tmp cf)
+                      (haystack--run-rg-for-filelist pattern tmp cf))
+                  (delete-file tmp)))))
+           (stats       (haystack--count-search-stats raw-output))
+           (trunc-pat   (if (or filename negated) root-pattern pattern))
+           (output      (haystack--truncate-output raw-output trunc-pat))
+           (buf-name    (haystack--child-buffer-name descriptor term))
+           (header      (haystack--format-header
+                         (haystack--format-search-chain descriptor term negated filename)
+                         (car stats) (cdr stats)))
+           (new-filters (append (plist-get descriptor :filters)
+                                (list (list :term     term
+                                            :negated  negated
+                                            :filename filename
+                                            :literal  (plist-get parsed :literal)
+                                            :regex    (plist-get parsed :regex)))))
+           (new-descriptor (list :root-term        (plist-get descriptor :root-term)
+                                 :root-expanded    root-pattern
+                                 :root-literal     (plist-get descriptor :root-literal)
+                                 :root-regex       (plist-get descriptor :root-regex)
+                                 :root-filename    (plist-get descriptor :root-filename)
+                                 :filters          new-filters
+                                 :composite-filter cf)))
+      (let ((buf (haystack--setup-results-buffer
+                  buf-name header output new-descriptor parent-buf)))
+        (if new-window
+            (pop-to-buffer buf)
+          (switch-to-buffer buf))))))
 
 ;;;###autoload
 (defun haystack-run-root-search (raw-input &optional composite-filter)
@@ -493,6 +727,7 @@ and stores DESCRIPTOR and a nil parent buffer as buffer-locals."
 Parses prefixes, builds a ripgrep command, and opens a grep-mode
 results buffer named *haystack:1:TERM* with a statistics header.
 
+Prefix RAW-INPUT with / to match against filenames instead of content.
 COMPOSITE-FILTER is a symbol controlling how @* composite files are
 treated: \\='exclude (default), \\='only, or \\='all."
   (interactive "sHaystack search: ")
@@ -501,21 +736,37 @@ treated: \\='exclude (default), \\='only, or \\='all."
          (parsed   (haystack--parse-input raw-input))
          (term     (plist-get parsed :term))
          (pattern  (plist-get parsed :pattern))
-         (args     (haystack--build-rg-args pattern cf))
-         (output   (with-temp-buffer
-                     (let ((exit-code (apply #'call-process "rg" nil t nil args)))
-                       (when (= exit-code 2)
-                         (user-error "Haystack: rg error: %s" (buffer-string))))
-                     (buffer-string)))
+         (filename (plist-get parsed :filename))
+         (output
+          (if filename
+              (let* ((all-files (haystack--files-for-root-search cf))
+                     (matching  (cl-remove-if-not
+                                 (lambda (f)
+                                   (string-match-p pattern (file-name-nondirectory f)))
+                                 all-files)))
+                (if (null matching)
+                    ""
+                  (let ((tmp (haystack--write-filelist matching)))
+                    (unwind-protect
+                        (haystack--run-rg-for-filelist "." tmp cf)
+                      (delete-file tmp)))))
+            (with-temp-buffer
+              (let ((exit-code (apply #'call-process "rg" nil t nil
+                                      (haystack--build-rg-args pattern cf))))
+                (when (= exit-code 2)
+                  (user-error "Haystack: rg error: %s" (buffer-string))))
+              (buffer-string))))
+         (trunc-pat (if filename "." pattern))
          (stats    (haystack--count-search-stats output))
-         (output   (haystack--truncate-output output pattern))
+         (output   (haystack--truncate-output output trunc-pat))
          (buf-name (format "*haystack:1:%s*" term))
-         (header   (format ";;; haystack: root=%s | %d files, %d matches\n"
-                           term (car stats) (cdr stats)))
-         (descriptor (list :root-term        raw-input
-                           :root-expanded    pattern
+         (chain-label (format "%s=%s" (if filename "filename" "root") term))
+         (header   (haystack--format-header chain-label (car stats) (cdr stats)))
+         (descriptor (list :root-term        term
+                           :root-expanded    (if filename "." pattern)
                            :root-literal     (plist-get parsed :literal)
                            :root-regex       (plist-get parsed :regex)
+                           :root-filename    filename
                            :filters          nil
                            :composite-filter cf)))
     (pop-to-buffer

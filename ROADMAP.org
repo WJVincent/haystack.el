@@ -6,8 +6,8 @@ Create notes, search them progressively, export links. Ship this and use it dail
 
 ** Definition of Done
 - [X] Can create a note with timestamped slug, frontmatter, and sentinel
-- [ ] Can run a root search and get a grep-mode buffer with header
-- [ ] Can filter that buffer (positive and negated) and get child buffers
+- [X] Can run a root search and get a grep-mode buffer with header
+- [X] Can filter that buffer (positive and negated) and get child buffers
 - [ ] Can navigate the buffer tree (up, kill node, kill subtree, kill all, kill orphans)
 - [ ] Can yank a MOC from any results buffer
 - [ ] ~compile-goto-error~ works from every results buffer
@@ -83,17 +83,18 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - =haystack-context-width= defcustom for user tuning
 
 ** Progressive Filter — Child Filters
-*** TODO =haystack-filter-further=
+*** DONE =haystack-filter-further=
 - Prompt for filter term, run through input pipeline
 - Extract unique filenames from current buffer (skip header lines)
-- Write filenames to temp file
-- Run =rg --files-from=<tmpfile>= with new term scoped to those files
-- Delete temp file after search
-*** TODO Negation filter (=!= prefix)
-- Step 1: =rg --files-without-match <term> --files-from=<tmpfile>=
-- Step 2: Re-run root search terms scoped to narrowed file set
-- Both steps needed for grep-mode output
-*** TODO Spawn child buffer
+- Write filenames to temp file via =haystack--write-filelist=
+- Run =haystack--xargs-rg= with new term scoped to those files
+- Delete temp file after search (=unwind-protect=)
+*** DONE Negation filter (=!= prefix)
+- Step 1: xargs + =--files-without-match= to get narrowed file set (temp file 1)
+- Step 2: Re-run root pattern against narrowed set via second temp file
+- Both steps produce grep-mode output
+- Note: =rg --files-from= does not exist in ripgrep; see project memory
+*** DONE Spawn child buffer
 - Name: =*haystack:DEPTH:term1:term2:...*=
 - Build descriptor by copying parent's and appending to =:filters=
 - Set =haystack--parent-buffer= to current buffer
@@ -123,6 +124,13 @@ Create notes, search them progressively, export links. Ship this and use it dail
 
 ** Phase 1 Polish
 *** TODO Keybinding map (=haystack-mode-map=, =haystack-results-mode-map=)
+*** TODO =?= help menu (magit-style)
+- Show all available keybindings and commands from any haystack buffer
+- Single keypress to open; =q= to dismiss
+*** TODO Clickable action links in results buffer header
+- Consider links in the header region for common actions (filter-further, go-up, kill)
+- Activatable via =RET= or mouse click
+- Needs design: should not interfere with =grep-mode= header read-only property
 *** TODO =grep-mode= compatibility audit
 - Verify =compile-goto-error= works from every buffer
 - Verify =wgrep= doesn't touch header lines
