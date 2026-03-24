@@ -923,6 +923,178 @@
   (with-temp-buffer
     (should-error (haystack-search-region) :type 'user-error)))
 
+;;;; haystack--extract-file-loci
+
+(ert-deftest haystack-test/extract-file-loci-basic ()
+  "Returns (path . line) for each unique file."
+  (let ((default-directory "/notes/"))
+    (let ((result (haystack--extract-file-loci
+                   (mapconcat #'identity
+                              '("foo.org:3:match"
+                                "bar.org:7:match")
+                              "\n"))))
+      (should (equal result '(("/notes/foo.org" . 3)
+                              ("/notes/bar.org" . 7)))))))
+
+(ert-deftest haystack-test/extract-file-loci-deduplicates-keeps-first ()
+  "Only the first line number per file is kept."
+  (let ((default-directory "/notes/"))
+    (let ((result (haystack--extract-file-loci
+                   (mapconcat #'identity
+                              '("foo.org:3:first match"
+                                "foo.org:9:second match"
+                                "foo.org:14:third match")
+                              "\n"))))
+      (should (equal result '(("/notes/foo.org" . 3)))))))
+
+(ert-deftest haystack-test/extract-file-loci-skips-headers ()
+  "Header lines are ignored."
+  (let ((default-directory "/notes/"))
+    (let ((result (haystack--extract-file-loci
+                   ";;;; header line\nfoo.org:1:match")))
+      (should (equal result '(("/notes/foo.org" . 1)))))))
+
+(ert-deftest haystack-test/extract-file-loci-empty ()
+  "Empty input returns nil."
+  (should (null (haystack--extract-file-loci ""))))
+
+;;;; haystack--moc-format-for-extension
+
+(ert-deftest haystack-test/moc-format-for-extension-org ()
+  (should (eq (haystack--moc-format-for-extension "org") 'org)))
+
+(ert-deftest haystack-test/moc-format-for-extension-md ()
+  (should (eq (haystack--moc-format-for-extension "md") 'markdown)))
+
+(ert-deftest haystack-test/moc-format-for-extension-markdown ()
+  (should (eq (haystack--moc-format-for-extension "markdown") 'markdown)))
+
+(ert-deftest haystack-test/moc-format-for-extension-code-fallback ()
+  "Non-markup extensions fall back to code format."
+  (should (eq (haystack--moc-format-for-extension "el")  'code))
+  (should (eq (haystack--moc-format-for-extension "rs")  'code))
+  (should (eq (haystack--moc-format-for-extension "txt") 'code)))
+
+;;;; haystack--comment-prefix
+
+(ert-deftest haystack-test/comment-prefix-known-extensions ()
+  (should (equal (haystack--comment-prefix "el")  ";;"))
+  (should (equal (haystack--comment-prefix "js")  "//"))
+  (should (equal (haystack--comment-prefix "py")  "#"))
+  (should (equal (haystack--comment-prefix "lua") "--")))
+
+(ert-deftest haystack-test/comment-prefix-unknown-falls-back ()
+  "Unknown extensions return \"//\"."
+  (should (equal (haystack--comment-prefix "xyz") "//")))
+
+;;;; haystack--format-moc-code-comment
+
+(ert-deftest haystack-test/format-moc-code-comment-uses-prefix ()
+  "Comment line uses the correct prefix and omits the line number."
+  (should (equal (haystack--format-moc-code-comment "/notes/my-rust-notes.rs" "rs")
+                 "// my rust notes — /notes/my-rust-notes.rs"))
+  (should (equal (haystack--format-moc-code-comment "/notes/my-note.el" "el")
+                 ";; my note — /notes/my-note.el")))
+
+;;;; haystack--format-moc-link
+
+(ert-deftest haystack-test/format-moc-link-org ()
+  "Org format produces [[file:PATH::LINE][TITLE]]."
+  (should (equal (haystack--format-moc-link
+                  "/notes/20240101000000-my-rust-notes.org" 42 'org "org")
+                 "[[file:/notes/20240101000000-my-rust-notes.org::42][my rust notes]]")))
+
+(ert-deftest haystack-test/format-moc-link-markdown ()
+  "Markdown format produces [TITLE](PATH#LLINE)."
+  (should (equal (haystack--format-moc-link "/notes/my-rust-notes.md" 7 'markdown "md")
+                 "[my rust notes](/notes/my-rust-notes.md#L7)")))
+
+(ert-deftest haystack-test/format-moc-link-code-comment ()
+  "Code format with comment style produces a commented line."
+  (let ((haystack-moc-code-style 'comment))
+    (should (equal (haystack--format-moc-link "/notes/my-note.el" 5 'code "el")
+                   ";; my note — /notes/my-note.el"))))
+
+(ert-deftest haystack-test/format-moc-link-code-data-falls-back ()
+  "Code format with data style currently falls back to comment."
+  (let ((haystack-moc-code-style 'data))
+    (should (equal (haystack--format-moc-link "/notes/my-note.el" 5 'code "el")
+                   ";; my note — /notes/my-note.el"))))
+
+;;;; haystack-copy-moc
+
+(ert-deftest haystack-test/copy-moc-errors-outside-haystack-buffer ()
+  (with-temp-buffer
+    (should-error (haystack-copy-moc) :type 'user-error)))
+
+(ert-deftest haystack-test/copy-moc-errors-on-empty-results ()
+  "Signals user-error when the buffer has no match lines."
+  (let ((buf (haystack-test--make-results-buf
+              " *hs-copy-empty*" nil '(:root-term "rust"))))
+    (unwind-protect
+        (with-current-buffer buf
+          (should-error (haystack-copy-moc) :type 'user-error))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-test/copy-moc-stores-loci ()
+  "Stores (path . line) loci in `haystack--last-moc'."
+  (let ((buf (haystack-test--make-results-buf
+              " *hs-copy-moc*" nil '(:root-term "rust")))
+        (haystack--last-moc nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (setq default-directory "/notes/")
+          (insert "foo.org:3:content\nbar.org:7:content\n")
+          (haystack-copy-moc)
+          (should (equal haystack--last-moc
+                         '(("/notes/foo.org" . 3)
+                           ("/notes/bar.org" . 7)))))
+      (kill-buffer buf))))
+
+;;;; haystack-yank-moc
+
+(ert-deftest haystack-test/yank-moc-errors-when-nothing-copied ()
+  "Signals user-error when `haystack--last-moc' is nil."
+  (let ((haystack--last-moc nil))
+    (with-temp-buffer
+      (should-error (haystack-yank-moc) :type 'user-error))))
+
+(ert-deftest haystack-test/yank-moc-inserts-at-point ()
+  "Inserts formatted links at point in the target buffer."
+  (let ((haystack--last-moc '(("/notes/foo.org" . 3)))
+        (haystack-default-extension "org"))
+    (with-temp-buffer
+      (haystack-yank-moc)
+      (should (string-match-p "file:/notes/foo\\.org::3" (buffer-string))))))
+
+(ert-deftest haystack-test/yank-moc-pushes-to-kill-ring ()
+  "Also pushes the formatted text to the kill ring."
+  (let ((haystack--last-moc '(("/notes/foo.org" . 3)))
+        (haystack-default-extension "org"))
+    (with-temp-buffer
+      (haystack-yank-moc)
+      (should (string-match-p "file:/notes/foo\\.org::3" (car kill-ring))))))
+
+(ert-deftest haystack-test/yank-moc-format-follows-file-extension ()
+  "Format is determined by the target buffer's file extension."
+  (let ((haystack--last-moc '(("/notes/20240101000000-rust.org" . 1))))
+    ;; org target → org links
+    (with-temp-buffer
+      (let ((buffer-file-name "/target/notes.org"))
+        (haystack-yank-moc)
+        (should (string-match-p "\\[\\[file:" (buffer-string)))))
+    ;; md target → markdown links
+    (with-temp-buffer
+      (let ((buffer-file-name "/target/notes.md"))
+        (haystack-yank-moc)
+        (should (string-match-p "\\[rust\\](" (buffer-string)))))
+    ;; code target → comment fallback
+    (with-temp-buffer
+      (let ((buffer-file-name "/target/notes.el")
+            (haystack-moc-code-style 'comment))
+        (haystack-yank-moc)
+        (should (string-match-p "^;;" (buffer-string)))))))
+
 ;;;; Buffer tree navigation
 
 ;;; Test helpers

@@ -78,6 +78,16 @@ truncated end.  Increase for more context; decrease for tighter lines."
   :type 'integer
   :group 'haystack)
 
+
+(defcustom haystack-moc-code-style 'data
+  "How MOC links are formatted when yanking into code files.
+  data    — language-appropriate structured data (Phase 2; currently falls
+            back to `comment' for all extensions)
+  comment — line prefixed with the language's comment syntax"
+  :type '(choice (const :tag "Structured data" data)
+                 (const :tag "Commented lines" comment))
+  :group 'haystack)
+
 (defcustom haystack-file-glob nil
   "Restrict searches to files matching these glob patterns.
 Each entry is passed as a separate --glob argument to ripgrep, limiting
@@ -922,6 +932,121 @@ Buffers with living children are left alone — they become de facto roots."
       (message "Haystack: killed %d orphan buffer%s"
                (length orphans)
                (if (= 1 (length orphans)) "" "s")))))
+
+;;;; MOC generator
+
+(defvar haystack--last-moc nil
+  "Loci from the most recent `haystack-copy-moc' call.
+A list of (PATH . LINE) conses with absolute paths, one per unique file.
+Format-agnostic; rendered at yank time by `haystack-yank-moc'.")
+
+(defun haystack--extract-file-loci (text)
+  "Return a list of (PATH . LINE) for the first match per file in TEXT.
+Paths are expanded to absolute using `default-directory'.  Header lines
+and any non-grep lines are skipped."
+  (let ((seen  (make-hash-table :test #'equal))
+        (loci  nil))
+    (dolist (line (split-string text "\n" t))
+      (when (string-match "\\`\\([^:]+\\):\\([0-9]+\\):" line)
+        (let ((path (expand-file-name (match-string 1 line)))
+              (lnum (string-to-number (match-string 2 line))))
+          (unless (gethash path seen)
+            (puthash path t seen)
+            (push (cons path lnum) loci)))))
+    (nreverse loci)))
+
+(defun haystack--moc-format-for-extension (ext)
+  "Return the MOC link format symbol for file extension EXT.
+org → \\='org, md/markdown → \\='markdown, anything else → \\='code."
+  (cond ((equal ext "org")               'org)
+        ((member ext '("md" "markdown")) 'markdown)
+        (t                               'code)))
+
+(defconst haystack--comment-prefixes
+  '(;; ;; line comments
+    ("el" . ";;") ("lisp" . ";;") ("cl" . ";;") ("rkt" . ";;")
+    ("scm" . ";;") ("ss" . ";;") ("clj" . ";;") ("cljs" . ";;")
+    ("cljc" . ";;") ("fnl" . ";;") ("fennel" . ";;")
+    ;; // line comments
+    ("js" . "//") ("mjs" . "//") ("jsx" . "//")
+    ("ts" . "//") ("tsx" . "//")
+    ("rs" . "//") ("go" . "//") ("c" . "//") ("h" . "//")
+    ("css" . "//") ("java" . "//") ("kt" . "//") ("swift" . "//")
+    ;; # line comments
+    ("py" . "#") ("rb" . "#") ("sh" . "#") ("bash" . "#")
+    ("txt" . "#") ("toml" . "#") ("yaml" . "#") ("yml" . "#")
+    ;; -- line comments
+    ("lua" . "--") ("hs" . "--") ("sql" . "--") ("elm" . "--")
+    ;; (* *) block comments — rendered as line prefix
+    ("ml" . "(*") ("mli" . "(*"))
+  "Alist mapping file extensions to their line comment prefix strings.")
+
+(defun haystack--comment-prefix (ext)
+  "Return the line comment prefix for EXT, or \"//\" as a fallback."
+  (or (cdr (assoc ext haystack--comment-prefixes)) "//"))
+
+(defun haystack--format-moc-code-comment (path ext)
+  "Format PATH as a commented line using EXT's comment syntax.
+Line numbers are omitted — this format is for reference, not navigation."
+  (let ((prefix (haystack--comment-prefix ext))
+        (title  (haystack--pretty-title (file-name-nondirectory path))))
+    (format "%s %s — %s" prefix title path)))
+
+(defun haystack--format-moc-code-data (path ext)
+  "Format PATH as language-appropriate structured data for EXT.
+Phase 2: structured data formats per language are not yet implemented.
+Falls back to `haystack--format-moc-code-comment'."
+  (haystack--format-moc-code-comment path ext))
+
+(defun haystack--format-moc-link (path lnum format ext)
+  "Return a formatted link string for PATH at line LNUM.
+FORMAT is \\='org, \\='markdown, or \\='code.  EXT is the target file extension,
+used to select comment syntax and (Phase 2) structured data format."
+  (let ((title (haystack--pretty-title (file-name-nondirectory path))))
+    (pcase format
+      ('org      (format "[[file:%s::%d][%s]]" path lnum title))
+      ('markdown (format "[%s](%s#L%d)" title path lnum))
+      ('code     (pcase haystack-moc-code-style
+                   ('data    (haystack--format-moc-code-data    path ext))
+                   ('comment (haystack--format-moc-code-comment path ext))
+                   (_ (haystack--format-moc-code-comment path ext))))
+      (_ (user-error "Haystack: unknown moc format: %s" format)))))
+
+;;;###autoload
+(defun haystack-copy-moc ()
+  "Copy the current results buffer as a MOC to `haystack--last-moc'.
+Stores one (PATH . LINE) entry per file (first match line).
+Use `haystack-yank-moc' to insert the links into a target buffer."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (let* ((loci (haystack--extract-file-loci (buffer-string)))
+         (n    (length loci)))
+    (when (zerop n)
+      (user-error "Haystack: no results to copy"))
+    (setq haystack--last-moc loci)
+    (message "Haystack: copied %d file link%s" n (if (= 1 n) "" "s"))))
+
+;;;###autoload
+(defun haystack-yank-moc ()
+  "Insert MOC links at point, formatted for the current buffer's file type.
+Uses the loci stored by the last `haystack-copy-moc'.  Format is
+determined by the current buffer's file extension (org, md/markdown, or
+plaintext for everything else).  Also pushes the formatted text to the
+kill ring."
+  (interactive)
+  (unless haystack--last-moc
+    (user-error "Haystack: nothing copied — run `haystack-copy-moc' first"))
+  (let* ((ext  (or (and (buffer-file-name)
+                        (file-name-extension (buffer-file-name)))
+                   haystack-default-extension))
+         (fmt  (haystack--moc-format-for-extension ext))
+         (text (mapconcat (lambda (locus)
+                            (haystack--format-moc-link
+                             (car locus) (cdr locus) fmt ext))
+                          haystack--last-moc
+                          "\n")))
+    (kill-new text)
+    (insert text "\n")))
 
 (provide 'haystack)
 ;;; haystack.el ends here

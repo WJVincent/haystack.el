@@ -295,6 +295,10 @@ The most complex subsystems. Benefit from real usage data.
 * Stretch Goals                                                     :stretch:
 Not in scope for 1.0. Recorded so they don't get lost.
 
+** TODO MOC structured data format (=haystack-moc-code-style= ='data=)
+- Scaffold exists; =haystack--format-moc-code-data= currently delegates to comment
+- Per-language array/object syntax: JS/TS, Python, Elisp, Lua, Ruby
+- Fallback to comment for unrecognised extensions
 ** TODO Boolean DSL (=&=, =|=, =()= operators)
 ** TODO Search scope modes (body-only, frontmatter-only via sentinel)
 ** TODO Discoverability save-hook mode
