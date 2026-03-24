@@ -512,23 +512,44 @@ and stores DESCRIPTOR and PARENT-BUF as buffer-locals."
         (let ((header-end (point)))
           (insert output)
           (grep-mode)
+          (haystack-results-mode 1)
           ;; Keep header lines read-only even when wgrep is active.
           (let ((inhibit-read-only t))
-            (put-text-property (point-min) header-end 'read-only t))))
-      (setq haystack--search-descriptor descriptor
-            haystack--parent-buffer parent-buf)
-      (goto-char (point-min)))
+            (put-text-property (point-min) header-end 'read-only t))
+          (setq haystack--search-descriptor descriptor
+                haystack--parent-buffer parent-buf
+                default-directory (file-name-as-directory
+                                   (expand-file-name haystack-notes-directory)))
+          ;; Land on the first result line so n/p/RET work immediately.
+          (goto-char header-end))))
     buf))
 
+(defun haystack--strip-notes-prefix (output)
+  "Strip the `haystack-notes-directory' prefix from file paths in OUTPUT.
+Each grep-format line whose path begins with the notes directory is
+shortened to a path relative to that directory.  Header lines and any
+other non-matching lines are passed through unchanged."
+  (let ((prefix (file-name-as-directory
+                 (expand-file-name haystack-notes-directory))))
+    (mapconcat
+     (lambda (line)
+       (if (string-prefix-p prefix line)
+           (substring line (length prefix))
+         line))
+     (split-string output "\n")
+     "\n")))
+
 (defun haystack--extract-filenames (text)
-  "Return a deduplicated list of file paths from grep-format TEXT.
+  "Return a deduplicated list of absolute file paths from grep-format TEXT.
 Header lines (starting with ;;;) are automatically skipped because they
-do not match the file:line: pattern."
+do not match the file:line: pattern.  Relative paths are expanded using
+`default-directory', which is set to `haystack-notes-directory' in all
+results buffers."
   (let ((seen  (make-hash-table :test #'equal))
         (files nil))
     (dolist (line (split-string text "\n" t))
       (when (string-match "\\`\\([^:]+\\):[0-9]+:" line)
-        (let ((f (match-string 1 line)))
+        (let ((f (expand-file-name (match-string 1 line))))
           (unless (gethash f seen)
             (puthash f t seen)
             (push f files)))))
@@ -650,13 +671,12 @@ Step 2: write the narrowed set to a second temp file and re-run ROOT-PATTERN."
           (delete-file tmp2))))))
 
 ;;;###autoload
-(defun haystack-filter-further (raw-input &optional new-window)
+(defun haystack-filter-further (raw-input)
   "Narrow the current haystack results buffer by RAW-INPUT.
 Extracts files from the current buffer, runs rg scoped to those files,
-and replaces the current window with the child results buffer.
-With a prefix argument (NEW-WINDOW non-nil), open in a new window instead.
+and opens the child results buffer via `pop-to-buffer'.
 Prefix RAW-INPUT with ! to exclude files containing the term."
-  (interactive "sFilter: \nP")
+  (interactive "sFilter: ")
   (unless (and (boundp 'haystack--search-descriptor)
                haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
@@ -697,7 +717,8 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                   (delete-file tmp)))))
            (stats       (haystack--count-search-stats raw-output))
            (trunc-pat   (if (or filename negated) root-pattern pattern))
-           (output      (haystack--truncate-output raw-output trunc-pat))
+           (output      (haystack--strip-notes-prefix
+                         (haystack--truncate-output raw-output trunc-pat)))
            (buf-name    (haystack--child-buffer-name descriptor term))
            (header      (haystack--format-header
                          (haystack--format-search-chain descriptor term negated filename)
@@ -715,11 +736,9 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                                  :root-filename    (plist-get descriptor :root-filename)
                                  :filters          new-filters
                                  :composite-filter cf)))
-      (let ((buf (haystack--setup-results-buffer
-                  buf-name header output new-descriptor parent-buf)))
-        (if new-window
-            (pop-to-buffer buf)
-          (switch-to-buffer buf))))))
+      (pop-to-buffer
+       (haystack--setup-results-buffer
+        buf-name header output new-descriptor parent-buf)))))
 
 ;;;###autoload
 (defun haystack-run-root-search (raw-input &optional composite-filter)
@@ -758,7 +777,8 @@ treated: \\='exclude (default), \\='only, or \\='all."
               (buffer-string))))
          (trunc-pat (if filename "." pattern))
          (stats    (haystack--count-search-stats output))
-         (output   (haystack--truncate-output output trunc-pat))
+         (output   (haystack--strip-notes-prefix
+                    (haystack--truncate-output output trunc-pat)))
          (buf-name (format "*haystack:1:%s*" term))
          (chain-label (format "%s=%s" (if filename "filename" "root") term))
          (header   (haystack--format-header chain-label (car stats) (cdr stats)))
@@ -780,6 +800,128 @@ treated: \\='exclude (default), \\='only, or \\='all."
     (user-error "Haystack: no active region"))
   (haystack-run-root-search
    (buffer-substring-no-properties (region-beginning) (region-end))))
+
+;;;; Results minor mode
+
+(defvar haystack-results-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "n" #'haystack-next-match)
+    (define-key map "p" #'haystack-previous-match)
+    map)
+  "Keymap active in haystack results buffers (on top of `grep-mode').")
+
+(define-minor-mode haystack-results-mode
+  "Minor mode active in all haystack results buffers.
+Provides navigation commands that keep focus in the results buffer
+while previewing matched files in another window."
+  :keymap haystack-results-mode-map)
+
+;;;###autoload
+(defun haystack-next-match (&optional n)
+  "Move to the next N-th match in the results buffer and preview it.
+Focus remains in the results buffer; the matched file is shown in
+another window."
+  (interactive "p")
+  (compilation-next-error (or n 1))
+  (save-selected-window
+    (compile-goto-error)))
+
+;;;###autoload
+(defun haystack-previous-match (&optional n)
+  "Move to the previous N-th match in the results buffer and preview it.
+Focus remains in the results buffer; the matched file is shown in
+another window."
+  (interactive "p")
+  (compilation-next-error (- (or n 1)))
+  (save-selected-window
+    (compile-goto-error)))
+
+;;;; Buffer tree navigation
+
+(defun haystack--all-haystack-buffers ()
+  "Return a list of all live haystack results buffers."
+  (cl-remove-if-not
+   (lambda (buf)
+     (buffer-local-value 'haystack--search-descriptor buf))
+   (buffer-list)))
+
+(defun haystack--children-of (buf)
+  "Return all live haystack buffers whose direct parent is BUF."
+  (cl-remove-if-not
+   (lambda (b)
+     (eq (buffer-local-value 'haystack--parent-buffer b) buf))
+   (haystack--all-haystack-buffers)))
+
+(defun haystack--kill-subtree (buf)
+  "Recursively kill BUF and all its descendant haystack buffers."
+  (dolist (child (haystack--children-of buf))
+    (haystack--kill-subtree child))
+  (kill-buffer buf))
+
+(defun haystack--assert-results-buffer ()
+  "Signal a user-error if the current buffer is not a haystack results buffer."
+  (unless (and (boundp 'haystack--search-descriptor)
+               haystack--search-descriptor)
+    (user-error "Haystack: not in a haystack results buffer")))
+
+;;;###autoload
+(defun haystack-go-up ()
+  "Switch to the parent haystack buffer, if any.
+Messages and does nothing if this is a root buffer or the parent is dead."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (cond
+   ((null haystack--parent-buffer)
+    (message "Haystack: this is a root buffer"))
+   ((not (buffer-live-p haystack--parent-buffer))
+    (message "Haystack: parent buffer is no longer live"))
+   (t
+    (switch-to-buffer haystack--parent-buffer))))
+
+;;;###autoload
+(defun haystack-kill-node ()
+  "Kill this haystack results buffer."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (kill-buffer (current-buffer)))
+
+;;;###autoload
+(defun haystack-kill-subtree ()
+  "Kill this haystack buffer and all its descendants."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (haystack--kill-subtree (current-buffer)))
+
+;;;###autoload
+(defun haystack-kill-whole-tree ()
+  "Kill all haystack buffers in this tree, starting from the root."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (let ((root (current-buffer)))
+    (while (let ((parent (buffer-local-value 'haystack--parent-buffer root)))
+             (and parent (buffer-live-p parent)))
+      (setq root (buffer-local-value 'haystack--parent-buffer root)))
+    (haystack--kill-subtree root)))
+
+;;;###autoload
+(defun haystack-kill-orphans ()
+  "Kill haystack buffers whose parent is dead and have no living children.
+Buffers with living children are left alone — they become de facto roots."
+  (interactive)
+  (let ((orphans (cl-remove-if-not
+                  (lambda (buf)
+                    (let ((parent (buffer-local-value 'haystack--parent-buffer buf)))
+                      (and parent
+                           (not (buffer-live-p parent))
+                           (null (haystack--children-of buf)))))
+                  (haystack--all-haystack-buffers))))
+    (if (null orphans)
+        (message "Haystack: no orphans to kill")
+      (dolist (buf orphans)
+        (kill-buffer buf))
+      (message "Haystack: killed %d orphan buffer%s"
+               (length orphans)
+               (if (= 1 (length orphans)) "" "s")))))
 
 (provide 'haystack)
 ;;; haystack.el ends here

@@ -378,6 +378,47 @@
   (let ((result (haystack--parse-input "C++")))
     (should (equal (plist-get result :pattern) (regexp-quote "C++")))))
 
+;;;; haystack--strip-notes-prefix
+
+(ert-deftest haystack-test/strip-notes-prefix-removes-prefix ()
+  "Strips the notes directory prefix from a grep line's path."
+  (let ((haystack-notes-directory "/notes"))
+    (should (equal (haystack--strip-notes-prefix "/notes/foo.org:1:content")
+                   "foo.org:1:content"))))
+
+(ert-deftest haystack-test/strip-notes-prefix-preserves-subdirectories ()
+  "Retains subdirectory structure after the notes root."
+  (let ((haystack-notes-directory "/notes"))
+    (should (equal (haystack--strip-notes-prefix "/notes/sub/foo.org:1:content")
+                   "sub/foo.org:1:content"))))
+
+(ert-deftest haystack-test/strip-notes-prefix-leaves-header-lines ()
+  "Header lines (;;;) are passed through unchanged."
+  (let ((haystack-notes-directory "/notes"))
+    (should (equal (haystack--strip-notes-prefix ";;;; Haystack")
+                   ";;;; Haystack"))))
+
+(ert-deftest haystack-test/strip-notes-prefix-multiline ()
+  "All lines in a multi-line string are processed independently."
+  (let ((haystack-notes-directory "/notes"))
+    (should (equal (haystack--strip-notes-prefix
+                    (mapconcat #'identity
+                               '(";;;; header"
+                                 "/notes/a.org:1:match"
+                                 "/notes/sub/b.org:2:match")
+                               "\n"))
+                   (mapconcat #'identity
+                              '(";;;; header"
+                                "a.org:1:match"
+                                "sub/b.org:2:match")
+                              "\n")))))
+
+(ert-deftest haystack-test/strip-notes-prefix-unrelated-path-unchanged ()
+  "A path outside the notes directory is not modified."
+  (let ((haystack-notes-directory "/notes"))
+    (should (equal (haystack--strip-notes-prefix "/other/foo.org:1:content")
+                   "/other/foo.org:1:content"))))
+
 ;;;; haystack--build-rg-args
 
 (ert-deftest haystack-test/rg-args-excludes-composites-by-default ()
@@ -633,6 +674,12 @@
   "Empty output returns nil."
   (should (null (haystack--extract-filenames ""))))
 
+(ert-deftest haystack-test/extract-filenames-expands-relative-paths ()
+  "Relative paths are expanded to absolute using `default-directory'."
+  (let ((default-directory "/notes/"))
+    (should (equal (haystack--extract-filenames "sub/foo.org:1:match")
+                   '("/notes/sub/foo.org")))))
+
 (ert-deftest haystack-test/extract-filenames-preserves-order ()
   "Files are returned in first-seen order."
   (let ((text (mapconcat #'identity
@@ -875,6 +922,209 @@
   "Signals user-error when there is no active region."
   (with-temp-buffer
     (should-error (haystack-search-region) :type 'user-error)))
+
+;;;; Buffer tree navigation
+
+;;; Test helpers
+
+(defmacro haystack-test--make-results-buf (name parent descriptor)
+  "Create a temporary haystack results buffer named NAME.
+PARENT is the parent buffer (or nil) and DESCRIPTOR is the search descriptor.
+Returns the buffer; caller is responsible for killing it."
+  `(let ((buf (get-buffer-create ,name)))
+     (with-current-buffer buf
+       (setq haystack--search-descriptor ,descriptor
+             haystack--parent-buffer     ,parent))
+     buf))
+
+;;; haystack--all-haystack-buffers
+
+(ert-deftest haystack-test/all-haystack-buffers-finds-results-buffers ()
+  "Returns live haystack buffers and ignores ordinary buffers."
+  (let* ((hbuf (haystack-test--make-results-buf
+                " *hs-test-all*" nil '(:root-term "rust")))
+         (plain (get-buffer-create " *hs-test-plain*")))
+    (unwind-protect
+        (should (memq hbuf (haystack--all-haystack-buffers)))
+      (kill-buffer hbuf)
+      (kill-buffer plain))))
+
+(ert-deftest haystack-test/all-haystack-buffers-excludes-ordinary ()
+  "Ordinary buffers without a descriptor are not included."
+  (let ((plain (get-buffer-create " *hs-test-plain2*")))
+    (unwind-protect
+        (should-not (memq plain (haystack--all-haystack-buffers)))
+      (kill-buffer plain))))
+
+;;; haystack--children-of
+
+(ert-deftest haystack-test/children-of-finds-direct-children ()
+  "Returns buffers whose parent is exactly BUF."
+  (let* ((root  (haystack-test--make-results-buf " *hs-root*"  nil       '(:root-term "rust")))
+         (child (haystack-test--make-results-buf " *hs-child*" root      '(:root-term "rust")))
+         (other (haystack-test--make-results-buf " *hs-other*" nil       '(:root-term "async"))))
+    (unwind-protect
+        (progn
+          (should (memq child (haystack--children-of root)))
+          (should-not (memq other (haystack--children-of root)))
+          (should-not (memq root (haystack--children-of root))))
+      (kill-buffer root)
+      (kill-buffer child)
+      (kill-buffer other))))
+
+;;; haystack-go-up
+
+(ert-deftest haystack-test/go-up-errors-outside-haystack-buffer ()
+  (with-temp-buffer
+    (should-error (haystack-go-up) :type 'user-error)))
+
+(ert-deftest haystack-test/go-up-messages-on-root ()
+  "Messages without switching when there is no parent."
+  (let ((buf (haystack-test--make-results-buf " *hs-go-up-root*" nil '(:root-term "rust")))
+        (msgs nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (cl-letf (((symbol-function 'message) (lambda (fmt &rest args)
+                                                  (push (apply #'format fmt args) msgs))))
+            (haystack-go-up))
+          (should (cl-some (lambda (m) (string-match-p "root buffer" m)) msgs)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-test/go-up-messages-on-dead-parent ()
+  "Messages without switching when the parent buffer is dead."
+  (let* ((parent (haystack-test--make-results-buf " *hs-dead-parent*" nil '(:root-term "r")))
+         (child  (haystack-test--make-results-buf " *hs-child-dp*" parent '(:root-term "r")))
+         (msgs nil))
+    (kill-buffer parent)
+    (unwind-protect
+        (with-current-buffer child
+          (cl-letf (((symbol-function 'message) (lambda (fmt &rest args)
+                                                  (push (apply #'format fmt args) msgs))))
+            (haystack-go-up))
+          (should (cl-some (lambda (m) (string-match-p "no longer live" m)) msgs)))
+      (kill-buffer child))))
+
+(ert-deftest haystack-test/go-up-switches-to-live-parent ()
+  "Switches to the parent buffer when it is live."
+  (let* ((parent (haystack-test--make-results-buf " *hs-live-parent*" nil '(:root-term "r")))
+         (child  (haystack-test--make-results-buf " *hs-child-lp*" parent '(:root-term "r")))
+         (switched-to nil))
+    (unwind-protect
+        (with-current-buffer child
+          (cl-letf (((symbol-function 'switch-to-buffer)
+                     (lambda (buf) (setq switched-to buf))))
+            (haystack-go-up))
+          (should (eq switched-to parent)))
+      (kill-buffer parent)
+      (kill-buffer child))))
+
+;;; haystack-kill-node
+
+(ert-deftest haystack-test/kill-node-errors-outside-haystack-buffer ()
+  (with-temp-buffer
+    (should-error (haystack-kill-node) :type 'user-error)))
+
+(ert-deftest haystack-test/kill-node-kills-current-buffer ()
+  "Kills the current haystack buffer and nothing else."
+  (let* ((buf   (haystack-test--make-results-buf " *hs-kill-node*" nil '(:root-term "r")))
+         (child (haystack-test--make-results-buf " *hs-kill-node-child*" buf '(:root-term "r"))))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf (haystack-kill-node))
+          (should-not (buffer-live-p buf))
+          (should (buffer-live-p child)))
+      (when (buffer-live-p buf)   (kill-buffer buf))
+      (when (buffer-live-p child) (kill-buffer child)))))
+
+;;; haystack--kill-subtree / haystack-kill-subtree
+
+(ert-deftest haystack-test/kill-subtree-kills-self-and-descendants ()
+  "Kills the buffer and all descendants, leaving unrelated buffers."
+  (let* ((root    (haystack-test--make-results-buf " *hs-ks-root*"    nil     '(:root-term "r")))
+         (child   (haystack-test--make-results-buf " *hs-ks-child*"   root    '(:root-term "r")))
+         (grandch (haystack-test--make-results-buf " *hs-ks-grand*"   child   '(:root-term "r")))
+         (sibling (haystack-test--make-results-buf " *hs-ks-sibling*" nil     '(:root-term "r"))))
+    (unwind-protect
+        (progn
+          (with-current-buffer child (haystack-kill-subtree))
+          (should (buffer-live-p root))
+          (should-not (buffer-live-p child))
+          (should-not (buffer-live-p grandch))
+          (should (buffer-live-p sibling)))
+      (when (buffer-live-p root)    (kill-buffer root))
+      (when (buffer-live-p child)   (kill-buffer child))
+      (when (buffer-live-p grandch) (kill-buffer grandch))
+      (when (buffer-live-p sibling) (kill-buffer sibling)))))
+
+;;; haystack-kill-whole-tree
+
+(ert-deftest haystack-test/kill-all-from-leaf-kills-entire-tree ()
+  "Walking from a leaf kills the whole tree."
+  (let* ((root    (haystack-test--make-results-buf " *hs-ka-root*"  nil   '(:root-term "r")))
+         (child   (haystack-test--make-results-buf " *hs-ka-child*" root  '(:root-term "r")))
+         (grandch (haystack-test--make-results-buf " *hs-ka-grand*" child '(:root-term "r")))
+         (other   (haystack-test--make-results-buf " *hs-ka-other*" nil   '(:root-term "r"))))
+    (unwind-protect
+        (progn
+          (with-current-buffer grandch (haystack-kill-whole-tree))
+          (should-not (buffer-live-p root))
+          (should-not (buffer-live-p child))
+          (should-not (buffer-live-p grandch))
+          (should (buffer-live-p other)))
+      (when (buffer-live-p root)    (kill-buffer root))
+      (when (buffer-live-p child)   (kill-buffer child))
+      (when (buffer-live-p grandch) (kill-buffer grandch))
+      (when (buffer-live-p other)   (kill-buffer other)))))
+
+(ert-deftest haystack-test/kill-all-from-root-kills-entire-tree ()
+  "Calling kill-all from the root also kills all descendants."
+  (let* ((root  (haystack-test--make-results-buf " *hs-ka2-root*"  nil  '(:root-term "r")))
+         (child (haystack-test--make-results-buf " *hs-ka2-child*" root '(:root-term "r"))))
+    (unwind-protect
+        (progn
+          (with-current-buffer root (haystack-kill-whole-tree))
+          (should-not (buffer-live-p root))
+          (should-not (buffer-live-p child)))
+      (when (buffer-live-p root)  (kill-buffer root))
+      (when (buffer-live-p child) (kill-buffer child)))))
+
+;;; haystack-kill-orphans
+
+(ert-deftest haystack-test/kill-orphans-kills-dead-parent-childless-buffers ()
+  "Kills buffers whose parent is dead and have no children."
+  (let* ((dead-parent (haystack-test--make-results-buf " *hs-ko-dead*"   nil          '(:root-term "r")))
+         (orphan      (haystack-test--make-results-buf " *hs-ko-orphan*" dead-parent  '(:root-term "r")))
+         (root        (haystack-test--make-results-buf " *hs-ko-root*"   nil          '(:root-term "r"))))
+    (kill-buffer dead-parent)
+    (unwind-protect
+        (progn
+          (haystack-kill-orphans)
+          (should-not (buffer-live-p orphan))
+          (should (buffer-live-p root)))
+      (when (buffer-live-p orphan) (kill-buffer orphan))
+      (when (buffer-live-p root)   (kill-buffer root)))))
+
+(ert-deftest haystack-test/kill-orphans-spares-dead-parent-with-children ()
+  "A buffer with a dead parent but living children is left alone."
+  (let* ((dead-parent (haystack-test--make-results-buf " *hs-ko-dead2*"   nil         '(:root-term "r")))
+         (mid         (haystack-test--make-results-buf " *hs-ko-mid*"     dead-parent '(:root-term "r")))
+         (grandch     (haystack-test--make-results-buf " *hs-ko-grand2*"  mid         '(:root-term "r"))))
+    (kill-buffer dead-parent)
+    (unwind-protect
+        (progn
+          (haystack-kill-orphans)
+          (should (buffer-live-p mid))
+          (should (buffer-live-p grandch)))
+      (when (buffer-live-p mid)     (kill-buffer mid))
+      (when (buffer-live-p grandch) (kill-buffer grandch)))))
+
+(ert-deftest haystack-test/kill-orphans-messages-when-none ()
+  "Messages when there are no orphans."
+  (let ((msgs nil))
+    (cl-letf (((symbol-function 'message) (lambda (fmt &rest args)
+                                            (push (apply #'format fmt args) msgs))))
+      (haystack-kill-orphans))
+    (should (cl-some (lambda (m) (string-match-p "no orphans" m)) msgs))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

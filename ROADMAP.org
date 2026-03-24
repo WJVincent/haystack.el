@@ -107,7 +107,7 @@ Create notes, search them progressively, export links. Ship this and use it dail
 *** TODO =haystack-kill-subtree=
 - Recursively kill this buffer and all descendants
 - Needs a way to find children (scan all haystack buffers for =haystack--parent-buffer= match)
-*** TODO =haystack-kill-all=
+*** TODO =haystack-kill-whole-tree=
 - Walk to root via parent chain, then kill subtree
 *** TODO =haystack-kill-orphans=
 - Kill buffers whose parent is dead AND have no living children
