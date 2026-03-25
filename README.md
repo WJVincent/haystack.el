@@ -118,11 +118,14 @@ Prefix your search term to change how it is interpreted:
 | _(none)_ | Case-insensitive literal search | `rust` |
 | `/` | Filename filter — match against the filename only | `/cargo` |
 | `=` | Exact literal — suppress future expansion | `=async` |
-| `~` | Raw regex — passed directly to ripgrep | `~foo\|bar` |
+| `~` | Raw regex — passed directly to ripgrep | `~foo|bar` |
 | `!`  | Negate — exclude files containing this term | `!async` |
 
 Modifiers compose: `!/pattern` negates a filename filter; `!~pattern`
-negates a regex.
+negates a regex. Note that `/` filters narrow to files whose **basename**
+matches the term, then show content lines matching the root search — you
+see content hits, not filenames, so grep-mode navigation and MOC
+features all continue to work.
 
 ## Progressive Filtering
 
@@ -197,6 +200,12 @@ useful for assembling an index note from a set of search hits.
 - `c` — copy MOC links to kill ring (deduplicated by file, one link
   per file)
 - `C-c h y` — yank MOC at point in the current buffer
+
+The two-step design is intentional: `c` captures the file locations
+from the results buffer while you're still looking at them; `C-c h y`
+inserts formatted links at point in whatever buffer you navigate to
+next. This lets you inspect the list before inserting and respects
+cursor position in the target buffer.
 
 Links are formatted based on the destination file's extension:
 

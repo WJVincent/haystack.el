@@ -24,10 +24,11 @@ quick-reference for coding — not a restated spec.
 - **Buffer-local state is canonical**: `haystack--search-descriptor`
   is the source of truth. Buffer names are UI convenience for
   Vertico/Orderless.
-- **`xargs` always**: No conditional branching on file count. One code
-  path, no `ARG_MAX` concerns. Invocation: `xargs -r -a FILELIST rg
-  ARGS` via `haystack--xargs-rg`. (`rg --files-from` is not used —
-  xargs gives us shell stderr capture and a uniform invocation path.)
+- **`xargs -0` always**: No conditional branching on file count. One
+  code path, no `ARG_MAX` concerns. Filenames are written
+  null-separated to a temp file and piped via `xargs -0 rg ARGS <
+  FILELIST` in `haystack--xargs-rg`. (`rg --files-from` does not exist
+  in ripgrep. `xargs -0` is POSIX-portable; `-r`/`-a` are GNU-only.)
 - **Warn and degrade**: `condition-case` on data file loads. On
   failure: warn, empty default, continue.
 
@@ -57,13 +58,13 @@ All buffer-local vars: `haystack--` (set with `make-local-variable`)
     (buffer-string)))
 
 ;; With xargs (the standard path for filters)
-;; haystack--xargs-rg writes filelist to a temp file and calls:
-;;   xargs -r -a FILELIST rg ARGS
+;; haystack--xargs-rg writes filenames null-separated to a temp file and calls:
+;;   xargs -0 rg ARGS < FILELIST
 ;; Use haystack--xargs-rg or haystack--run-rg-for-filelist — do not
-;; call rg directly with --files-from.
+;; call rg directly.
 
 ;; Negation step 1: get files WITHOUT a match (also via xargs)
-;;   xargs -r -a FILELIST rg --files-without-match -i --color never PATTERN
+;;   xargs -0 rg --files-without-match -i --color never PATTERN < FILELIST
 ```
 
 **Key**: `call-process` is synchronous — it blocks until rg
@@ -77,17 +78,12 @@ benefit here.
 (let ((tmpfile (make-temp-file "haystack-")))
   (unwind-protect
       (progn
-        ;; Write filenames, one per line
+        ;; Write filenames null-separated (for xargs -0)
         (with-temp-file tmpfile
-          (dolist (f files)
-            (insert f "\n")))
+          (insert (mapconcat #'identity files "\0")))
         ;; Use tmpfile...
         )
     (delete-file tmpfile)))
-
-;; Or more simply:
-(with-temp-file tmpfile
-  (insert (string-join files "\n")))
 ```
 
 ### Buffer Creation & Local Variables
@@ -274,23 +270,24 @@ rg -n -i --color never --glob '@*' "pattern" /path
 ### With xargs (All Filters)
 
 ```sh
-xargs -r -a /tmp/haystack-xxxxx rg -n -i --color never "pattern"
+xargs -0 rg -n -i --color never "pattern" < /tmp/haystack-xxxxx
 ```
 
-All filenames in the tmpfile are absolute. `xargs -r` skips the rg
-call if the filelist is empty; `-a FILE` reads the argument list from
-the file. This is GNU coreutils — not portable to macOS BSD xargs.
+All filenames in the tmpfile are absolute and null-separated.
+`xargs -0` is POSIX-portable (GNU, BSD, macOS). The empty-filelist
+case is handled in Elisp before the call — `xargs` is never invoked
+with an empty input.
 
 ### Negation (--files-without-match)
 
 ```sh
 # Step 1: Get files that do NOT contain the term
-xargs -r -a /tmp/haystack-xxxxx rg --files-without-match -i --color never "pattern"
+xargs -0 rg --files-without-match -i --color never "pattern" < /tmp/haystack-xxxxx
 # Output: one filename per line (no line numbers, no content)
 
 # Step 2: Re-run root pattern against the narrowed set
-# Write step 1 output to a new tmpfile, then:
-xargs -r -a /tmp/haystack-narrowed rg -n -i --color never "root-pattern"
+# Write step 1 output (null-separated) to a new tmpfile, then:
+xargs -0 rg -n -i --color never "root-pattern" < /tmp/haystack-narrowed
 ```
 
 ### Expansion Group Alternation
@@ -381,10 +378,9 @@ These were decided before implementation began. Do not relitigate them.
   `haystack-go-up`, `haystack-yank-moc`, etc. without clobbering
   grep-mode globally. `compile-goto-error` is inherited automatically.
 
-- **Absolute paths in `--files-from` tmpfiles**: All filenames written
-  to tmpfiles are absolute. Never pass a directory argument alongside
-  `--files-from` — absolute paths remove any ambiguity about rg's
-  working directory.
+- **Absolute paths in tmpfiles**: All filenames written to tmpfiles are
+  absolute. This removes any ambiguity about rg's working directory
+  when piped through `xargs -0`.
 
 - **Phase 1 input pipeline is intentionally minimal**: Without expansion
   groups, every single-word term is just `regexp-quote`'d (unless `~`

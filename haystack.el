@@ -661,25 +661,26 @@ are prefixed with their modifier characters for clarity."
 
 (defun haystack--write-filelist (files)
   "Write FILES (list of absolute paths) to a temp file; return its path.
-One path per line.  Caller is responsible for deleting the file."
+Paths are null-separated for use with xargs -0.  Caller is responsible
+for deleting the file."
   (let ((tmp (make-temp-file "haystack-files-")))
     (with-temp-file tmp
-      (insert (mapconcat #'identity files "\n")))
+      (insert (mapconcat #'identity files "\0")))
     tmp))
 
 (defun haystack--xargs-rg (filelist rg-args)
-  "Run xargs -r -a FILELIST rg RG-ARGS, return stdout as a string.
+  "Run xargs -0 rg RG-ARGS < FILELIST, return stdout as a string.
 Each element of RG-ARGS is passed through `shell-quote-argument'.
-Stderr is redirected to a temp file via shell grouping so that rg error
-messages never appear in search results.  Non-empty stderr signals a
-`user-error'.  Exit codes are not used: rg exits 1 for no matches
-(normal) and xargs propagates exit codes in a version-dependent way."
+Stderr is redirected to a temp file so that rg error messages never
+appear in search results.  Non-empty stderr signals a `user-error'.
+Exit codes are not used: rg exits 1 for no matches (normal) and xargs
+propagates exit codes in a version-dependent way."
   (let* ((err-file (make-temp-file "haystack-rg-err-"))
-         (cmd (concat "{ xargs -r -a "
-                      (shell-quote-argument filelist)
-                      " rg "
+         (cmd (concat "xargs -0 rg "
                       (mapconcat #'shell-quote-argument rg-args " ")
-                      "; } 2>"
+                      " < "
+                      (shell-quote-argument filelist)
+                      " 2>"
                       (shell-quote-argument err-file))))
     (unwind-protect
         (let ((stdout (with-temp-buffer

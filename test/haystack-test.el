@@ -580,7 +580,7 @@
 ;;;; haystack--write-filelist
 
 (ert-deftest haystack-test/write-filelist-creates-file ()
-  "Creates a temp file containing one path per line."
+  "Creates a temp file containing null-separated paths (for xargs -0)."
   (let* ((files '("/notes/a.org" "/notes/b.org"))
          (tmp   (haystack--write-filelist files)))
     (unwind-protect
@@ -589,7 +589,7 @@
           (should (equal (split-string (with-temp-buffer
                                          (insert-file-contents tmp)
                                          (buffer-string))
-                                       "\n" t)
+                                       "\0" t)
                          files)))
       (delete-file tmp))))
 

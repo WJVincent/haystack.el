@@ -94,7 +94,6 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - Step 1: xargs + =--files-without-match= to get narrowed file set (temp file 1)
 - Step 2: Re-run root pattern against narrowed set via second temp file
 - Both steps produce grep-mode output
-- Note: =rg --files-from= does not exist in ripgrep; see project memory
 *** DONE Spawn child buffer
 - Name: =*haystack:DEPTH:term1:term2:...*=
 - Build descriptor by copying parent's and appending to =:filters=
@@ -281,7 +280,7 @@ The most complex subsystems. Benefit from real usage data.
 - Resolve each term to expansion group root, lowercase
 - =programming > rust > bevy= from either "coding" or "programming" input
 *** TODO Check for existing composite
-- =rg --files-from= scoped to =@*= files, match =SOURCE-CHAIN=
+- =xargs -0 rg= scoped to =@*= files, match =SOURCE-CHAIN=
 *** TODO =haystack-compose=
 - Extract filenames from current buffer
 - Read full file contents for each
