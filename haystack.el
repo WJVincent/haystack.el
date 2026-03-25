@@ -508,7 +508,41 @@ FILES and MATCHES are the result counts."
             ";;;;  Haystack\n"
             (format ";;;;  %s\n" chain-string)
             (format ";;;;  %d files  ·  %d matches\n" files matches)
+            ";;;;  [root]  [up]  [down]  [tree]\n"
             rule "\n")))
+
+(defun haystack-go-root ()
+  "Switch to the root buffer of this haystack tree."
+  (interactive)
+  (let ((buf (current-buffer)))
+    (while (buffer-live-p (buffer-local-value 'haystack--parent-buffer buf))
+      (setq buf (buffer-local-value 'haystack--parent-buffer buf)))
+    (if (eq buf (current-buffer))
+        (message "Already at root")
+      (switch-to-buffer buf))))
+
+(defun haystack-ret ()
+  "Visit result at point, or activate button if point is on one."
+  (interactive)
+  (if (button-at (point))
+      (push-button)
+    (compile-goto-error)))
+
+(defun haystack--apply-header-buttons ()
+  "Wire up navigation buttons in the header of the current results buffer.
+Must be called inside `inhibit-read-only' with point anywhere in the buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((actions `(("[root]"  . haystack-go-root)
+                     ("[up]"    . haystack-go-up)
+                     ("[down]"  . haystack-go-down)
+                     ("[tree]"  . haystack-show-tree))))
+      (dolist (pair actions)
+        (when (search-forward (car pair) nil t)
+          (make-text-button (match-beginning 0) (match-end 0)
+                            'action (lambda (_) (call-interactively (cdr pair)))
+                            'follow-link t
+                            'help-echo (symbol-name (cdr pair))))))))
 
 (defun haystack--setup-results-buffer (buf-name header output descriptor
                                                &optional parent-buf)
@@ -524,6 +558,8 @@ and stores DESCRIPTOR and PARENT-BUF as buffer-locals."
           (insert output)
           (grep-mode)
           (haystack-results-mode 1)
+          ;; Wire up navigation buttons before locking the header.
+          (haystack--apply-header-buttons)
           ;; Keep header lines read-only even when wgrep is active.
           (let ((inhibit-read-only t))
             (put-text-property (point-min) header-end 'read-only t))
@@ -838,6 +874,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
 
 (defvar haystack-results-mode-map (make-sparse-keymap)
   "Keymap active in haystack results buffers (on top of `grep-mode').")
+(define-key haystack-results-mode-map (kbd "RET") #'haystack-ret)
 (define-key haystack-results-mode-map "n" #'haystack-next-match)
 (define-key haystack-results-mode-map "p" #'haystack-previous-match)
 (define-key haystack-results-mode-map "f" #'haystack-filter-further)

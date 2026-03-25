@@ -1612,5 +1612,72 @@ Returns the buffer; caller is responsible for killing it."
           (should (eq (get-text-property (point) 'haystack-tree-buffer) root)))
       (kill-buffer root))))
 
+;;;; Header buttons
+
+(defun haystack-test--make-header-buf ()
+  "Return a results buffer with header buttons (no real rg output)."
+  (let ((buf (get-buffer-create " *hs-btn-test*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (haystack--format-header "root=rust" 0 0))
+        (let ((header-end (point)))
+          (grep-mode)
+          (haystack-results-mode 1)
+          (haystack--apply-header-buttons)
+          (let ((inhibit-read-only t))
+            (put-text-property (point-min) header-end 'read-only t))
+          (setq haystack--search-descriptor '(:root-term "rust" :filters nil)
+                haystack--parent-buffer nil))))
+    buf))
+
+(ert-deftest haystack-test/header-contains-nav-line ()
+  "Formatted header includes the navigation line."
+  (let ((h (haystack--format-header "root=rust" 3 10)))
+    (should (string-match-p "\\[root\\]" h))
+    (should (string-match-p "\\[up\\]" h))
+    (should (string-match-p "\\[down\\]" h))
+    (should (string-match-p "\\[tree\\]" h))))
+
+(ert-deftest haystack-test/header-buttons-are-buttons ()
+  "apply-header-buttons wires real button text properties into the header."
+  (let ((buf (haystack-test--make-header-buf)))
+    (unwind-protect
+        (with-current-buffer buf
+          (dolist (label '("[root]" "[up]" "[down]" "[tree]"))
+            (goto-char (point-min))
+            (search-forward label)
+            (goto-char (match-beginning 0))
+            (should (button-at (point)))))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-test/go-root-at-root-is-noop ()
+  "haystack-go-root messages when already at root."
+  (let ((buf (haystack-test--make-results-buf " *hs-root-nav*" nil
+                                              '(:root-term "rust" :filters nil))))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-go-root)
+          (should (eq (current-buffer) buf)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-test/go-root-walks-to-root ()
+  "haystack-go-root switches to the root buffer from a child."
+  (let* ((root  (haystack-test--make-results-buf " *hs-r-root*" nil
+                                                 '(:root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-r-child*" root
+                                                 '(:root-term "rust" :filters ((:term "async"))))))
+    (unwind-protect
+        (with-current-buffer child
+          (haystack-go-root)
+          (should (eq (current-buffer) root)))
+      (kill-buffer root)
+      (kill-buffer child))))
+
+(ert-deftest haystack-test/ret-binding-exists ()
+  "RET is bound to haystack-ret in haystack-results-mode-map."
+  (should (eq (lookup-key haystack-results-mode-map (kbd "RET"))
+              'haystack-ret)))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here
