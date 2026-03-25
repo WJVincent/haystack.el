@@ -813,19 +813,17 @@ treated: \\='exclude (default), \\='only, or \\='all."
 
 ;;;; Results minor mode
 
-(defvar haystack-results-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "n" #'haystack-next-match)
-    (define-key map "p" #'haystack-previous-match)
-    (define-key map "f" #'haystack-filter-further)
-    (define-key map "u" #'haystack-go-up)
-    (define-key map "k" #'haystack-kill-node)
-    (define-key map "K" #'haystack-kill-subtree)
-    (define-key map (kbd "M-k") #'haystack-kill-whole-tree)
-    (define-key map "c" #'haystack-copy-moc)
-    (define-key map "y" #'haystack-yank-moc)
-    map)
+(defvar haystack-results-mode-map (make-sparse-keymap)
   "Keymap active in haystack results buffers (on top of `grep-mode').")
+(define-key haystack-results-mode-map "n" #'haystack-next-match)
+(define-key haystack-results-mode-map "p" #'haystack-previous-match)
+(define-key haystack-results-mode-map "f" #'haystack-filter-further)
+(define-key haystack-results-mode-map "u" #'haystack-go-up)
+(define-key haystack-results-mode-map "k" #'haystack-kill-node)
+(define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
+(define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
+(define-key haystack-results-mode-map "c" #'haystack-copy-moc)
+(define-key haystack-results-mode-map "y" #'haystack-yank-moc)
 
 (define-minor-mode haystack-results-mode
   "Minor mode active in all haystack results buffers.
