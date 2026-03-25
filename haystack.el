@@ -79,7 +79,7 @@ truncated end.  Increase for more context; decrease for tighter lines."
   :group 'haystack)
 
 
-(defcustom haystack-moc-code-style 'data
+(defcustom haystack-moc-code-style 'comment
   "How MOC links are formatted when yanking into code files.
   data    — language-appropriate structured data (Phase 2; currently falls
             back to `comment' for all extensions)
@@ -273,8 +273,8 @@ To add support for a new file type, define a function and add it:
   :type '(alist :key-type string :value-type function)
   :group 'haystack)
 
-(defconst haystack--sentinel-regexp "%%% pkm-end-frontmatter %%%"
-  "Pattern used to locate the end of a Haystack frontmatter block.")
+(defconst haystack--sentinel-string "%%% pkm-end-frontmatter %%%"
+  "Literal string marking the end of a Haystack frontmatter block.")
 
 (defun haystack--frontmatter (title ext)
   "Return frontmatter string for TITLE and file extension EXT.
@@ -347,7 +347,7 @@ lost, and offers to abort before making any changes."
     (save-excursion
       (let ((inhibit-read-only t))
         (goto-char (point-min))
-        (if (re-search-forward (regexp-quote haystack--sentinel-regexp) nil t)
+        (if (re-search-forward (regexp-quote haystack--sentinel-string) nil t)
             ;; Replace from top of file through the sentinel line.
             (let ((delete-to (save-excursion
                                (goto-char (line-end-position))
@@ -776,7 +776,7 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
               (let ((tmp (haystack--write-filelist filenames)))
                 (unwind-protect
                     (if negated
-                        (haystack--run-negation-filter term root-pattern tmp cf)
+                        (haystack--run-negation-filter pattern root-pattern tmp cf)
                       (haystack--run-rg-for-filelist pattern tmp cf))
                   (delete-file tmp)))))
            (stats       (haystack--count-search-stats raw-output))

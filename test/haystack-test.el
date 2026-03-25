@@ -32,7 +32,7 @@
 
 (defun haystack-test--has-sentinel (str)
   "Return non-nil if STR contains the pkm-end-frontmatter sentinel."
-  (string-match-p (regexp-quote haystack--sentinel-regexp) str))
+  (string-match-p (regexp-quote haystack--sentinel-string) str))
 
 ;;;; haystack--timestamp
 
@@ -229,7 +229,7 @@
       (haystack-regenerate-frontmatter)
       (haystack-regenerate-frontmatter)
       (haystack-regenerate-frontmatter))
-    (should (string-match-p (concat (regexp-quote haystack--sentinel-regexp)
+    (should (string-match-p (concat (regexp-quote haystack--sentinel-string)
                                     "\n\nBody\\.")
                             (buffer-string)))))
 
@@ -852,6 +852,40 @@
                      (should (string-match-p "!filename=async" (buffer-string)))
                      (should (string-match-p "cargo-notes" (buffer-string)))
                      (should-not (string-match-p "async-notes" (buffer-string))))
+                 (when child-buf (kill-buffer child-buf)))))
+         (kill-buffer root-buf))))))
+
+(ert-deftest haystack-test/filter-further-negation-special-chars ()
+  "Negation with a term containing regex metacharacters (e.g. C++) does not error.
+Regression: the negation path previously passed the raw term to rg instead of
+the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
+  (haystack-test--with-notes-dir
+   (let ((match-note (expand-file-name "20240101000000-cpp-notes.org"
+                                       haystack-notes-directory))
+         (other-note (expand-file-name "20240101000001-rust-notes.org"
+                                       haystack-notes-directory)))
+     (with-temp-file match-note (insert "C++ content here\n"))
+     (with-temp-file other-note (insert "rust content here\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore))
+     ;; Root search on a term that matches both files.
+     (haystack-run-root-search "content")
+     (let ((root-buf (get-buffer "*haystack:1:content*")))
+       (should root-buf)
+       (unwind-protect
+           (with-current-buffer root-buf
+             ;; This must not signal an error even though "C++" contains
+             ;; regex metacharacters.
+             (should-not
+              (condition-case _
+                  (progn (haystack-filter-further "!C++") nil)
+                (error t)))
+             (let ((child-buf (get-buffer "*haystack:2:content:!C++*")))
+               (unwind-protect
+                   (with-current-buffer child-buf
+                     ;; The C++ file should be excluded; rust file retained.
+                     (should (string-match-p "rust-notes" (buffer-string)))
+                     (should-not (string-match-p "cpp-notes" (buffer-string))))
                  (when child-buf (kill-buffer child-buf)))))
          (kill-buffer root-buf))))))
 

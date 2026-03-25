@@ -24,8 +24,10 @@ quick-reference for coding — not a restated spec.
 - **Buffer-local state is canonical**: `haystack--search-descriptor`
   is the source of truth. Buffer names are UI convenience for
   Vertico/Orderless.
-- **`--files-from` always**: No conditional branching on file
-  count. One code path, no `ARG_MAX` concerns.
+- **`xargs` always**: No conditional branching on file count. One code
+  path, no `ARG_MAX` concerns. Invocation: `xargs -r -a FILELIST rg
+  ARGS` via `haystack--xargs-rg`. (`rg --files-from` is not used —
+  xargs gives us shell stderr capture and a uniform invocation path.)
 - **Warn and degrade**: `condition-case` on data file loads. On
   failure: warn, empty default, continue.
 
@@ -54,17 +56,14 @@ All buffer-local vars: `haystack--` (set with `make-local-variable`)
                                  haystack-notes-directory)))
     (buffer-string)))
 
-;; With --files-from (the standard path for filters)
-(call-process "rg" nil t nil
-              "-n" "-i" "--color" "never"
-              "--files-from" tmpfile
-              pattern)
+;; With xargs (the standard path for filters)
+;; haystack--xargs-rg writes filelist to a temp file and calls:
+;;   xargs -r -a FILELIST rg ARGS
+;; Use haystack--xargs-rg or haystack--run-rg-for-filelist — do not
+;; call rg directly with --files-from.
 
-;; Negation step 1: get files WITHOUT a match
-(call-process "rg" nil t nil
-              "--files-without-match" "-i" "--color" "never"
-              "--files-from" tmpfile
-              pattern)
+;; Negation step 1: get files WITHOUT a match (also via xargs)
+;;   xargs -r -a FILELIST rg --files-without-match -i --color never PATTERN
 ```
 
 **Key**: `call-process` is synchronous — it blocks until rg
@@ -272,25 +271,26 @@ rg -n -i --color never --glob '!@*' "pattern" /path
 rg -n -i --color never --glob '@*' "pattern" /path
 ```
 
-### With --files-from (All Filters)
+### With xargs (All Filters)
 
 ```sh
-rg -n -i --color never --files-from /tmp/haystack-xxxxx "pattern"
+xargs -r -a /tmp/haystack-xxxxx rg -n -i --color never "pattern"
 ```
 
-No directory argument when using `--files-from` — the file paths in
-the tmpfile are absolute (or relative to cwd).
+All filenames in the tmpfile are absolute. `xargs -r` skips the rg
+call if the filelist is empty; `-a FILE` reads the argument list from
+the file. This is GNU coreutils — not portable to macOS BSD xargs.
 
 ### Negation (--files-without-match)
 
 ```sh
 # Step 1: Get files that do NOT contain the term
-rg --files-without-match -i --color never --files-from /tmp/haystack-xxxxx "pattern"
+xargs -r -a /tmp/haystack-xxxxx rg --files-without-match -i --color never "pattern"
 # Output: one filename per line (no line numbers, no content)
 
-# Step 2: Re-run root terms against the narrowed set
+# Step 2: Re-run root pattern against the narrowed set
 # Write step 1 output to a new tmpfile, then:
-rg -n -i --color never --files-from /tmp/haystack-narrowed "root-pattern"
+xargs -r -a /tmp/haystack-narrowed rg -n -i --color never "root-pattern"
 ```
 
 ### Expansion Group Alternation
@@ -359,11 +359,12 @@ SOURCE-CHAIN strings are computed from it — never the reverse.
 
 ## Input Prefix Summary
 
-| Prefix | Meaning                   | Composable With |
-|--------|---------------------------|-----------------|
-| `!`    | Negate (filter only)      | `=`, `~`        |
-| `=`    | Suppress expansion        | `!`, `~`        |
-| `~`    | Raw regex (skip escaping) | `!`, `=`        |
+| Prefix | Meaning                              | Composable With |
+|--------|--------------------------------------|-----------------|
+| `!`    | Negate (filter only)                 | `/`, `=`, `~`   |
+| `/`    | Match filename, not content          | `!`, `=`, `~`   |
+| `=`    | Suppress expansion                   | `!`, `~`        |
+| `~`    | Raw regex (skip escaping)            | `!`, `=`        |
 
 Detection order: strip `!` first, then `=`, then `~`. All three flags
 are independent booleans on the filter plist.
@@ -374,9 +375,9 @@ are independent booleans on the filter plist.
 
 These were decided before implementation began. Do not relitigate them.
 
-- **Derived mode, not grep-mode directly**: Results buffers use
-  `haystack-results-mode`, defined with `define-derived-mode` from
-  `grep-mode`. This gives a clean keymap for `haystack-filter-further`,
+- **Minor mode over grep-mode**: Results buffers call `grep-mode` then
+  activate `haystack-results-mode`, a `define-minor-mode` layered on
+  top. This gives a clean keymap for `haystack-filter-further`,
   `haystack-go-up`, `haystack-yank-moc`, etc. without clobbering
   grep-mode globally. `compile-goto-error` is inherited automatically.
 
