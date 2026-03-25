@@ -684,7 +684,7 @@ Step 2: write the narrowed set to a second temp file and re-run ROOT-PATTERN."
 (defun haystack-filter-further (raw-input)
   "Narrow the current haystack results buffer by RAW-INPUT.
 Extracts files from the current buffer, runs rg scoped to those files,
-and opens the child results buffer via `pop-to-buffer'.
+and opens the child results buffer in the current window.
 Prefix RAW-INPUT with ! to exclude files containing the term."
   (interactive "sFilter: ")
   (unless (and (boundp 'haystack--search-descriptor)
@@ -746,7 +746,7 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                                  :root-filename    (plist-get descriptor :root-filename)
                                  :filters          new-filters
                                  :composite-filter cf)))
-      (pop-to-buffer
+      (switch-to-buffer
        (haystack--setup-results-buffer
         buf-name header output new-descriptor parent-buf)))))
 
