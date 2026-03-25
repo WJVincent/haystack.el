@@ -119,6 +119,7 @@ Structure:
 Each filter plist:
   (:term     STRING
    :negated  BOOL
+   :filename BOOL
    :literal  BOOL
    :regex    BOOL)")
 
@@ -593,13 +594,30 @@ the label (filter=, exclude=, filename=, or !filename=)."
                                      current-term))))
     (mapconcat #'identity parts " > ")))
 
-(defun haystack--child-buffer-name (descriptor new-term)
-  "Return the results buffer name for a child filter of DESCRIPTOR by NEW-TERM.
-Depth is the total chain length (root counts as 1)."
-  (let* ((root    (plist-get descriptor :root-term))
-         (filters (mapcar (lambda (f) (plist-get f :term))
+(defun haystack--child-buffer-name (descriptor new-term new-negated
+                                               new-filename new-literal new-regex)
+  "Return the results buffer name for a child filter of DESCRIPTOR.
+NEW-TERM and its modifier flags (NEW-NEGATED, NEW-FILENAME, NEW-LITERAL,
+NEW-REGEX) describe the filter being applied.  All terms in the chain
+are prefixed with their modifier characters for clarity."
+  (let* ((root    (haystack--tree-term-label
+                   (plist-get descriptor :root-term)
+                   nil
+                   (plist-get descriptor :root-filename)
+                   (plist-get descriptor :root-literal)
+                   (plist-get descriptor :root-regex)))
+         (filters (mapcar (lambda (f)
+                            (haystack--tree-term-label
+                             (plist-get f :term)
+                             (plist-get f :negated)
+                             (plist-get f :filename)
+                             (plist-get f :literal)
+                             (plist-get f :regex)))
                           (plist-get descriptor :filters)))
-         (chain   (append (list root) filters (list new-term))))
+         (chain   (append (list root) filters
+                          (list (haystack--tree-term-label
+                                 new-term new-negated new-filename
+                                 new-literal new-regex)))))
     (format "*haystack:%d:%s*"
             (length chain)
             (mapconcat #'identity chain ":"))))
@@ -729,7 +747,9 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
            (trunc-pat   (if (or filename negated) root-pattern pattern))
            (output      (haystack--strip-notes-prefix
                          (haystack--truncate-output raw-output trunc-pat)))
-           (buf-name    (haystack--child-buffer-name descriptor term))
+           (buf-name    (haystack--child-buffer-name descriptor term negated filename
+                                                    (plist-get parsed :literal)
+                                                    (plist-get parsed :regex)))
            (header      (haystack--format-header
                          (haystack--format-search-chain descriptor term negated filename)
                          (car stats) (cdr stats)))
@@ -789,7 +809,10 @@ treated: \\='exclude (default), \\='only, or \\='all."
          (stats    (haystack--count-search-stats output))
          (output   (haystack--strip-notes-prefix
                     (haystack--truncate-output output trunc-pat)))
-         (buf-name (format "*haystack:1:%s*" term))
+         (buf-name (format "*haystack:1:%s*"
+                           (haystack--tree-term-label term nil filename
+                                                      (plist-get parsed :literal)
+                                                      (plist-get parsed :regex))))
          (chain-label (format "%s=%s" (if filename "filename" "root") term))
          (header   (haystack--format-header chain-label (car stats) (cdr stats)))
          (descriptor (list :root-term        term
@@ -823,6 +846,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
 (define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
 (define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
 (define-key haystack-results-mode-map "c" #'haystack-copy-moc)
+(define-key haystack-results-mode-map "t" #'haystack-show-tree)
 (define-key haystack-results-mode-map "?" #'haystack-help)
 
 (define-minor-mode haystack-results-mode
@@ -876,6 +900,7 @@ Returns \"unbound\" if CMD has no binding in that map."
                      (format ";;;;    %-8s  filter further"  (funcall key 'haystack-filter-further))
                      ""
                      ";;;;  Tree"
+                     (format ";;;;    %-8s  show tree"       (funcall key 'haystack-show-tree))
                      (format ";;;;    %-8s  go up"           (funcall key 'haystack-go-up))
                      (format ";;;;    %-8s  kill node"       (funcall key 'haystack-kill-node))
                      (format ";;;;    %-8s  kill subtree"    (funcall key 'haystack-kill-subtree))
@@ -898,6 +923,131 @@ Returns \"unbound\" if CMD has no binding in that map."
         (erase-buffer)
         (insert (haystack--help-content))
         (special-mode)
+        (goto-char (point-min))))
+    (select-window
+     (display-buffer buf
+                     '((display-buffer-below-selected)
+                       (window-height . fit-window-to-buffer))))))
+
+;;;; Tree view
+
+(defvar haystack-tree-depth-faces
+  '(font-lock-keyword-face
+    font-lock-function-name-face
+    font-lock-variable-name-face
+    font-lock-constant-face
+    font-lock-string-face)
+  "Faces cycled through successive depth levels in `haystack-show-tree'.
+Each face is drawn from the active theme, so the tree adapts to colorscheme
+changes automatically.  Customize to taste.")
+
+(define-derived-mode haystack-tree-mode special-mode "Haystack-Tree"
+  "Major mode for the haystack tree buffer.
+Shows all open haystack buffers as a navigable indented tree.")
+
+(define-key haystack-tree-mode-map (kbd "RET") #'haystack-tree-visit)
+
+(defun haystack-tree-visit ()
+  "Switch to the haystack buffer on the current line and close the tree window."
+  (interactive)
+  (let ((buf (get-text-property (point) 'haystack-tree-buffer)))
+    (unless (and buf (buffer-live-p buf))
+      (user-error "Haystack: no buffer at point"))
+    (quit-window)
+    (switch-to-buffer buf)))
+
+(defun haystack--tree-roots ()
+  "Return all root haystack buffers (those with no live parent)."
+  (cl-remove-if
+   (lambda (buf)
+     (let ((parent (buffer-local-value 'haystack--parent-buffer buf)))
+       (and parent (buffer-live-p parent))))
+   (haystack--all-haystack-buffers)))
+
+(defun haystack--tree-term-label (term negated filename literal regex)
+  "Return TERM prefixed with its modifier characters for display.
+Negation maps to !, filename to /, regex to ~, literal to =."
+  (concat (when negated "!")
+          (cond (filename "/")
+                (regex    "~")
+                (literal  "="))
+          term))
+
+(defun haystack--tree-render-node (buf current-buf prefix connector depth)
+  "Insert a rendered line for BUF, then recurse into its children.
+PREFIX is the accumulated continuation art from ancestor nodes (e.g. \"│   \").
+CONNECTOR is the branching art for this node (\"├── \", \"└── \", or \"\").
+DEPTH drives the face chosen from `haystack-tree-depth-faces'.
+Each line gets a `haystack-tree-buffer' text property pointing to BUF."
+  (let* ((descriptor (buffer-local-value 'haystack--search-descriptor buf))
+         (filters    (plist-get descriptor :filters))
+         (term       (if filters
+                         (let ((f (car (last filters))))
+                           (haystack--tree-term-label
+                            (plist-get f :term)
+                            (plist-get f :negated)
+                            (plist-get f :filename)
+                            (plist-get f :literal)
+                            (plist-get f :regex)))
+                       (haystack--tree-term-label
+                        (plist-get descriptor :root-term)
+                        nil
+                        (plist-get descriptor :root-filename)
+                        (plist-get descriptor :root-literal)
+                        (plist-get descriptor :root-regex))))
+         (current-p  (eq buf current-buf))
+         (term-face  (nth (mod depth (length haystack-tree-depth-faces))
+                          haystack-tree-depth-faces))
+         (line-start (point)))
+    ;; Tree art — dimmed so it recedes behind the terms
+    (let ((art-start (point)))
+      (insert prefix connector)
+      (put-text-property art-start (point) 'face 'shadow))
+    ;; Term — depth-coloured, bold when current
+    (let ((term-start (point)))
+      (insert term)
+      (put-text-property term-start (point) 'face
+                         (if current-p (list 'bold term-face) term-face)))
+    ;; Current-buffer marker
+    (when current-p
+      (insert "  ←"))
+    (insert "\n")
+    ;; Navigation text property spans the whole line (excluding newline)
+    (put-text-property line-start (1- (point)) 'haystack-tree-buffer buf)
+    ;; Recurse into children
+    (let* ((children (haystack--children-of buf))
+           (n        (length children)))
+      (cl-loop for child in children
+               for i from 0
+               do (haystack--tree-render-node
+                   child current-buf
+                   (concat prefix (if (= i (1- n)) "    " "│   "))
+                   (if (= i (1- n)) "└── " "├── ")
+                   (1+ depth))))))
+
+;;;###autoload
+(defun haystack-show-tree ()
+  "Show all open haystack buffers as a navigable indented tree.
+Each line shows the leaf search term with box-drawing connectors indicating
+the chain structure.  Terms are coloured by depth using
+`haystack-tree-depth-faces'.  The current buffer is marked with ←.
+RET visits the buffer at point and closes the tree window.
+q closes the tree window without navigating."
+  (interactive)
+  (let* ((current-buf (current-buffer))
+         (roots       (haystack--tree-roots))
+         (buf         (get-buffer-create "*haystack-tree*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "\n")
+        (if (null roots)
+            (insert "  No open haystack buffers.\n")
+          (dolist (root roots)
+            (haystack--tree-render-node root current-buf "" "" 0)
+            (insert "\n"))
+          (insert "\n"))
+        (haystack-tree-mode)
         (goto-char (point-min))))
     (select-window
      (display-buffer buf
@@ -1116,6 +1266,7 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "r" #'haystack-search-region)
 (define-key haystack-prefix-map "n" #'haystack-new-note)
 (define-key haystack-prefix-map "y" #'haystack-yank-moc)
+(define-key haystack-prefix-map "t" #'haystack-show-tree)
 
 (provide 'haystack)
 ;;; haystack.el ends here

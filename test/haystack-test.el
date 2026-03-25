@@ -741,16 +741,28 @@
 
 (ert-deftest haystack-test/child-buffer-name-depth-2 ()
   "First filter produces depth 2 name."
-  (let ((descriptor (list :root-term "rust" :filters nil)))
-    (should (equal (haystack--child-buffer-name descriptor "async")
+  (let ((descriptor (list :root-term "rust" :root-filename nil
+                          :root-literal nil :root-regex nil :filters nil)))
+    (should (equal (haystack--child-buffer-name descriptor "async" nil nil nil nil)
                    "*haystack:2:rust:async*"))))
 
 (ert-deftest haystack-test/child-buffer-name-depth-3 ()
   "Second filter produces depth 3 name with full chain."
-  (let ((descriptor (list :root-term "rust"
-                          :filters (list (list :term "async")))))
-    (should (equal (haystack--child-buffer-name descriptor "ownership")
+  (let ((descriptor (list :root-term "rust" :root-filename nil
+                          :root-literal nil :root-regex nil
+                          :filters (list (list :term "async" :negated nil
+                                               :filename nil :literal nil :regex nil)))))
+    (should (equal (haystack--child-buffer-name descriptor "ownership" nil nil nil nil)
                    "*haystack:3:rust:async:ownership*"))))
+
+(ert-deftest haystack-test/child-buffer-name-with-modifiers ()
+  "Modifier flags appear as prefixes in the buffer name."
+  (let ((descriptor (list :root-term "rust" :root-filename nil
+                          :root-literal nil :root-regex nil :filters nil)))
+    (should (equal (haystack--child-buffer-name descriptor "async" t nil nil nil)
+                   "*haystack:2:rust:!async*"))
+    (should (equal (haystack--child-buffer-name descriptor "notes" nil t nil nil)
+                   "*haystack:2:rust:/notes*"))))
 
 ;;;; haystack-filter-further
 
@@ -809,7 +821,7 @@
        (unwind-protect
            (with-current-buffer root-buf
              (haystack-filter-further "/cargo")
-             (let ((child-buf (get-buffer "*haystack:2:rust:cargo*")))
+             (let ((child-buf (get-buffer "*haystack:2:rust:/cargo*")))
                (unwind-protect
                    (with-current-buffer child-buf
                      (should (string-match-p "filename=cargo" (buffer-string)))
@@ -834,7 +846,7 @@
        (unwind-protect
            (with-current-buffer root-buf
              (haystack-filter-further "!/async")
-             (let ((child-buf (get-buffer "*haystack:2:rust:async*")))
+             (let ((child-buf (get-buffer "*haystack:2:rust:!/async*")))
                (unwind-protect
                    (with-current-buffer child-buf
                      (should (string-match-p "!filename=async" (buffer-string)))
@@ -907,7 +919,7 @@
      (with-temp-file no-match (insert "other content here\n")))
    (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
      (haystack-run-root-search "/cargo")
-     (let ((buf (get-buffer "*haystack:1:cargo*")))
+     (let ((buf (get-buffer "*haystack:1:/cargo*")))
        (should buf)
        (unwind-protect
            (with-current-buffer buf
@@ -1310,6 +1322,7 @@ Returns the buffer; caller is responsible for killing it."
                      ("K"   . haystack-kill-subtree)
                      ("M-k" . haystack-kill-whole-tree)
                      ("c"   . haystack-copy-moc)
+                     ("t"   . haystack-show-tree)
                      ("?"   . haystack-help)))
     (should (eq (lookup-key haystack-results-mode-map (kbd (car binding)))
                 (cdr binding)))))
@@ -1319,7 +1332,8 @@ Returns the buffer; caller is responsible for killing it."
   (dolist (binding '(("s" . haystack-run-root-search)
                      ("r" . haystack-search-region)
                      ("n" . haystack-new-note)
-                     ("y" . haystack-yank-moc)))
+                     ("y" . haystack-yank-moc)
+                     ("t" . haystack-show-tree)))
     (should (eq (lookup-key haystack-prefix-map (kbd (car binding)))
                 (cdr binding)))))
 
@@ -1337,7 +1351,7 @@ Returns the buffer; caller is responsible for killing it."
   "Help content mentions every user-facing command."
   (let ((content (haystack--help-content)))
     (dolist (cmd '("next match" "previous match" "filter further"
-                   "go up" "kill node" "kill subtree" "kill whole tree"
+                   "show tree" "go up" "kill node" "kill subtree" "kill whole tree"
                    "copy moc"))
       (should (string-match-p cmd content)))))
 
@@ -1347,6 +1361,99 @@ Returns the buffer; caller is responsible for killing it."
   (let ((buf (get-buffer "*haystack-help*")))
     (should (buffer-live-p buf))
     (kill-buffer buf)))
+
+;;;; haystack--tree-term-label
+
+(ert-deftest haystack-test/tree-term-label-bare ()
+  (should (equal (haystack--tree-term-label "rust" nil nil nil nil) "rust")))
+
+(ert-deftest haystack-test/tree-term-label-negated ()
+  (should (equal (haystack--tree-term-label "rust" t nil nil nil) "!rust")))
+
+(ert-deftest haystack-test/tree-term-label-filename ()
+  (should (equal (haystack--tree-term-label "foo" nil t nil nil) "/foo")))
+
+(ert-deftest haystack-test/tree-term-label-negated-filename ()
+  (should (equal (haystack--tree-term-label "foo" t t nil nil) "!/foo")))
+
+(ert-deftest haystack-test/tree-term-label-regex ()
+  (should (equal (haystack--tree-term-label "fo+" nil nil nil t) "~fo+")))
+
+(ert-deftest haystack-test/tree-term-label-literal ()
+  (should (equal (haystack--tree-term-label "foo" nil nil t nil) "=foo")))
+
+;;;; Tree view
+
+(ert-deftest haystack-test/tree-roots-finds-root-buffers ()
+  "Returns buffers with no live parent."
+  (let* ((root  (haystack-test--make-results-buf " *hs-tree-root*"  nil '(:root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-tree-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+    (unwind-protect
+        (let ((roots (haystack--tree-roots)))
+          (should     (memq root  roots))
+          (should-not (memq child roots)))
+      (kill-buffer root)
+      (kill-buffer child))))
+
+(ert-deftest haystack-test/tree-roots-treats-dead-parent-as-root ()
+  "A buffer whose parent is dead is treated as a root."
+  (let* ((dead-parent (haystack-test--make-results-buf " *hs-tree-dead*" nil '(:root-term "x" :filters nil)))
+         (orphan      (haystack-test--make-results-buf " *hs-tree-orphan*" dead-parent '(:root-term "x" :filters ((:term "y"))))))
+    (kill-buffer dead-parent)
+    (unwind-protect
+        (should (memq orphan (haystack--tree-roots)))
+      (kill-buffer orphan))))
+
+(ert-deftest haystack-test/tree-render-node-leaf-term ()
+  "Renders the leaf filter term for child buffers."
+  (let* ((root  (haystack-test--make-results-buf " *hs-rn-root*" nil '(:root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-rn-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+    (unwind-protect
+        (with-temp-buffer
+          (haystack--tree-render-node root nil "" "" 0)
+          (should (string-match-p "rust"  (buffer-string)))
+          (should (string-match-p "async" (buffer-string))))
+      (kill-buffer root)
+      (kill-buffer child))))
+
+(ert-deftest haystack-test/tree-render-node-marks-current ()
+  "Current buffer line contains ←."
+  (let ((root (haystack-test--make-results-buf " *hs-rn-cur*" nil '(:root-term "rust" :filters nil))))
+    (unwind-protect
+        (with-temp-buffer
+          (haystack--tree-render-node root root "" "" 0)
+          (should (string-match-p "←" (buffer-string))))
+      (kill-buffer root))))
+
+(ert-deftest haystack-test/tree-render-node-indents-children ()
+  "Child nodes are indented relative to their parent."
+  (let* ((root  (haystack-test--make-results-buf " *hs-ind-root*" nil '(:root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-ind-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+    (unwind-protect
+        (with-temp-buffer
+          (haystack--tree-render-node root nil "" "" 0)
+          (let ((lines (split-string (buffer-string) "\n" t)))
+            (should (string-match-p "^rust"      (nth 0 lines)))
+            (should (string-match-p "└── async$" (nth 1 lines)))))
+      (kill-buffer root)
+      (kill-buffer child))))
+
+(ert-deftest haystack-test/show-tree-creates-buffer ()
+  "haystack-show-tree creates and displays *haystack-tree*."
+  (haystack-show-tree)
+  (let ((buf (get-buffer "*haystack-tree*")))
+    (should (buffer-live-p buf))
+    (kill-buffer buf)))
+
+(ert-deftest haystack-test/tree-render-node-text-property ()
+  "Each rendered line carries a haystack-tree-buffer text property."
+  (let ((root (haystack-test--make-results-buf " *hs-tp-root*" nil '(:root-term "rust" :filters nil))))
+    (unwind-protect
+        (with-temp-buffer
+          (haystack--tree-render-node root nil "" "" 0)
+          (goto-char (point-min))
+          (should (eq (get-text-property (point) 'haystack-tree-buffer) root)))
+      (kill-buffer root))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here
