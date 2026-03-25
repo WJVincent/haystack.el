@@ -12,7 +12,7 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - [X] Can yank a MOC from any results buffer
 - [X] ~compile-goto-error~ works from every results buffer (implicit via grep-mode format)
 - [X] Vertico/Orderless buffer switching works with the naming scheme (free from =*haystack:N:term*= convention)
-- [ ] Tree view and header navigation buttons complete
+- [X] Tree view and header navigation buttons complete
 - [ ] Manually tested against a 100+ note corpus
 
 ** Package Scaffolding
@@ -124,7 +124,7 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - =haystack-copy-moc= stores loci; =haystack-yank-moc= inserts at point and pushes to kill ring
 
 ** Tree View & Header Navigation
-*** TODO =haystack-show-tree=
+*** DONE =haystack-show-tree=
 - Dedicated =*haystack-tree*= buffer showing the full forest of open haystack buffers
 - Indented by depth: root at col 0, each filter level indented further
 - Current buffer marked with =←=
@@ -133,27 +133,35 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - Persists until closed — does not auto-close on navigation
 - Multiple disconnected trees (separate root searches) separated by blank lines
 - Derived from =special-mode= (read-only, =q= → =quit-window= for free)
-*** TODO Children picker
+- Per-item and sibling navigation (n/p, M-n/M-p); cursor lands on term text, not art
+- Depth-level faces drawn from active theme via =font-lock-*= face list
+*** DONE Children picker
 - When navigating to children from a buffer with one child: go directly
 - When multiple children exist: open =*haystack-children*= listing them
 - Each line is the child's chain label; =RET= navigates to it
-- Consistent grep-mode-adjacent feel
-*** TODO Header navigation buttons
-- Navigation line added to results buffer header: =[root]  [up]  [children]  [tree]=
+*** DONE Header navigation buttons
+- Navigation line in results header: =[root]  [up]  [down]  [tree]=
 - Implemented as =button= text properties — keyboard (=RET= on button) and mouse accessible
-- =RET= in =haystack-results-mode= routes to =push-button= if point is on a button,
+- =RET= in =haystack-results-mode= routes to =push-button= if on a button,
   otherwise falls through to =compile-goto-error=
 - Buttons live entirely within the read-only header region
+- =haystack-go-root= walks the parent chain to the root buffer
 
 ** Phase 1 Polish
 *** DONE Keybinding maps
-- =haystack-results-mode-map=: n/p navigation, f filter, u go-up, k/K/M-k kill variants, c/y MOC, ? help
-- =haystack-prefix-map=: s root search, r search region, n new note
+- =haystack-results-mode-map=: RET, n/p navigation, f filter, u/d go-up/down, k/K/M-k kill variants, c MOC, t tree, ? help
+- =haystack-prefix-map=: s root search, r search region, n new note, y yank-moc, t show tree
 - Prefix map unbound by default; user adds =(global-set-key (kbd "C-c h") haystack-prefix-map)=
 *** DONE =?= help menu
 - =*haystack-help*= buffer in =special-mode=, displayed below results window
 - Key bindings read live from =haystack-results-mode-map= via =where-is-internal=
 - Focus moves to help window on open; =q= closes and returns to results buffer
+*** DONE Modifier prefixes in buffer and tree names
+- Buffer names encode modifiers: =*haystack:2:rust:/cargo*=, =*haystack:2:rust:!/async*=
+- Tree labels match: negation (=!=), filename (=/=), literal (==), regex (=~=) all shown
+*** DONE README
+- User guide covering setup, note creation, search, filtering, modifier prefixes,
+  results buffer keys, tree view, MOC, and customization options
 *** TODO Manual smoke test with real corpus
 
 
