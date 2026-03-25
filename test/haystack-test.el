@@ -1438,6 +1438,76 @@ Returns the buffer; caller is responsible for killing it."
       (kill-buffer root)
       (kill-buffer child))))
 
+(ert-deftest haystack-test/tree-render-node-depth-property ()
+  "Each rendered line carries the correct haystack-tree-depth property."
+  (let* ((root  (haystack-test--make-results-buf " *hs-dp-root*" nil '(:root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-dp-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+    (unwind-protect
+        (with-temp-buffer
+          (haystack--tree-render-node root nil "" "" 0)
+          (goto-char (point-min))
+          (should (= (get-text-property (point) 'haystack-tree-depth) 0))
+          (forward-line 1)
+          (should (= (get-text-property (point) 'haystack-tree-depth) 1)))
+      (kill-buffer root)
+      (kill-buffer child))))
+
+(defmacro haystack-test--with-tree (&rest body)
+  "Run BODY with a populated *haystack-tree* buffer current."
+  (declare (indent 0))
+  `(let* ((root   (haystack-test--make-results-buf
+                   " *hs-nav-root*" nil
+                   '(:root-term "rust" :root-filename nil
+                     :root-literal nil :root-regex nil :filters nil)))
+           (child1 (haystack-test--make-results-buf
+                    " *hs-nav-c1*" root
+                    '(:root-term "rust" :filters ((:term "async" :negated nil
+                                                   :filename nil :literal nil :regex nil)))))
+           (child2 (haystack-test--make-results-buf
+                    " *hs-nav-c2*" root
+                    '(:root-term "rust" :filters ((:term "ownership" :negated nil
+                                                   :filename nil :literal nil :regex nil))))))
+     (unwind-protect
+         (progn
+           (haystack-show-tree)
+           (with-current-buffer "*haystack-tree*"
+             ,@body))
+       (when (get-buffer "*haystack-tree*") (kill-buffer "*haystack-tree*"))
+       (kill-buffer root)
+       (kill-buffer child1)
+       (kill-buffer child2))))
+
+(ert-deftest haystack-test/tree-next-moves-to-next-entry ()
+  "n moves to the next line with a buffer property, skipping blanks."
+  (haystack-test--with-tree
+    (goto-char (point-min))
+    (haystack-tree-next)
+    (should (get-text-property (point) 'haystack-tree-buffer))))
+
+(ert-deftest haystack-test/tree-prev-moves-to-prev-entry ()
+  "p moves to the previous line with a buffer property."
+  (haystack-test--with-tree
+    (goto-char (point-max))
+    (haystack-tree-prev)
+    (should (get-text-property (point) 'haystack-tree-buffer))))
+
+(ert-deftest haystack-test/tree-next-sibling-skips-children ()
+  "M-n from a child jumps to the next sibling, not deeper nodes."
+  (haystack-test--with-tree
+    (goto-char (point-min))
+    (haystack-tree-next)
+    (haystack-tree-next)
+    (let ((depth-before (get-text-property (point) 'haystack-tree-depth)))
+      (haystack-tree-next-sibling)
+      (should (= (get-text-property (point) 'haystack-tree-depth) depth-before)))))
+
+(ert-deftest haystack-test/tree-next-sibling-errors-at-last ()
+  "M-n errors when there is no next sibling."
+  (haystack-test--with-tree
+    (goto-char (point-min))
+    (haystack-tree-next)
+    (should-error (haystack-tree-next-sibling) :type 'user-error)))
+
 (ert-deftest haystack-test/show-tree-creates-buffer ()
   "haystack-show-tree creates and displays *haystack-tree*."
   (haystack-show-tree)

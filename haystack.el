@@ -946,6 +946,10 @@ changes automatically.  Customize to taste.")
 Shows all open haystack buffers as a navigable indented tree.")
 
 (define-key haystack-tree-mode-map (kbd "RET") #'haystack-tree-visit)
+(define-key haystack-tree-mode-map "n"         #'haystack-tree-next)
+(define-key haystack-tree-mode-map "p"         #'haystack-tree-prev)
+(define-key haystack-tree-mode-map (kbd "M-n") #'haystack-tree-next-sibling)
+(define-key haystack-tree-mode-map (kbd "M-p") #'haystack-tree-prev-sibling)
 
 (defun haystack-tree-visit ()
   "Switch to the haystack buffer on the current line and close the tree window."
@@ -955,6 +959,76 @@ Shows all open haystack buffers as a navigable indented tree.")
       (user-error "Haystack: no buffer at point"))
     (quit-window)
     (switch-to-buffer buf)))
+
+(defun haystack--tree-move-to-term ()
+  "Move point to the first character of the term on the current line.
+Skips past tree art characters (spaces, │, ├, └, ─)."
+  (beginning-of-line)
+  (skip-chars-forward " │├└─"))
+
+(defun haystack-tree-next ()
+  "Move point to the next buffer entry in the tree."
+  (interactive)
+  (let (found)
+    (save-excursion
+      (forward-line 1)
+      (while (and (not found) (not (eobp)))
+        (if (get-text-property (point) 'haystack-tree-buffer)
+            (setq found (point))
+          (forward-line 1))))
+    (if found
+        (progn (goto-char found) (haystack--tree-move-to-term))
+      (user-error "Haystack: no next entry"))))
+
+(defun haystack-tree-prev ()
+  "Move point to the previous buffer entry in the tree."
+  (interactive)
+  (let (found)
+    (save-excursion
+      (forward-line -1)
+      (while (and (not found) (not (bobp)))
+        (if (get-text-property (point) 'haystack-tree-buffer)
+            (setq found (point))
+          (forward-line -1))))
+    (if found
+        (progn (goto-char found) (haystack--tree-move-to-term))
+      (user-error "Haystack: no previous entry"))))
+
+(defun haystack-tree-next-sibling ()
+  "Move point to the next entry at the same depth."
+  (interactive)
+  (let ((depth (get-text-property (point) 'haystack-tree-depth))
+        found)
+    (unless depth (user-error "Haystack: no entry at point"))
+    (save-excursion
+      (forward-line 1)
+      (while (and (not found) (not (eobp)))
+        (let ((d (get-text-property (point) 'haystack-tree-depth)))
+          (cond ((null d)    (forward-line 1))
+                ((= d depth) (setq found (point)))
+                ((> d depth) (forward-line 1))
+                (t           (setq found 'none))))))
+    (if (and found (not (eq found 'none)))
+        (progn (goto-char found) (haystack--tree-move-to-term))
+      (user-error "Haystack: no next sibling"))))
+
+(defun haystack-tree-prev-sibling ()
+  "Move point to the previous entry at the same depth."
+  (interactive)
+  (let ((depth (get-text-property (point) 'haystack-tree-depth))
+        found)
+    (unless depth (user-error "Haystack: no entry at point"))
+    (save-excursion
+      (forward-line -1)
+      (while (and (not found) (not (bobp)))
+        (let ((d (get-text-property (point) 'haystack-tree-depth)))
+          (cond ((null d)    (forward-line -1))
+                ((= d depth) (setq found (point)))
+                ((> d depth) (forward-line -1))
+                (t           (setq found 'none))))))
+    (if (and found (not (eq found 'none)))
+        (progn (goto-char found) (haystack--tree-move-to-term))
+      (user-error "Haystack: no previous sibling"))))
 
 (defun haystack--tree-roots ()
   "Return all root haystack buffers (those with no live parent)."
@@ -1012,8 +1086,9 @@ Each line gets a `haystack-tree-buffer' text property pointing to BUF."
     (when current-p
       (insert "  ←"))
     (insert "\n")
-    ;; Navigation text property spans the whole line (excluding newline)
+    ;; Navigation text properties span the whole line (excluding newline)
     (put-text-property line-start (1- (point)) 'haystack-tree-buffer buf)
+    (put-text-property line-start (1- (point)) 'haystack-tree-depth  depth)
     ;; Recurse into children
     (let* ((children (haystack--children-of buf))
            (n        (length children)))
@@ -1038,17 +1113,20 @@ q closes the tree window without navigating."
          (roots       (haystack--tree-roots))
          (buf         (get-buffer-create "*haystack-tree*")))
     (with-current-buffer buf
-      (let ((inhibit-read-only t))
+      (let* ((inhibit-read-only t)
+             (rule (concat ";;;;" (make-string 50 ?-))))
         (erase-buffer)
-        (insert "\n")
+        (insert rule "\n")
         (if (null roots)
-            (insert "  No open haystack buffers.\n")
+            (insert ";;;;  No open haystack buffers.\n")
+          (insert "\n")
           (dolist (root roots)
             (haystack--tree-render-node root current-buf "" "" 0)
-            (insert "\n"))
-          (insert "\n"))
+            (insert "\n")))
+        (insert rule "\n")
         (haystack-tree-mode)
-        (goto-char (point-min))))
+        (goto-char (point-min))
+        (when roots (haystack-tree-next))))
     (select-window
      (display-buffer buf
                      '((display-buffer-below-selected)
