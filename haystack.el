@@ -823,7 +823,6 @@ treated: \\='exclude (default), \\='only, or \\='all."
 (define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
 (define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
 (define-key haystack-results-mode-map "c" #'haystack-copy-moc)
-(define-key haystack-results-mode-map "y" #'haystack-yank-moc)
 (define-key haystack-results-mode-map "?" #'haystack-help)
 
 (define-minor-mode haystack-results-mode
@@ -884,7 +883,6 @@ Returns \"unbound\" if CMD has no binding in that map."
                      ""
                      ";;;;  MOC"
                      (format ";;;;    %-8s  copy moc"        (funcall key 'haystack-copy-moc))
-                     (format ";;;;    %-8s  yank moc"        (funcall key 'haystack-yank-moc))
                      ""
                      ";;;;    q         close this window"
                      rule)
@@ -1110,15 +1108,14 @@ kill ring."
 
 ;;;; Global prefix map
 
-(defvar haystack-prefix-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "s" #'haystack-run-root-search)
-    (define-key map "r" #'haystack-search-region)
-    (define-key map "n" #'haystack-new-note)
-    map)
+(defvar haystack-prefix-map (make-sparse-keymap)
   "Prefix keymap for global haystack commands.
 Not bound by default.  Add to your config, e.g.:
   (global-set-key (kbd \"C-c h\") haystack-prefix-map)")
+(define-key haystack-prefix-map "s" #'haystack-run-root-search)
+(define-key haystack-prefix-map "r" #'haystack-search-region)
+(define-key haystack-prefix-map "n" #'haystack-new-note)
+(define-key haystack-prefix-map "y" #'haystack-yank-moc)
 
 (provide 'haystack)
 ;;; haystack.el ends here

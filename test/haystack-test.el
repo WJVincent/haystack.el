@@ -1310,7 +1310,6 @@ Returns the buffer; caller is responsible for killing it."
                      ("K"   . haystack-kill-subtree)
                      ("M-k" . haystack-kill-whole-tree)
                      ("c"   . haystack-copy-moc)
-                     ("y"   . haystack-yank-moc)
                      ("?"   . haystack-help)))
     (should (eq (lookup-key haystack-results-mode-map (kbd (car binding)))
                 (cdr binding)))))
@@ -1319,7 +1318,8 @@ Returns the buffer; caller is responsible for killing it."
   "Every expected key is bound to the right command in `haystack-prefix-map'."
   (dolist (binding '(("s" . haystack-run-root-search)
                      ("r" . haystack-search-region)
-                     ("n" . haystack-new-note)))
+                     ("n" . haystack-new-note)
+                     ("y" . haystack-yank-moc)))
     (should (eq (lookup-key haystack-prefix-map (kbd (car binding)))
                 (cdr binding)))))
 
@@ -1338,7 +1338,7 @@ Returns the buffer; caller is responsible for killing it."
   (let ((content (haystack--help-content)))
     (dolist (cmd '("next match" "previous match" "filter further"
                    "go up" "kill node" "kill subtree" "kill whole tree"
-                   "copy moc" "yank moc"))
+                   "copy moc"))
       (should (string-match-p cmd content)))))
 
 (ert-deftest haystack-test/haystack-help-creates-buffer ()
