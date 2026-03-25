@@ -1298,5 +1298,55 @@ Returns the buffer; caller is responsible for killing it."
       (haystack-kill-orphans))
     (should (cl-some (lambda (m) (string-match-p "no orphans" m)) msgs))))
 
+;;;; Keymaps
+
+(ert-deftest haystack-test/results-mode-map-bindings ()
+  "Every expected key is bound to the right command in `haystack-results-mode-map'."
+  (dolist (binding '(("n"   . haystack-next-match)
+                     ("p"   . haystack-previous-match)
+                     ("f"   . haystack-filter-further)
+                     ("u"   . haystack-go-up)
+                     ("k"   . haystack-kill-node)
+                     ("K"   . haystack-kill-subtree)
+                     ("M-k" . haystack-kill-whole-tree)
+                     ("c"   . haystack-copy-moc)
+                     ("y"   . haystack-yank-moc)
+                     ("?"   . haystack-help)))
+    (should (eq (lookup-key haystack-results-mode-map (kbd (car binding)))
+                (cdr binding)))))
+
+(ert-deftest haystack-test/prefix-map-bindings ()
+  "Every expected key is bound to the right command in `haystack-prefix-map'."
+  (dolist (binding '(("s" . haystack-run-root-search)
+                     ("r" . haystack-search-region)
+                     ("n" . haystack-new-note)))
+    (should (eq (lookup-key haystack-prefix-map (kbd (car binding)))
+                (cdr binding)))))
+
+;;;; haystack-help
+
+(ert-deftest haystack-test/help-key-returns-binding ()
+  "Returns the key description for a bound command."
+  (should (equal (haystack--help-key 'haystack-next-match) "n")))
+
+(ert-deftest haystack-test/help-key-returns-unbound-for-unknown ()
+  "Returns \"unbound\" for a command not in the results map."
+  (should (equal (haystack--help-key 'undefined-command-xyz) "unbound")))
+
+(ert-deftest haystack-test/help-content-contains-all-commands ()
+  "Help content mentions every user-facing command."
+  (let ((content (haystack--help-content)))
+    (dolist (cmd '("next match" "previous match" "filter further"
+                   "go up" "kill node" "kill subtree" "kill whole tree"
+                   "copy moc" "yank moc"))
+      (should (string-match-p cmd content)))))
+
+(ert-deftest haystack-test/haystack-help-creates-buffer ()
+  "haystack-help creates and displays *haystack-help*."
+  (haystack-help)
+  (let ((buf (get-buffer "*haystack-help*")))
+    (should (buffer-live-p buf))
+    (kill-buffer buf)))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

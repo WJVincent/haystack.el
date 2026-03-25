@@ -824,6 +824,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
 (define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
 (define-key haystack-results-mode-map "c" #'haystack-copy-moc)
 (define-key haystack-results-mode-map "y" #'haystack-yank-moc)
+(define-key haystack-results-mode-map "?" #'haystack-help)
 
 (define-minor-mode haystack-results-mode
   "Minor mode active in all haystack results buffers.
@@ -850,6 +851,60 @@ another window."
   (compilation-next-error (- (or n 1)))
   (save-selected-window
     (compile-goto-error)))
+
+;;;; Help
+
+(defun haystack--help-key (cmd)
+  "Return a human-readable key string for CMD in `haystack-results-mode-map'.
+Returns \"unbound\" if CMD has no binding in that map."
+  (let ((keys (where-is-internal cmd haystack-results-mode-map)))
+    (if keys (key-description (car keys)) "unbound")))
+
+(defun haystack--help-content ()
+  "Return the formatted string for the haystack help buffer."
+  (let ((rule (concat ";;;;" (make-string 50 ?-)))
+        (key  #'haystack--help-key))
+    (mapconcat #'identity
+               (list rule
+                     ";;;;  Haystack — results buffer commands"
+                     rule
+                     ""
+                     ";;;;  Navigation"
+                     (format ";;;;    %-8s  next match"      (funcall key 'haystack-next-match))
+                     (format ";;;;    %-8s  previous match"  (funcall key 'haystack-previous-match))
+                     ""
+                     ";;;;  Filter"
+                     (format ";;;;    %-8s  filter further"  (funcall key 'haystack-filter-further))
+                     ""
+                     ";;;;  Tree"
+                     (format ";;;;    %-8s  go up"           (funcall key 'haystack-go-up))
+                     (format ";;;;    %-8s  kill node"       (funcall key 'haystack-kill-node))
+                     (format ";;;;    %-8s  kill subtree"    (funcall key 'haystack-kill-subtree))
+                     (format ";;;;    %-8s  kill whole tree" (funcall key 'haystack-kill-whole-tree))
+                     ""
+                     ";;;;  MOC"
+                     (format ";;;;    %-8s  copy moc"        (funcall key 'haystack-copy-moc))
+                     (format ";;;;    %-8s  yank moc"        (funcall key 'haystack-yank-moc))
+                     ""
+                     ";;;;    q         close this window"
+                     rule)
+               "\n")))
+
+;;;###autoload
+(defun haystack-help ()
+  "Show a popup window listing all haystack results buffer commands."
+  (interactive)
+  (let ((buf (get-buffer-create "*haystack-help*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (haystack--help-content))
+        (special-mode)
+        (goto-char (point-min))))
+    (select-window
+     (display-buffer buf
+                     '((display-buffer-below-selected)
+                       (window-height . fit-window-to-buffer))))))
 
 ;;;; Buffer tree navigation
 
