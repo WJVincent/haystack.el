@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get install -y emacs-nox ripgrep
+
+      - name: Run tests and benchmarks
+        run: |
+          emacs --batch \
+            -l ert \
+            -l haystack.el \
+            -l test/haystack-test.el \
+            -l test/haystack-bench.el \
+            -f ert-run-tests-batch-and-exit

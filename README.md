@@ -194,6 +194,33 @@ Links are formatted based on the destination file's extension:
 
 `haystack-regenerate-frontmatter` rebuilds the frontmatter block in an existing note, preserving everything after the sentinel.
 
+## Benchmarks
+
+Numbers below are from the ERT benchmark suite (`test/haystack-bench.el`), which asserts a 500ms ceiling per operation. Each test generates synthetic ripgrep output at scale and times the pure Elisp processing — no disk I/O involved.
+
+Run `./bench.sh` to reproduce. Update this table before tagging a release or after touching a hot path.
+
+_Last recorded: 2026-03-24 — 13th Gen Intel Core i7-13700KF_
+
+| Benchmark                                     | Time    |
+|-----------------------------------------------|---------|
+| count-search-stats 10k lines                  | 0.0099s |
+| count-search-stats 100k lines                 | 0.1159s |
+| extract-filenames 10k lines                   | 0.0231s |
+| extract-filenames 100k lines                  | 0.2813s |
+| extract-file-loci 10k lines                   | 0.0249s |
+| extract-file-loci 100k lines                  | 0.3023s |
+| strip-notes-prefix 10k lines                  | 0.0042s |
+| strip-notes-prefix 100k lines                 | 0.0707s |
+| truncate-output 10k lines                     | 0.0230s |
+| truncate-output 100k lines                    | 0.2633s |
+| tree-render realistic (~65 bufs)              | 0.0013s |
+| tree-render stress (~570 bufs)                | 0.0577s |
+
+CI runs the same suite on GitHub Actions (ubuntu-latest) as a regression gate. If the 500ms ceiling holds on that hardware it holds everywhere.
+
+---
+
 ## Design
 
 **No cognitive overhead.** The friction that kills note-taking habits is rarely the writing — it is the pressure to file things correctly before you can write them. Haystack removes that pressure. Drop notes anywhere in your directory and find them later.

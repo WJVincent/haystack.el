@@ -8,14 +8,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Bug Fixes
-- Negation filter (`!term`) passes raw user input to rg instead of `regexp-quote`'d pattern — `!C++` errors because `+` is an invalid regex quantifier. Fix: pass `pattern` instead of `term` to `haystack--run-negation-filter`.
+- Negation filter (`!term`) was passing raw user input to rg instead of the `regexp-quote`'d pattern — `!C++` errored because `+` is an invalid regex quantifier. Fixed by passing `pattern` instead of `term` to `haystack--run-negation-filter`.
 
-### Documentation
-- `claude.md` has three inaccuracies to correct: results buffers use `define-minor-mode` (not `define-derived-mode`); rg invocation uses `xargs -r -a` (not `--files-from`); `/` filename prefix is missing from the Input Prefix Summary table.
-- Rename `haystack--sentinel-regexp` to `haystack--sentinel-string` (it is a literal string, not a regex).
+### Added
+- `haystack--display-term`: normalises whitespace (collapses newlines/tabs to single spaces) and truncates long terms as `first13...last13` for display in buffer names, headers, and the tree view. Fixes a UX problem where `haystack-search-region` on a paragraph produced unwieldy buffer names containing newlines. The full term is preserved in the search descriptor and passed to rg unchanged.
 
-### Default Value
-- `haystack-moc-code-style` defaults to `'data` but the data formatter falls back to comment style unconditionally. Change default to `'comment` to reflect actual behavior.
+### Changed
+- `haystack-moc-code-style` default changed from `'data` to `'comment` to reflect actual behaviour (the data formatter unconditionally falls back to comment style).
+- Renamed `haystack--sentinel-regexp` to `haystack--sentinel-string` — it is a literal string, not a regex.
+
+### Internal / Documentation
+- `claude.md` corrected: results buffers use `define-minor-mode` (not `define-derived-mode`); rg invocation uses `xargs -r -a` (not `--files-from`); `/` filename prefix added to the Input Prefix Summary table.
 
 ---
 

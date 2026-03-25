@@ -1483,6 +1483,39 @@ Returns the buffer; caller is responsible for killing it."
     (should (buffer-live-p buf))
     (kill-buffer buf)))
 
+;;;; haystack--display-term
+
+(ert-deftest haystack-test/display-term-short-passthrough ()
+  "Terms 30 chars or shorter are returned as-is."
+  (should (equal (haystack--display-term "rust") "rust"))
+  (should (equal (haystack--display-term (make-string 30 ?x))
+                 (make-string 30 ?x))))
+
+(ert-deftest haystack-test/display-term-truncates-long ()
+  "Terms longer than 30 chars get first-13...last-13 truncation."
+  (let* ((term "abcdefghijklmnopqrstuvwxyz0123456789")  ; 36 chars
+         (result (haystack--display-term term)))
+    (should (equal result "abcdefghijklm...xyz0123456789"))
+    (should (string-prefix-p "abcdefghijklm" result))
+    (should (string-suffix-p "xyz0123456789" result))
+    (should (string-match-p "\\.\\.\\." result))))
+
+(ert-deftest haystack-test/display-term-normalises-whitespace ()
+  "Newlines and tabs are collapsed to single spaces and trimmed."
+  (should (equal (haystack--display-term "  foo\n\nbar\t baz  ")
+                 "foo bar baz")))
+
+(ert-deftest haystack-test/display-term-paragraph-gets-truncated ()
+  "A paragraph selection collapses whitespace and truncates."
+  (let* ((para "This is a long paragraph that someone selected by accident.")
+         (result (haystack--display-term para)))
+    ;; Must not contain newlines or runs of spaces.
+    (should-not (string-match-p "\n" result))
+    ;; Must be at most 29 chars (13+3+13) after truncation.
+    (should (<= (length result) 29))
+    ;; Must contain the ellipsis marker.
+    (should (string-match-p "\\.\\.\\." result))))
+
 ;;;; haystack--tree-term-label
 
 (ert-deftest haystack-test/tree-term-label-bare ()

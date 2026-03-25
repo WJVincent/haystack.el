@@ -616,18 +616,19 @@ Combines the root term, all existing filters from DESCRIPTOR, and the
 CURRENT-TERM being applied.  CURRENT-NEGATED and CURRENT-FILENAME control
 the label (filter=, exclude=, filename=, or !filename=)."
   (let* ((root-label (if (plist-get descriptor :root-filename) "filename" "root"))
-         (parts (list (format "%s=%s" root-label (plist-get descriptor :root-term)))))
+         (parts (list (format "%s=%s" root-label
+                              (haystack--display-term (plist-get descriptor :root-term))))))
     (dolist (f (plist-get descriptor :filters))
       (setq parts (nconc parts
                          (list (format "%s=%s"
                                        (haystack--filter-label (plist-get f :negated)
                                                                (plist-get f :filename))
-                                       (plist-get f :term))))))
+                                       (haystack--display-term (plist-get f :term)))))))
     (setq parts (nconc parts
                        (list (format "%s=%s"
                                      (haystack--filter-label current-negated
                                                              current-filename)
-                                     current-term))))
+                                     (haystack--display-term current-term)))))
     (mapconcat #'identity parts " > ")))
 
 (defun haystack--child-buffer-name (descriptor new-term new-negated
@@ -849,7 +850,8 @@ treated: \\='exclude (default), \\='only, or \\='all."
                            (haystack--tree-term-label term nil filename
                                                       (plist-get parsed :literal)
                                                       (plist-get parsed :regex))))
-         (chain-label (format "%s=%s" (if filename "filename" "root") term))
+         (chain-label (format "%s=%s" (if filename "filename" "root")
+                              (haystack--display-term term)))
          (header   (haystack--format-header chain-label (car stats) (cdr stats)))
          (descriptor (list :root-term        term
                            :root-expanded    (if filename "." pattern)
@@ -1077,6 +1079,18 @@ Skips past tree art characters (spaces, │, ├, └, ─)."
        (and parent (buffer-live-p parent))))
    (haystack--all-haystack-buffers)))
 
+(defun haystack--display-term (term)
+  "Return TERM suitable for display in buffer names and headers.
+Collapses all whitespace runs (including newlines) to single spaces and
+trims leading/trailing whitespace.  If the result exceeds 30 characters,
+it is truncated to \"FIRST...LAST\" where FIRST and LAST are each 13
+characters, keeping both ends of the term visible."
+  (let* ((normalised (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " term)))
+         (len        (length normalised)))
+    (if (<= len 30)
+        normalised
+      (concat (substring normalised 0 13) "..." (substring normalised (- len 13))))))
+
 (defun haystack--tree-term-label (term negated filename literal regex)
   "Return TERM prefixed with its modifier characters for display.
 Negation maps to !, filename to /, regex to ~, literal to =."
@@ -1084,7 +1098,7 @@ Negation maps to !, filename to /, regex to ~, literal to =."
           (cond (filename "/")
                 (regex    "~")
                 (literal  "="))
-          term))
+          (haystack--display-term term)))
 
 (defun haystack--tree-render-node (buf current-buf prefix connector depth)
   "Insert a rendered line for BUF, then recurse into its children.
