@@ -217,7 +217,7 @@ _Last recorded: 2026-03-24 — 13th Gen Intel Core i7-13700KF_
 | tree-render realistic (~65 bufs)              | 0.0013s |
 | tree-render stress (~570 bufs)                | 0.0577s |
 
-CI runs the same suite on GitHub Actions (ubuntu-latest) as a regression gate. If the 500ms ceiling holds on that hardware it holds everywhere.
+CI runs the same suite on GitHub Actions (ubuntu-latest) as a regression gate. If the 2s ceiling holds on that hardware it should be fine most anywhere else.
 
 ---
 
