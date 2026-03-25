@@ -817,6 +817,13 @@ treated: \\='exclude (default), \\='only, or \\='all."
   (let ((map (make-sparse-keymap)))
     (define-key map "n" #'haystack-next-match)
     (define-key map "p" #'haystack-previous-match)
+    (define-key map "f" #'haystack-filter-further)
+    (define-key map "u" #'haystack-go-up)
+    (define-key map "k" #'haystack-kill-node)
+    (define-key map "K" #'haystack-kill-subtree)
+    (define-key map (kbd "M-k") #'haystack-kill-whole-tree)
+    (define-key map "c" #'haystack-copy-moc)
+    (define-key map "y" #'haystack-yank-moc)
     map)
   "Keymap active in haystack results buffers (on top of `grep-mode').")
 
@@ -1047,6 +1054,18 @@ kill ring."
                           "\n")))
     (kill-new text)
     (insert text "\n")))
+
+;;;; Global prefix map
+
+(defvar haystack-prefix-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "s" #'haystack-run-root-search)
+    (define-key map "r" #'haystack-search-region)
+    (define-key map "n" #'haystack-new-note)
+    map)
+  "Prefix keymap for global haystack commands.
+Not bound by default.  Add to your config, e.g.:
+  (global-set-key (kbd \"C-c h\") haystack-prefix-map)")
 
 (provide 'haystack)
 ;;; haystack.el ends here
