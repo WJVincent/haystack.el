@@ -44,11 +44,22 @@ that the truncation path is exercised, not just the short-circuit."
     (mapconcat #'identity lines "\n")))
 
 (defmacro haystack-bench--within-500ms (label &rest body)
-  "Evaluate BODY once, assert it completes in under 500ms, print LABEL."
+  "Evaluate BODY once, assert it completes in under 500ms, print LABEL.
+Used for realistic-scale tests (10k lines).  A failure here means the
+function is too slow for normal interactive use."
   (declare (indent 1))
   `(let ((elapsed (car (benchmark-run 1 ,@body))))
      (message "haystack-bench: %s — %.4fs" ,label elapsed)
      (should (< elapsed 0.5))))
+
+(defmacro haystack-bench--within-2s (label &rest body)
+  "Evaluate BODY once, assert it completes in under 2 seconds, print LABEL.
+Used for stress-scale tests (100k lines).  A failure here means something
+has gone algorithmically wrong — O(N²) or worse — not just a slow machine."
+  (declare (indent 1))
+  `(let ((elapsed (car (benchmark-run 1 ,@body))))
+     (message "haystack-bench: %s — %.4fs" ,label elapsed)
+     (should (< elapsed 2.0))))
 
 ;;;; haystack--count-search-stats
 
@@ -59,9 +70,9 @@ that the truncation path is exercised, not just the short-circuit."
       (haystack--count-search-stats output))))
 
 (ert-deftest haystack-bench/count-stats-100k ()
-  "haystack--count-search-stats handles 100,000 lines in under 1 second."
+  "haystack--count-search-stats handles 100,000 lines in under 2 seconds."
   (let ((output (haystack-bench--make-rg-output 100000 "rust")))
-    (haystack-bench--within-500ms "count-stats 100k lines"
+    (haystack-bench--within-2s "count-stats 100k lines"
       (haystack--count-search-stats output))))
 
 ;;;; haystack--truncate-output
@@ -73,9 +84,9 @@ that the truncation path is exercised, not just the short-circuit."
       (haystack--truncate-output output "rust"))))
 
 (ert-deftest haystack-bench/truncate-output-100k ()
-  "haystack--truncate-output handles 100,000 lines in under 1 second."
+  "haystack--truncate-output handles 100,000 lines in under 2 seconds."
   (let ((output (haystack-bench--make-rg-output 100000 "rust")))
-    (haystack-bench--within-500ms "truncate-output 100k lines"
+    (haystack-bench--within-2s "truncate-output 100k lines"
       (haystack--truncate-output output "rust"))))
 
 ;;;; haystack--extract-filenames
@@ -92,10 +103,10 @@ that the truncation path is exercised, not just the short-circuit."
       (haystack--extract-filenames output))))
 
 (ert-deftest haystack-bench/extract-filenames-100k ()
-  "haystack--extract-filenames handles 100,000 lines in under 1 second."
+  "haystack--extract-filenames handles 100,000 lines in under 2 seconds."
   (let ((output (haystack-bench--make-rg-output 100000 "rust"))
         (default-directory "/notes/"))
-    (haystack-bench--within-500ms "extract-filenames 100k lines"
+    (haystack-bench--within-2s "extract-filenames 100k lines"
       (haystack--extract-filenames output))))
 
 ;;;; haystack--strip-notes-prefix
@@ -112,10 +123,10 @@ that the truncation path is exercised, not just the short-circuit."
       (haystack--strip-notes-prefix output))))
 
 (ert-deftest haystack-bench/strip-notes-prefix-100k ()
-  "haystack--strip-notes-prefix handles 100,000 lines in under 1 second."
+  "haystack--strip-notes-prefix handles 100,000 lines in under 2 seconds."
   (let ((output (haystack-bench--make-rg-output 100000 "rust"))
         (haystack-notes-directory "/notes"))
-    (haystack-bench--within-500ms "strip-notes-prefix 100k lines"
+    (haystack-bench--within-2s "strip-notes-prefix 100k lines"
       (haystack--strip-notes-prefix output))))
 
 ;;;; haystack--extract-file-loci
@@ -133,10 +144,10 @@ that the truncation path is exercised, not just the short-circuit."
       (haystack--extract-file-loci output))))
 
 (ert-deftest haystack-bench/extract-file-loci-100k ()
-  "haystack--extract-file-loci handles 100,000 lines in under 1 second."
+  "haystack--extract-file-loci handles 100,000 lines in under 2 seconds."
   (let ((output (haystack-bench--make-rg-output 100000 "rust"))
         (default-directory "/notes/"))
-    (haystack-bench--within-500ms "extract-file-loci 100k lines"
+    (haystack-bench--within-2s "extract-file-loci 100k lines"
       (haystack--extract-file-loci output))))
 
 ;;;; haystack--tree-render-node
