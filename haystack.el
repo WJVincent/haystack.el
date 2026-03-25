@@ -842,6 +842,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
 (define-key haystack-results-mode-map "p" #'haystack-previous-match)
 (define-key haystack-results-mode-map "f" #'haystack-filter-further)
 (define-key haystack-results-mode-map "u" #'haystack-go-up)
+(define-key haystack-results-mode-map "d" #'haystack-go-down)
 (define-key haystack-results-mode-map "k" #'haystack-kill-node)
 (define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
 (define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
@@ -902,6 +903,7 @@ Returns \"unbound\" if CMD has no binding in that map."
                      ";;;;  Tree"
                      (format ";;;;    %-8s  show tree"       (funcall key 'haystack-show-tree))
                      (format ";;;;    %-8s  go up"           (funcall key 'haystack-go-up))
+                     (format ";;;;    %-8s  go down"         (funcall key 'haystack-go-down))
                      (format ";;;;    %-8s  kill node"       (funcall key 'haystack-kill-node))
                      (format ";;;;    %-8s  kill subtree"    (funcall key 'haystack-kill-subtree))
                      (format ";;;;    %-8s  kill whole tree" (funcall key 'haystack-kill-whole-tree))
@@ -1173,6 +1175,74 @@ Messages and does nothing if this is a root buffer or the parent is dead."
     (message "Haystack: parent buffer is no longer live"))
    (t
     (switch-to-buffer haystack--parent-buffer))))
+
+;;;###autoload
+(defun haystack-go-down ()
+  "Navigate to a child haystack buffer.
+If there is exactly one child, switch to it directly.
+If there are multiple children, open a picker buffer to choose from.
+Signals a user-error if there are no children."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (let ((children (haystack--children-of (current-buffer))))
+    (cond
+     ((null children)
+      (user-error "Haystack: no child buffers"))
+     ((= 1 (length children))
+      (switch-to-buffer (car children)))
+     (t
+      (haystack--show-children-picker children)))))
+
+(define-derived-mode haystack-children-mode special-mode "Haystack-Children"
+  "Major mode for the haystack children picker buffer.")
+
+(define-key haystack-children-mode-map "n"         #'next-line)
+(define-key haystack-children-mode-map "p"         #'previous-line)
+(define-key haystack-children-mode-map (kbd "RET") #'haystack-children-visit)
+
+(defun haystack-children-visit ()
+  "Switch to the haystack buffer on the current line and close the picker."
+  (interactive)
+  (let ((buf (get-text-property (point) 'haystack-children-buffer)))
+    (unless (and buf (buffer-live-p buf))
+      (user-error "Haystack: no buffer at point"))
+    (quit-window)
+    (switch-to-buffer buf)))
+
+(defun haystack--show-children-picker (children)
+  "Display a picker buffer listing CHILDREN for selection."
+  (let ((buf (get-buffer-create "*haystack-children*"))
+        (rule (concat ";;;;" (make-string 50 ?-))))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert rule "\n")
+        (dolist (child children)
+          (let* ((descriptor (buffer-local-value 'haystack--search-descriptor child))
+                 (filters    (plist-get descriptor :filters))
+                 (term       (if filters
+                                 (let ((f (car (last filters))))
+                                   (haystack--tree-term-label
+                                    (plist-get f :term)    (plist-get f :negated)
+                                    (plist-get f :filename) (plist-get f :literal)
+                                    (plist-get f :regex)))
+                               (haystack--tree-term-label
+                                (plist-get descriptor :root-term) nil
+                                (plist-get descriptor :root-filename)
+                                (plist-get descriptor :root-literal)
+                                (plist-get descriptor :root-regex))))
+                 (start (point)))
+            (insert term "\n")
+            (put-text-property start (1- (point)) 'haystack-children-buffer child)))
+        (insert rule "\n")
+        (haystack-children-mode)
+        ;; Land on first entry
+        (goto-char (point-min))
+        (forward-line 1)))
+    (select-window
+     (display-buffer buf
+                     '((display-buffer-below-selected)
+                       (window-height . fit-window-to-buffer))))))
 
 ;;;###autoload
 (defun haystack-kill-node ()

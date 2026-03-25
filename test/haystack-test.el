@@ -1202,6 +1202,92 @@ Returns the buffer; caller is responsible for killing it."
       (kill-buffer parent)
       (kill-buffer child))))
 
+;;; haystack-go-down
+
+(ert-deftest haystack-test/go-down-errors-outside-haystack-buffer ()
+  (with-temp-buffer
+    (should-error (haystack-go-down) :type 'user-error)))
+
+(ert-deftest haystack-test/go-down-errors-with-no-children ()
+  "Signals user-error when the buffer has no children."
+  (let ((buf (haystack-test--make-results-buf " *hs-down-none*" nil '(:root-term "rust"))))
+    (unwind-protect
+        (with-current-buffer buf
+          (should-error (haystack-go-down) :type 'user-error))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-test/go-down-switches-directly-with-one-child ()
+  "With one child, switches to it without showing a picker."
+  (let* ((parent (haystack-test--make-results-buf " *hs-down-p*" nil '(:root-term "rust")))
+         (child  (haystack-test--make-results-buf " *hs-down-c*" parent '(:root-term "rust")))
+         (switched-to nil))
+    (unwind-protect
+        (with-current-buffer parent
+          (cl-letf (((symbol-function 'switch-to-buffer)
+                     (lambda (buf) (setq switched-to buf))))
+            (haystack-go-down))
+          (should (eq switched-to child)))
+      (kill-buffer parent)
+      (kill-buffer child))))
+
+(ert-deftest haystack-test/go-down-opens-picker-with-multiple-children ()
+  "With multiple children, opens *haystack-children* picker."
+  (let* ((parent (haystack-test--make-results-buf
+                  " *hs-down-mp*" nil
+                  '(:root-term "rust" :root-filename nil :root-literal nil :root-regex nil)))
+         (c1 (haystack-test--make-results-buf
+              " *hs-down-mc1*" parent
+              '(:root-term "rust" :filters ((:term "async" :negated nil
+                                             :filename nil :literal nil :regex nil)))))
+         (c2 (haystack-test--make-results-buf
+              " *hs-down-mc2*" parent
+              '(:root-term "rust" :filters ((:term "tokio" :negated nil
+                                             :filename nil :literal nil :regex nil))))))
+    (unwind-protect
+        (with-current-buffer parent
+          (cl-letf (((symbol-function 'select-window) #'ignore)
+                    ((symbol-function 'display-buffer) #'ignore))
+            (haystack-go-down))
+          (let ((picker (get-buffer "*haystack-children*")))
+            (should (buffer-live-p picker))
+            (with-current-buffer picker
+              (should (string-match-p "async" (buffer-string)))
+              (should (string-match-p "tokio" (buffer-string))))
+            (kill-buffer picker)))
+      (kill-buffer parent)
+      (kill-buffer c1)
+      (kill-buffer c2))))
+
+(ert-deftest haystack-test/go-down-picker-text-properties ()
+  "Each entry in the picker has a haystack-children-buffer property."
+  (let* ((parent (haystack-test--make-results-buf
+                  " *hs-down-tp*" nil
+                  '(:root-term "rust" :root-filename nil :root-literal nil :root-regex nil)))
+         (c1 (haystack-test--make-results-buf
+              " *hs-down-tp1*" parent
+              '(:root-term "rust" :filters ((:term "async" :negated nil
+                                             :filename nil :literal nil :regex nil)))))
+         (c2 (haystack-test--make-results-buf
+              " *hs-down-tp2*" parent
+              '(:root-term "rust" :filters ((:term "tokio" :negated nil
+                                             :filename nil :literal nil :regex nil))))))
+    (unwind-protect
+        (with-current-buffer parent
+          (cl-letf (((symbol-function 'select-window) #'ignore)
+                    ((symbol-function 'display-buffer) #'ignore))
+            (haystack-go-down))
+          (let ((picker (get-buffer "*haystack-children*")))
+            (unwind-protect
+                (with-current-buffer picker
+                  (goto-char (point-min))
+                  (forward-line 1)
+                  (should (memq (get-text-property (point) 'haystack-children-buffer)
+                                (list c1 c2))))
+              (kill-buffer picker))))
+      (kill-buffer parent)
+      (kill-buffer c1)
+      (kill-buffer c2))))
+
 ;;; haystack-kill-node
 
 (ert-deftest haystack-test/kill-node-errors-outside-haystack-buffer ()
@@ -1318,6 +1404,7 @@ Returns the buffer; caller is responsible for killing it."
                      ("p"   . haystack-previous-match)
                      ("f"   . haystack-filter-further)
                      ("u"   . haystack-go-up)
+                     ("d"   . haystack-go-down)
                      ("k"   . haystack-kill-node)
                      ("K"   . haystack-kill-subtree)
                      ("M-k" . haystack-kill-whole-tree)
@@ -1351,7 +1438,7 @@ Returns the buffer; caller is responsible for killing it."
   "Help content mentions every user-facing command."
   (let ((content (haystack--help-content)))
     (dolist (cmd '("next match" "previous match" "filter further"
-                   "show tree" "go up" "kill node" "kill subtree" "kill whole tree"
+                   "show tree" "go up" "go down" "kill node" "kill subtree" "kill whole tree"
                    "copy moc"))
       (should (string-match-p cmd content)))))
 
