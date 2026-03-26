@@ -2195,13 +2195,330 @@ Returns the buffer; caller is responsible for killing it."
     (should (eq (lookup-key haystack-results-mode-map (kbd (car binding)))
                 (cdr binding)))))
 
+;;;; Frecency engine
+
+(defmacro haystack-test--with-frecency (initial-data &rest body)
+  "Run BODY with `haystack--frecency-data' bound to INITIAL-DATA.
+Saves and restores the global and the dirty flag."
+  (declare (indent 1))
+  `(let ((saved-data  haystack--frecency-data)
+         (saved-dirty haystack--frecency-dirty))
+     (unwind-protect
+         (progn
+           (setq haystack--frecency-data  ,initial-data
+                 haystack--frecency-dirty nil)
+           ,@body)
+       (setq haystack--frecency-data  saved-data
+             haystack--frecency-dirty saved-dirty))))
+
+;;; haystack--frecency-chain-key
+
+(ert-deftest haystack-test/frecency-chain-key-root-only ()
+  "Root-only descriptor produces a single-element list."
+  (should (equal (haystack--frecency-chain-key
+                  '(:root-term "rust" :root-filename nil :root-literal nil
+                    :root-regex nil :filters nil))
+                 '("rust"))))
+
+(ert-deftest haystack-test/frecency-chain-key-with-filters ()
+  "Filters are appended with their prefix characters."
+  (should (equal (haystack--frecency-chain-key
+                  '(:root-term "rust" :root-filename nil :root-literal nil
+                    :root-regex nil
+                    :filters ((:term "async" :negated nil :filename nil
+                                :literal nil :regex nil)
+                               (:term "cargo" :negated t :filename nil
+                                :literal nil :regex nil))))
+                 '("rust" "async" "!cargo"))))
+
+(ert-deftest haystack-test/frecency-chain-key-filename-prefix ()
+  "Filename filters get the / prefix."
+  (should (equal (haystack--frecency-chain-key
+                  '(:root-term "notes" :root-filename nil :root-literal nil
+                    :root-regex nil
+                    :filters ((:term "cargo" :negated nil :filename t
+                                :literal nil :regex nil))))
+                 '("notes" "/cargo"))))
+
+(ert-deftest haystack-test/frecency-chain-key-root-modifiers ()
+  "Root modifier flags are encoded as prefix characters."
+  (should (equal (car (haystack--frecency-chain-key
+                       '(:root-term "cargo" :root-filename t :root-literal nil
+                         :root-regex nil :filters nil)))
+                 "/cargo")))
+
+;;; haystack--frecency-record
+
+(ert-deftest haystack-test/frecency-record-creates-entry ()
+  "Recording a new descriptor creates an entry with count 1."
+  (haystack-test--with-frecency nil
+    (haystack--frecency-record
+     '(:root-term "rust" :root-filename nil :root-literal nil
+       :root-regex nil :filters nil))
+    (let ((entry (assoc '("rust") haystack--frecency-data)))
+      (should entry)
+      (should (= 1 (plist-get (cdr entry) :count))))))
+
+(ert-deftest haystack-test/frecency-record-increments-count ()
+  "Recording the same descriptor a second time increments the count."
+  (haystack-test--with-frecency nil
+    (let ((desc '(:root-term "rust" :root-filename nil :root-literal nil
+                  :root-regex nil :filters nil)))
+      (haystack--frecency-record desc)
+      (haystack--frecency-record desc)
+      (let ((entry (assoc '("rust") haystack--frecency-data)))
+        (should (= 2 (plist-get (cdr entry) :count)))))))
+
+(ert-deftest haystack-test/frecency-record-sets-dirty ()
+  "Recording sets `haystack--frecency-dirty'."
+  (haystack-test--with-frecency nil
+    (haystack--frecency-record
+     '(:root-term "rust" :root-filename nil :root-literal nil
+       :root-regex nil :filters nil))
+    (should haystack--frecency-dirty)))
+
+(ert-deftest haystack-test/frecency-record-distinct-chains ()
+  "Different chains are stored as separate entries."
+  (haystack-test--with-frecency nil
+    (haystack--frecency-record
+     '(:root-term "rust" :root-filename nil :root-literal nil
+       :root-regex nil :filters nil))
+    (haystack--frecency-record
+     '(:root-term "python" :root-filename nil :root-literal nil
+       :root-regex nil :filters nil))
+    (should (= 2 (length haystack--frecency-data)))))
+
+(ert-deftest haystack-test/frecency-record-nil-interval-flushes ()
+  "When `haystack-frecency-save-interval' is nil, recording flushes immediately."
+  (haystack-test--with-notes-dir
+    (haystack-test--with-frecency nil
+      (let ((haystack-frecency-save-interval nil))
+        (haystack--frecency-record
+         '(:root-term "rust" :root-filename nil :root-literal nil
+           :root-regex nil :filters nil))
+        (should (not haystack--frecency-dirty))
+        (should (file-exists-p (haystack--frecency-file)))))))
+
+;;; haystack--frecency-score
+
+(ert-deftest haystack-test/frecency-score-recent-entry ()
+  "An entry accessed just now has score ≈ count (days ≈ 0 → clamped to 1)."
+  (let ((entry (cons '("rust")
+                     (list :count 5 :last-access (float-time)))))
+    (should (= 5.0 (haystack--frecency-score entry)))))
+
+(ert-deftest haystack-test/frecency-score-old-entry ()
+  "An entry accessed 5 days ago has score ≈ count / 5."
+  (let* ((five-days-ago (- (float-time) (* 5 86400)))
+         (entry (cons '("rust")
+                      (list :count 10 :last-access five-days-ago))))
+    (should (< (abs (- 2.0 (haystack--frecency-score entry))) 0.01))))
+
+;;; haystack--load-frecency / haystack--frecency-flush
+
+(ert-deftest haystack-test/load-frecency-no-file-sets-nil ()
+  "Returns nil when no frecency file exists."
+  (haystack-test--with-notes-dir
+    (haystack--load-frecency)
+    (should (null haystack--frecency-data))))
+
+(ert-deftest haystack-test/frecency-flush-writes-file ()
+  "Flush writes data to disk and clears the dirty flag."
+  (haystack-test--with-notes-dir
+    (haystack-test--with-frecency (list (cons '("rust") '(:count 1 :last-access 0.0)))
+      (setq haystack--frecency-dirty t)
+      (haystack--frecency-flush)
+      (should (file-exists-p (haystack--frecency-file)))
+      (should-not haystack--frecency-dirty))))
+
+(ert-deftest haystack-test/frecency-flush-skips-when-clean ()
+  "Flush does nothing when not dirty."
+  (haystack-test--with-notes-dir
+    (haystack-test--with-frecency nil
+      (setq haystack--frecency-dirty nil)
+      (haystack--frecency-flush)
+      (should-not (file-exists-p (haystack--frecency-file))))))
+
+(ert-deftest haystack-test/frecency-round-trips ()
+  "Data written by flush is read back correctly by load."
+  (haystack-test--with-notes-dir
+    (let* ((now   (float-time))
+           (data  (list (cons '("rust" "async") (list :count 3 :last-access now)))))
+      (haystack-test--with-frecency data
+        (setq haystack--frecency-dirty t)
+        (haystack--frecency-flush))
+      (haystack-test--with-frecency nil
+        (haystack--load-frecency)
+        (let ((entry (assoc '("rust" "async") haystack--frecency-data)))
+          (should entry)
+          (should (= 3 (plist-get (cdr entry) :count))))))))
+
+;;; integration: run-root-search records frecency
+
+(ert-deftest haystack-test/run-root-search-records-frecency ()
+  "haystack-run-root-search records an entry in haystack--frecency-data."
+  (haystack-test--with-frecency nil
+    (haystack-test--with-notes-dir
+      (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+        (with-temp-file note (insert "rust content\n")))
+      (let (created-buf)
+        (cl-letf (((symbol-function 'pop-to-buffer)
+                   (lambda (buf &rest _) (setq created-buf buf))))
+          (haystack-run-root-search "rust"))
+        (when (buffer-live-p created-buf) (kill-buffer created-buf)))
+      (should (assoc '("rust") haystack--frecency-data)))))
+
+;;; haystack-describe-frecent / haystack-frecent-mode
+
+(defmacro haystack-test--with-frecent-buf (initial-data &rest body)
+  "Open *haystack-frecent* with INITIAL-DATA and run BODY inside it.
+`haystack--load-frecency' is stubbed so in-memory data is preserved."
+  (declare (indent 1))
+  `(haystack-test--with-frecency ,initial-data
+     (cl-letf (((symbol-function 'haystack--load-frecency) #'ignore))
+       (haystack-describe-frecent))
+     (unwind-protect
+         (with-current-buffer "*haystack-frecent*"
+           ,@body)
+       (when (get-buffer "*haystack-frecent*")
+         (kill-buffer "*haystack-frecent*")))))
+
+(ert-deftest haystack-test/describe-frecent-creates-buffer ()
+  "haystack-describe-frecent creates the *haystack-frecent* buffer."
+  (haystack-test--with-frecent-buf nil
+    (should (get-buffer "*haystack-frecent*"))))
+
+(ert-deftest haystack-test/describe-frecent-default-sort-is-score ()
+  "Default sort order is `score'."
+  (haystack-test--with-frecent-buf nil
+    (should (eq haystack--frecent-sort-order 'score))))
+
+(ert-deftest haystack-test/describe-frecent-shows-entries ()
+  "Each recorded chain appears in the buffer."
+  (let* ((now  (float-time))
+         (data (list (cons '("rust") (list :count 5 :last-access now))
+                     (cons '("python") (list :count 2 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (should (string-match-p "rust" (buffer-string)))
+      (should (string-match-p "python" (buffer-string))))))
+
+(ert-deftest haystack-test/describe-frecent-chain-text-property ()
+  "Entry lines carry a `haystack-frecent-chain' text property."
+  (let* ((now  (float-time))
+         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (goto-char (point-min))
+      (let (found)
+        (while (and (not found) (not (eobp)))
+          (when (get-text-property (point) 'haystack-frecent-chain)
+            (setq found t))
+          (forward-line 1))
+        (should found)))))
+
+(ert-deftest haystack-test/frecent-toggle-sort-cycles ()
+  "s cycles score → frequency → recency → score."
+  (haystack-test--with-frecent-buf nil
+    (should (eq haystack--frecent-sort-order 'score))
+    (haystack-frecent-toggle-sort)
+    (should (eq haystack--frecent-sort-order 'frequency))
+    (haystack-frecent-toggle-sort)
+    (should (eq haystack--frecent-sort-order 'recency))
+    (haystack-frecent-toggle-sort)
+    (should (eq haystack--frecent-sort-order 'score))))
+
+(ert-deftest haystack-test/frecent-sort-score ()
+  "t sets sort order to score and rerenders."
+  (haystack-test--with-frecent-buf nil
+    (setq haystack--frecent-sort-order 'recency)
+    (haystack-frecent-sort-score)
+    (should (eq haystack--frecent-sort-order 'score))
+    (should (string-match-p "sort: score" (buffer-string)))))
+
+(ert-deftest haystack-test/frecent-sort-frequency ()
+  "f sets sort order to frequency and rerenders."
+  (haystack-test--with-frecent-buf nil
+    (haystack-frecent-sort-frequency)
+    (should (eq haystack--frecent-sort-order 'frequency))
+    (should (string-match-p "sort: frequency" (buffer-string)))))
+
+(ert-deftest haystack-test/frecent-sort-recency ()
+  "r sets sort order to recency and rerenders."
+  (haystack-test--with-frecent-buf nil
+    (haystack-frecent-sort-recency)
+    (should (eq haystack--frecent-sort-order 'recency))
+    (should (string-match-p "sort: recency" (buffer-string)))))
+
+(ert-deftest haystack-test/frecent-kill-entry-removes-from-data ()
+  "k removes the entry from haystack--frecency-data."
+  (let* ((now  (float-time))
+         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (goto-char (point-min))
+      (while (and (not (get-text-property (point) 'haystack-frecent-chain))
+                  (not (eobp)))
+        (forward-line 1))
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
+        (haystack-frecent-kill-entry))
+      (should (null (assoc '("rust") haystack--frecency-data))))))
+
+(ert-deftest haystack-test/frecent-kill-entry-sets-dirty ()
+  "k sets the frecency dirty flag."
+  (let* ((now  (float-time))
+         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (goto-char (point-min))
+      (while (and (not (get-text-property (point) 'haystack-frecent-chain))
+                  (not (eobp)))
+        (forward-line 1))
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
+        (haystack-frecent-kill-entry))
+      (should haystack--frecency-dirty))))
+
+(ert-deftest haystack-test/frecent-kill-entry-aborts-on-no ()
+  "k leaves data intact when user answers no."
+  (let* ((now  (float-time))
+         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (goto-char (point-min))
+      (while (and (not (get-text-property (point) 'haystack-frecent-chain))
+                  (not (eobp)))
+        (forward-line 1))
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) nil)))
+        (haystack-frecent-kill-entry))
+      (should (assoc '("rust") haystack--frecency-data)))))
+
+(ert-deftest haystack-test/frecent-kill-entry-errors-off-entry ()
+  "k signals user-error when point is not on an entry line."
+  (haystack-test--with-frecent-buf nil
+    (goto-char (point-min))
+    (should-error (haystack-frecent-kill-entry) :type 'user-error)))
+
+(ert-deftest haystack-test/frecent-mode-keybindings ()
+  "s/t/f/r/k/? are bound in haystack-frecent-mode-map."
+  (should (eq (lookup-key haystack-frecent-mode-map "s") #'haystack-frecent-toggle-sort))
+  (should (eq (lookup-key haystack-frecent-mode-map "t") #'haystack-frecent-sort-score))
+  (should (eq (lookup-key haystack-frecent-mode-map "f") #'haystack-frecent-sort-frequency))
+  (should (eq (lookup-key haystack-frecent-mode-map "r") #'haystack-frecent-sort-recency))
+  (should (eq (lookup-key haystack-frecent-mode-map "k") #'haystack-frecent-kill-entry))
+  (should (eq (lookup-key haystack-frecent-mode-map "?") #'haystack-frecent-help)))
+
+;;; haystack-frecent errors when empty
+
+(ert-deftest haystack-test/frecent-errors-when-no-data ()
+  "Signals user-error when no frecency entries exist."
+  (haystack-test--with-frecency nil
+    (should-error (haystack-frecent) :type 'user-error)))
+
+;;;; Prefix map
+
 (ert-deftest haystack-test/prefix-map-bindings ()
   "Every expected key is bound to the right command in `haystack-prefix-map'."
   (dolist (binding '(("s" . haystack-run-root-search)
                      ("r" . haystack-search-region)
                      ("n" . haystack-new-note)
                      ("y" . haystack-yank-moc)
-                     ("t" . haystack-show-tree)))
+                     ("t" . haystack-show-tree)
+                     ("f" . haystack-frecent)))
     (should (eq (lookup-key haystack-prefix-map (kbd (car binding)))
                 (cdr binding)))))
 

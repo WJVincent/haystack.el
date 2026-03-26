@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.4.0
+;; Version: 0.5.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -1204,6 +1204,7 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                                  :root-expansion   (plist-get descriptor :root-expansion)
                                  :filters          new-filters
                                  :composite-filter cf)))
+      (haystack--frecency-record new-descriptor)
       (switch-to-buffer
        (haystack--setup-results-buffer
         buf-name header output new-descriptor parent-buf)))))
@@ -1277,6 +1278,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
                            :root-expansion   expansion
                            :filters          nil
                            :composite-filter cf)))
+    (haystack--frecency-record descriptor)
     (pop-to-buffer
      (haystack--setup-results-buffer buf-name header output descriptor))))
 
@@ -1998,6 +2000,346 @@ kill ring."
     (kill-new text)
     (insert text "\n")))
 
+;;;; Frecency engine
+
+(defcustom haystack-frecency-save-interval 60
+  "Idle seconds before frecency data is flushed to disk.
+When nil, data is written immediately on every buffer visit instead of
+being deferred.  Data is always flushed on Emacs shutdown regardless of
+this setting.  Changing this value takes effect immediately."
+  :type '(choice (integer :tag "Idle seconds")
+                 (const   :tag "Save immediately (no timer)" nil))
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (fboundp 'haystack--frecency-setup-timer)
+           (haystack--frecency-setup-timer)))
+  :group 'haystack)
+
+(defvar haystack--frecency-data nil
+  "In-memory frecency alist.
+Each entry: (CHAIN :count N :last-access FLOAT-TIME) where CHAIN is a
+list of prefixed term strings derived from the search descriptor.
+Persisted to `.haystack-frecency.el' in the notes directory.")
+
+(defvar haystack--frecency-dirty nil
+  "Non-nil when `haystack--frecency-data' has unsaved changes.")
+
+(defvar haystack--frecency-timer nil
+  "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
+
+(defun haystack--frecency-file ()
+  "Return the absolute path of the frecency data file."
+  (expand-file-name ".haystack-frecency.el" haystack-notes-directory))
+
+(defun haystack--load-frecency ()
+  "Load frecency data from disk into `haystack--frecency-data'.
+On failure: warn, set nil, continue."
+  (setq haystack--frecency-data
+        (condition-case err
+            (let ((path (haystack--frecency-file)))
+              (if (file-exists-p path)
+                  (with-temp-buffer
+                    (insert-file-contents path)
+                    (read (current-buffer)))
+                nil))
+          (error
+           (message "Haystack: failed to load frecency: %s"
+                    (error-message-string err))
+           nil))))
+
+(defun haystack--frecency-flush ()
+  "Write `haystack--frecency-data' to disk if dirty."
+  (when (and haystack--frecency-dirty
+             haystack-notes-directory
+             (file-directory-p haystack-notes-directory))
+    (condition-case err
+        (progn
+          (with-temp-file (haystack--frecency-file)
+            (let ((print-level nil)
+                  (print-length nil))
+              (pp haystack--frecency-data (current-buffer))))
+          (setq haystack--frecency-dirty nil))
+      (error
+       (message "Haystack: failed to save frecency: %s"
+                (error-message-string err))))))
+
+(defun haystack--frecency-setup-timer ()
+  "Set up (or cancel) the frecency idle timer based on `haystack-frecency-save-interval'.
+Always registers `haystack--frecency-flush' on `kill-emacs-hook'."
+  (when haystack--frecency-timer
+    (cancel-timer haystack--frecency-timer)
+    (setq haystack--frecency-timer nil))
+  (when haystack-frecency-save-interval
+    (setq haystack--frecency-timer
+          (run-with-idle-timer haystack-frecency-save-interval
+                               t #'haystack--frecency-flush)))
+  (add-hook 'kill-emacs-hook #'haystack--frecency-flush))
+
+(defun haystack--frecency-chain-key (descriptor)
+  "Return the frecency chain key for DESCRIPTOR.
+A list of prefixed term strings, e.g. (\"rust\" \"async\" \"!cargo\").
+Prefix characters are preserved; the root term is first."
+  (let* ((root-term (plist-get descriptor :root-term))
+         (root-pfx  (cond ((plist-get descriptor :root-filename) "/")
+                          ((plist-get descriptor :root-literal)  "=")
+                          ((plist-get descriptor :root-regex)    "~")
+                          (t "")))
+         (filter-keys
+          (mapcar (lambda (f)
+                    (concat (if (plist-get f :negated) "!" "")
+                            (cond ((plist-get f :filename) "/")
+                                  ((plist-get f :literal)  "=")
+                                  ((plist-get f :regex)    "~")
+                                  (t ""))
+                            (plist-get f :term)))
+                  (plist-get descriptor :filters))))
+    (cons (concat root-pfx root-term) filter-keys)))
+
+(defun haystack--frecency-record (descriptor)
+  "Record or update a frecency entry for DESCRIPTOR.
+Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
+  (unless haystack--frecency-data
+    (haystack--load-frecency))
+  (let* ((key      (haystack--frecency-chain-key descriptor))
+         (now      (float-time))
+         (existing (assoc key haystack--frecency-data)))
+    (if existing
+        (setcdr existing
+                (list :count      (1+ (plist-get (cdr existing) :count))
+                      :last-access now))
+      (push (cons key (list :count 1 :last-access now))
+            haystack--frecency-data))
+    (setq haystack--frecency-dirty t)
+    (when (null haystack-frecency-save-interval)
+      (haystack--frecency-flush))))
+
+(defun haystack--frecency-score (entry)
+  "Return the frecency score for ENTRY: count / max(days-since-access, 1)."
+  (let* ((props   (cdr entry))
+         (count   (plist-get props :count))
+         (last-ts (plist-get props :last-access))
+         (days    (/ (- (float-time) last-ts) 86400.0)))
+    (/ (float count) (max days 1.0))))
+
+;;; Frecency diagnostic buffer mode
+
+(defvar-local haystack--frecent-sort-order 'score
+  "Current sort order for *haystack-frecent*: `score', `frequency', or `recency'.")
+
+(defun haystack--frecent-sort-entries (entries order)
+  "Return ENTRIES sorted by ORDER (`score', `frequency', or `recency')."
+  (sort (copy-sequence entries)
+        (pcase order
+          ('score     (lambda (a b) (> (haystack--frecency-score a)
+                                       (haystack--frecency-score b))))
+          ('frequency (lambda (a b) (> (plist-get (cdr a) :count)
+                                       (plist-get (cdr b) :count))))
+          (_          (lambda (a b) (> (plist-get (cdr a) :last-access)
+                                       (plist-get (cdr b) :last-access)))))))
+
+(defun haystack--frecent-render ()
+  "Redraw *haystack-frecent* using the current sort order."
+  (let* ((inhibit-read-only t)
+         (entries    (haystack--frecent-sort-entries haystack--frecency-data
+                                                     haystack--frecent-sort-order))
+         (sort-label (pcase haystack--frecent-sort-order
+                       ('score     "score")
+                       ('frequency "frequency")
+                       (_          "recency"))))
+    (erase-buffer)
+    (insert ";;;;------------------------------------------------------------\n")
+    (insert (format ";;;;  Haystack — frecent searches  [sort: %s  |  ?=help]\n"
+                    sort-label))
+    (insert ";;;;------------------------------------------------------------\n\n")
+    (if (null entries)
+        (insert "  (no entries recorded yet)\n")
+      (insert (format "  %-8s  %-6s  %-6s  %s\n" "score" "visits" "days" "chain"))
+      (insert "  --------  ------  ------  ----\n")
+      (dolist (entry entries)
+        (let* ((props      (cdr entry))
+               (score      (haystack--frecency-score entry))
+               (count      (plist-get props :count))
+               (days       (/ (- (float-time) (plist-get props :last-access)) 86400.0))
+               (chain-str  (mapconcat #'identity (car entry) " > "))
+               (line-start (point)))
+          (insert (format "  %8.2f  %6d  %6.1f  %s\n" score count days chain-str))
+          (put-text-property line-start (point)
+                             'haystack-frecent-chain (car entry)))))
+    (insert "\n;;;;------------------------------------------------------------\n")))
+
+(defun haystack-frecent-toggle-sort ()
+  "Cycle sort order: score → frequency → recency → score."
+  (interactive)
+  (setq haystack--frecent-sort-order
+        (pcase haystack--frecent-sort-order
+          ('score     'frequency)
+          ('frequency 'recency)
+          (_          'score)))
+  (haystack--frecent-render)
+  (goto-char (point-min))
+  (message "Haystack frecent: sorting by %s"
+           (symbol-name haystack--frecent-sort-order)))
+
+(defun haystack-frecent-sort-score ()
+  "Sort the frecency buffer by score (visit count / days)."
+  (interactive)
+  (setq haystack--frecent-sort-order 'score)
+  (haystack--frecent-render)
+  (goto-char (point-min))
+  (message "Haystack frecent: sorting by score"))
+
+(defun haystack-frecent-sort-frequency ()
+  "Sort the frecency buffer by visit count."
+  (interactive)
+  (setq haystack--frecent-sort-order 'frequency)
+  (haystack--frecent-render)
+  (goto-char (point-min))
+  (message "Haystack frecent: sorting by frequency"))
+
+(defun haystack-frecent-sort-recency ()
+  "Sort the frecency buffer by most recently accessed."
+  (interactive)
+  (setq haystack--frecent-sort-order 'recency)
+  (haystack--frecent-render)
+  (goto-char (point-min))
+  (message "Haystack frecent: sorting by recency"))
+
+(defun haystack-frecent-kill-entry ()
+  "Kill the frecency entry at point after `y-or-n-p' confirmation."
+  (interactive)
+  (let ((chain (get-text-property (point) 'haystack-frecent-chain)))
+    (unless chain
+      (user-error "Haystack: no frecency entry at point"))
+    (when (y-or-n-p (format "Kill frecency entry '%s'? "
+                             (mapconcat #'identity chain " > ")))
+      (setq haystack--frecency-data
+            (cl-remove-if (lambda (e) (equal (car e) chain))
+                          haystack--frecency-data))
+      (setq haystack--frecency-dirty t)
+      (haystack--frecent-render)
+      (message "Haystack: removed frecency entry"))))
+
+(defun haystack--frecent-help-key (cmd)
+  "Return a human-readable key string for CMD in `haystack-frecent-mode-map'."
+  (let ((keys (where-is-internal cmd haystack-frecent-mode-map)))
+    (if keys (key-description (car keys)) "unbound")))
+
+(defun haystack--frecent-help-content ()
+  "Return the formatted string for the frecency help buffer."
+  (let ((rule (concat ";;;;" (make-string 50 ?-)))
+        (key  #'haystack--frecent-help-key))
+    (mapconcat #'identity
+               (list rule
+                     ";;;;  Haystack — frecent buffer commands"
+                     rule
+                     ""
+                     ";;;;  Sort"
+                     (format ";;;;    %-8s  cycle sort order"           (funcall key 'haystack-frecent-toggle-sort))
+                     (format ";;;;    %-8s  sort by score (frecency)"   (funcall key 'haystack-frecent-sort-score))
+                     (format ";;;;    %-8s  sort by frequency (visits)" (funcall key 'haystack-frecent-sort-frequency))
+                     (format ";;;;    %-8s  sort by recency"            (funcall key 'haystack-frecent-sort-recency))
+                     ""
+                     ";;;;  Entries"
+                     (format ";;;;    %-8s  kill entry at point"        (funcall key 'haystack-frecent-kill-entry))
+                     ""
+                     ";;;;    q         close this window"
+                     rule)
+               "\n")))
+
+(defun haystack-frecent-help ()
+  "Show a popup window listing all frecency buffer commands."
+  (interactive)
+  (let ((buf (get-buffer-create "*haystack-frecent-help*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (haystack--frecent-help-content))
+        (special-mode)
+        (goto-char (point-min))))
+    (select-window
+     (display-buffer buf
+                     '((display-buffer-below-selected)
+                       (window-height . fit-window-to-buffer))))))
+
+(define-derived-mode haystack-frecent-mode special-mode "Haystack-Frecent"
+  "Major mode for the Haystack frecency diagnostic buffer.
+\\{haystack-frecent-mode-map}"
+  :group 'haystack)
+
+(define-key haystack-frecent-mode-map "s" #'haystack-frecent-toggle-sort)
+(define-key haystack-frecent-mode-map "t" #'haystack-frecent-sort-score)
+(define-key haystack-frecent-mode-map "f" #'haystack-frecent-sort-frequency)
+(define-key haystack-frecent-mode-map "r" #'haystack-frecent-sort-recency)
+(define-key haystack-frecent-mode-map "k" #'haystack-frecent-kill-entry)
+(define-key haystack-frecent-mode-map "?" #'haystack-frecent-help)
+
+;;;###autoload
+(defun haystack-describe-frecent ()
+  "Display all recorded frecency entries in a navigable buffer.
+Columns: score, visits, days since last access, search chain.
+\\<haystack-frecent-mode-map>\\[haystack-frecent-sort-score] score  \
+\\[haystack-frecent-sort-frequency] frequency  \
+\\[haystack-frecent-sort-recency] recency  \
+\\[haystack-frecent-kill-entry] kill entry  \
+\\[haystack-frecent-help] help"
+  (interactive)
+  (haystack--load-frecency)
+  (with-current-buffer (get-buffer-create "*haystack-frecent*")
+    (haystack-frecent-mode)
+    (unless (local-variable-p 'haystack--frecent-sort-order)
+      (setq-local haystack--frecent-sort-order 'score))
+    (haystack--frecent-render)
+    (goto-char (point-min))
+    (pop-to-buffer (current-buffer))))
+
+(defun haystack--frecency-replay (chain)
+  "Replay CHAIN and display a leaf results buffer.
+CHAIN is a list of prefixed term strings.  Each step is run internally;
+only the final buffer is kept.  Its parent is set to nil so it stands
+alone in the tree."
+  (let ((current-buf nil))
+    (cl-letf (((symbol-function 'pop-to-buffer)    (lambda (buf &rest _) buf))
+              ((symbol-function 'switch-to-buffer) (lambda (buf &rest _) buf)))
+      (setq current-buf (haystack-run-root-search (car chain)))
+      (dolist (filter-term (cdr chain))
+        (let ((next-buf (with-current-buffer current-buf
+                          (haystack-filter-further filter-term))))
+          (kill-buffer current-buf)
+          (setq current-buf next-buf))))
+    (with-current-buffer current-buf
+      (setq-local haystack--parent-buffer nil))
+    (pop-to-buffer current-buf)
+    current-buf))
+
+;;;###autoload
+(defun haystack-frecent ()
+  "Select a frecent search chain via `completing-read' and replay it.
+Entries are sorted by score (visit count / days since last access).
+Each entry's score is shown as a completion annotation."
+  (interactive)
+  (haystack--load-frecency)
+  (unless haystack--frecency-data
+    (user-error "Haystack: no frecent searches recorded yet"))
+  (let* ((sorted      (sort (copy-sequence haystack--frecency-data)
+                            (lambda (a b) (> (haystack--frecency-score a)
+                                             (haystack--frecency-score b)))))
+         (display-map (make-hash-table :test #'equal))
+         (candidates  (mapcar (lambda (entry)
+                                (let ((str (mapconcat #'identity (car entry) " > ")))
+                                  (puthash str (car entry) display-map)
+                                  str))
+                              sorted))
+         (annot       (lambda (str)
+                        (when-let* ((chain (gethash str display-map))
+                                    (entry (assoc chain haystack--frecency-data)))
+                          (format "  %.1f" (haystack--frecency-score entry)))))
+         (table       (lambda (string pred action)
+                        (if (eq action 'metadata)
+                            `(metadata (annotation-function . ,annot))
+                          (complete-with-action action candidates string pred))))
+         (choice      (completing-read "Haystack frecent: " table nil t)))
+    (haystack--frecency-replay (gethash choice display-map))))
+
 ;;;; Global prefix map
 
 (defvar haystack-prefix-map (make-sparse-keymap)
@@ -2009,6 +2351,9 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "n" #'haystack-new-note)
 (define-key haystack-prefix-map "y" #'haystack-yank-moc)
 (define-key haystack-prefix-map "t" #'haystack-show-tree)
+(define-key haystack-prefix-map "f" #'haystack-frecent)
+
+(haystack--frecency-setup-timer)
 
 (provide 'haystack)
 ;;; haystack.el ends here

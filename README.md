@@ -53,6 +53,7 @@ bindings are reserved for users.
 | `C-c h s` | Search your notes |
 | `C-c h n` | Create a new note |
 | `C-c h r` | Search the active region |
+| `C-c h f` | Jump to a frecent search |
 | `C-c h y` | Yank a MOC at point |
 | `C-c h t` | Show the buffer tree |
 
@@ -111,21 +112,25 @@ into a root search.
 
 ### Input Modifiers
 
-Prefix your search term to change how it is interpreted:
+The filter prompt shows the available prefixes:
+
+```
+[=]literal  [/]filename  [!]negate  [~]regex
+Filter:
+```
 
 | Prefix | Meaning | Example |
 |--------|----------------------------------------|-------------|
-| _(none)_ | Case-insensitive literal search | `rust` |
-| `/` | Filename filter — match against the filename only | `/cargo` |
-| `=` | Exact literal — suppress future expansion | `=async` |
-| `~` | Raw regex — passed directly to ripgrep | `~foo|bar` |
+| _(none)_ | Case-insensitive literal (or synonym-expanded) search | `rust` |
+| `=` | Exact literal — suppress expansion | `=async` |
+| `/` | Filename filter — match path relative to notes directory | `/cargo` |
+| `~` | Raw regex — passed directly to ripgrep | `~foo\|bar` |
 | `!`  | Negate — exclude files containing this term | `!async` |
 
 Modifiers compose: `!/pattern` negates a filename filter; `!~pattern`
-negates a regex. Note that `/` filters narrow to files whose **path relative to the
-notes directory** matches the term (so `sicp` matches both
-`sicp-notes.org` and `sicp-org/README.org`), then show content lines
-matching the root search — you see content hits, not filenames, so
+negates a regex. The `/` prefix matches the **full path relative to the
+notes directory** (so `/sicp` matches both `sicp-notes.org` and
+`sicp-org/README.org`), then shows content lines from the root search —
 grep-mode navigation and MOC features all continue to work.
 
 ## Progressive Filtering
@@ -142,6 +147,52 @@ currently in view, opening a child buffer:
 
 Each buffer in the tree is independent. You can branch, compare
 different filters, and navigate freely between them.
+
+## Expansion Groups
+
+Expansion groups are a synonym system for bridging vocabulary gaps
+without rewriting your notes. When you associate two terms, any
+single-word search for either automatically expands to a ripgrep
+alternation across all members of the group.
+
+```
+;; After (haystack-associate "rust" "rustlang"):
+root=(rust|rustlang)   ← shown in the buffer header
+```
+
+Groups are stored in `.expansion-groups.el` in your notes directory
+and loaded automatically.
+
+### Building Groups
+
+`haystack-associate` links two terms into a group. Run it
+interactively or call it from Elisp:
+
+```
+M-x haystack-associate RET rust RET rustlang RET
+```
+
+Haystack handles all four cases: creating a new group, adding a term to
+an existing group, moving a term from one group to another (with
+confirmation), or detecting that the terms are already grouped
+(no-op).
+
+### Exclusivity Guardrail
+
+If a filter term is already in the root search's expansion group,
+Haystack blocks it and suggests the `=` prefix to search literally
+instead. This prevents pointless redundant filters.
+
+### Managing Groups
+
+| Command | Description |
+|---------|-------------|
+| `haystack-associate` | Link two terms into a group |
+| `haystack-rename-group-root` | Rename the canonical root term of a group |
+| `haystack-dissolve-group` | Remove an entire group; all members revert to literal matching |
+| `haystack-describe-expansion-groups` | Display all groups in a readable buffer |
+| `haystack-validate-groups` | Check for duplicate terms across groups |
+| `haystack-reload-expansion-groups` | Force-reload groups from disk |
 
 ## Results Buffer Keys
 
@@ -217,6 +268,106 @@ Links are formatted based on the destination file's extension:
 | Code files | link in the file's comment syntax |
 | Other | `Title — path:line` |
 
+### Structured Data Output
+
+Set `haystack-moc-code-style` to `'data` to yank language-appropriate
+data structures instead of comment lines when the target buffer is a
+code file:
+
+| Language | Output |
+|----------|--------|
+| JS / TS / JSX / TSX | `const haystack = [{ title, path, line }, ...]` |
+| Python | `haystack = [{"title": ..., "path": ..., "line": ...}, ...]` |
+| Lisp dialects (Elisp, CL, Scheme, Clojure) | `(defvar haystack '((:title ... :path ... :line ...) ...))` |
+| Lua / Fennel | `local haystack = {{ title = ..., path = ..., line = ... }, ...}` |
+
+Each block opens with a comment line containing the full search chain
+for reference.
+
+Add support for any language by writing a function that takes `(loci
+chain)` and returns a string, then registering it:
+
+```elisp
+;; Each locus is a cons cell: (path . line-number)
+;; `chain' is a string like "rust > async" for use as a comment header.
+;;
+;; Example: Ruby array-of-hashes formatter
+(defun my-haystack-moc-ruby (loci chain)
+  (let ((entries
+         (mapcar (lambda (locus)
+                   ;; (car locus) → absolute path string
+                   ;; (cdr locus) → integer line number
+                   (format "  { title: %s, path: %s, line: %d },"
+                           (haystack-moc-quote-string
+                            ;; haystack--pretty-title strips the
+                            ;; timestamp prefix and extension
+                            (haystack--pretty-title
+                             (file-name-nondirectory (car locus))))
+                           (haystack-moc-quote-string (car locus))
+                           (cdr locus)))
+                 loci)))
+    (concat "# haystack: " chain "\n"
+            "HAYSTACK = [\n"
+            (mapconcat #'identity entries "\n")
+            "\n].freeze\n")))
+
+(push '("rb" . my-haystack-moc-ruby) haystack-moc-data-formatters)
+```
+
+`haystack-moc-quote-string` produces a double-quoted string literal
+with internal quotes escaped — useful whenever the output language uses
+`"string"` syntax.
+
+## Frecency
+
+Haystack records every root search and filter step and scores them by
+frecency: `visit_count / max(days_since_last_access, 1)`. Searches you
+run often and recently score highest.
+
+### Jumping to a Frecent Search
+
+`haystack-frecent` (`C-c h f`) presents all recorded search chains via
+`completing-read`, sorted by score. Scores are shown as completion
+annotations. Vertico and Orderless work out of the box.
+
+Selecting an entry replays the full chain internally and surfaces only
+the final result buffer — the intermediate steps are never shown. The
+replayed buffer stands alone in the tree with no parent.
+
+### Inspecting and Managing Frecency
+
+`haystack-describe-frecent` opens a diagnostic buffer showing all
+recorded entries with their score, visit count, and days since last
+access:
+
+```
+;;;;------------------------------------------------------------
+;;;;  Haystack — frecent searches  [sort: score  |  ?=help]
+;;;;------------------------------------------------------------
+
+  score     visits  days    chain
+  --------  ------  ------  ----
+      8.00       8     1.0  rust > async
+      3.00       9     3.0  python > django
+      1.00       1     1.0  lua
+```
+
+| Key | Action |
+|-----|--------|
+| `s` | Cycle sort order (score → frequency → recency → score) |
+| `t` | Sort by score |
+| `f` | Sort by frequency (visit count) |
+| `r` | Sort by recency (last accessed) |
+| `k` | Kill the entry at point (with confirmation) |
+| `?` | Show help |
+
+### Persistence
+
+Frecency data is written to `.haystack-frecency.el` in your notes
+directory. By default it is flushed after 60 seconds of idle time and
+always on Emacs shutdown. Set `haystack-frecency-save-interval` to `nil`
+to write immediately on every buffer visit instead.
+
 ## Customization
 
 | Variable | Default | Description |
@@ -226,6 +377,9 @@ Links are formatted based on the destination file's extension:
 | `haystack-context-width` | `60` | Characters of context shown around each match. |
 | `haystack-file-glob` | `nil` | Restrict searches to files matching these globs (e.g. `("*.org" "*.md")`). |
 | `haystack-frontmatter-functions` | _(see source)_ | Alist of extension → frontmatter generator function. |
+| `haystack-moc-code-style` | `'comment` | MOC output style for code files: `'comment` for per-line links, `'data` for a language-appropriate data structure. |
+| `haystack-moc-data-formatters` | _(built-ins)_ | Alist of extension → `(loci chain) → string` formatter. Extend to add new languages. |
+| `haystack-frecency-save-interval` | `60` | Idle seconds before flushing frecency data to disk. `nil` writes immediately on every visit. |
 
 ### Regenerating Frontmatter
 

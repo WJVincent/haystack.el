@@ -9,28 +9,68 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.5.0] — 2026-03-25
+
+### Added
+- **Frecency engine** — records every root search and filter step;
+  scores entries as `count / max(days_since_access, 1)`; persists to
+  `.haystack-frecency.el` in the notes directory.
+  - `haystack-frecent` (`C-c h f`) — `completing-read` interface
+    sorted by score descending; selects a recorded search chain and
+    replays it, materialising only the final result buffer (leaf-only
+    replay).
+  - `haystack-describe-frecent` — diagnostic buffer showing all
+    recorded chains with score, visit count, and days since last
+    access.
+    - `t` sort by score (default), `f` by frequency, `r` by recency;
+      `s` cycles through all three.
+    - `k` kills the entry at point after `y-or-n-p` confirmation.
+    - `?` opens a help popup listing all buffer commands.
+  - `haystack-frecency-save-interval` defcustom — idle seconds before
+    flushing to disk (default 60). Set to `nil` to write immediately on
+    every buffer visit. Always flushed on Emacs shutdown.
+
+### Internal
+- `haystack--frecency-chain-key` — derives the canonical chain key
+  (list of prefixed term strings) from a search descriptor.
+- `haystack--frecency-record` — called on every buffer creation to
+  increment count and update timestamp.
+- `haystack--frecency-score` — pure scoring function; computed on
+  read, never stored.
+- `haystack--frecency-flush` / `haystack--load-frecency` — disk I/O
+  helpers.
+- `haystack--frecency-replay` — stubs
+  `pop-to-buffer`/`switch-to-buffer` during replay, kills intermediate
+  buffers, detaches final buffer from parent chain before surfacing
+  it.
+- `haystack-frecent-mode` — derived mode for `*haystack-frecent*`
+  buffer; `haystack--frecent-render` and `haystack--frecent-sort-entries`
+  are the rendering primitives.
+
+---
+
 ## [0.4.0] — 2026-03-25
 
 ### Added
 - **MOC structured data format** — `haystack-moc-code-style 'data` now
-  produces language-appropriate data structures instead of falling back
-  to comment style. Supported out of the box: JS/TS/JSX/TSX (`const`
-  array), Python (list of dicts), Lisp dialects — Emacs Lisp, Common
-  Lisp, Scheme, Clojure (`defvar` plist list), Lua/Fennel (local
-  table). Each block opens with a comment line containing the
+  produces language-appropriate data structures instead of falling
+  back to comment style. Supported out of the box: JS/TS/JSX/TSX
+  (`const` array), Python (list of dicts), Lisp dialects — Emacs Lisp,
+  Common Lisp, Scheme, Clojure (`defvar` plist list), Lua/Fennel
+  (local table). Each block opens with a comment line containing the
   full search chain.
 - `haystack-moc-data-formatters` defcustom — alist mapping file
   extensions to formatter functions `(loci chain) → string`. Add a
-  language with one line:
-  `(push '("rb" . my-formatter) haystack-moc-data-formatters)`.
-  Mirrors the `haystack-frontmatter-functions` extensibility pattern.
+  language with one line: `(push '("rb" . my-formatter)
+  haystack-moc-data-formatters)`.  Mirrors the
+  `haystack-frontmatter-functions` extensibility pattern.
 - `haystack-moc-quote-string` — public helper for building
   double-quoted string literals in custom formatter functions.
-- Filter prompt updated to `[=]literal  [/]filename  [!]negate
-  [~]regex` format for improved scannability.
+- Filter prompt updated to `[=]literal [/]filename [!]negate [~]regex`
+  format for improved scannability.
 - `haystack-rename-group-root` — renames the canonical root term of an
-  expansion group. Prompts with completion on existing roots; validates
-  the new name is single-word and not already in any group.
+  expansion group. Prompts with completion on existing roots;
+  validates the new name is single-word and not already in any group.
 - `haystack-dissolve-group` — removes an entire expansion group.
   Prompts with completion on all group members (root or synonym); all
   members revert to literal matching.

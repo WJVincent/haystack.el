@@ -172,8 +172,8 @@ Expansion groups and frecency. Force multipliers that make the most sense once a
 - [X] =haystack-associate= handles all three states correctly
 - [ ] =haystack-rename-group-root= updates groups, frecency, composites atomically
 - [X] Exclusivity guardrail blocks redundant filters and suggests ~=~
-- [ ] Frecency records every buffer, scores on read, replays leaf-only
-- [ ] Deferred writes flush on idle timer and shutdown
+- [X] Frecency records every buffer, scores on read, replays leaf-only
+- [X] Deferred writes flush on idle timer and shutdown
 - [X] ~=~ literal prefix works in both root search and filter
 - [X] Buffer headers show expanded query feedback
 
@@ -219,34 +219,34 @@ Expansion groups and frecency. Force multipliers that make the most sense once a
 - Downstream composites/frecency remain valid (lose expansion on replay)
 
 ** Frecency Engine — Core
-*** TODO Data structure: =haystack-frecency-data=
+*** DONE Data structure: =haystack-frecency-data=
 - Alist in =.haystack-frecency.el=
 - Entry: =((term1 term2 ...) :count N :last-access TIMESTAMP)=
 - Terms preserve prefix characters (=!=, ~=~, =~=)
-*** TODO Load frecency data with =condition-case=
-*** TODO =haystack--frecency-record=
+*** DONE Load frecency data with =condition-case=
+*** DONE =haystack--frecency-record=
 - Called on every buffer creation (root search and filter)
 - Derive chain from =haystack--search-descriptor= (not buffer name)
 - Increment count, update timestamp in memory
 - Set =haystack--frecency-dirty= flag
-*** TODO Scoring function
+*** DONE Scoring function
 - =score = visit_count / max(days_since_last_access, 1)=
 - Computed on read, never stored
 
 ** Frecency Engine — Persistence
-*** TODO Deferred write system
+*** DONE Deferred write system
 - =haystack--frecency-dirty= boolean flag
 - Idle timer (60 seconds) checks flag, writes if dirty
 - =kill-emacs-hook= also flushes
 - Never write on individual buffer creation
-*** TODO =haystack-describe-frecent=
+*** DONE =haystack-describe-frecent=
 - Dump frecency list with computed scores for inspection
 
 ** Frecency Engine — Completion & Replay
-*** TODO =haystack-frecent= via =completing-read=
+*** DONE =haystack-frecent= via =completing-read=
 - Present all recorded paths sorted by score descending
 - Vertico/Orderless work immediately
-*** TODO Replay: leaf buffer only
+*** DONE Replay: leaf buffer only
 - Apply root expansion and each filter step internally
 - Materialize only final result buffer
 - Full =haystack--search-descriptor=, nil =haystack--parent-buffer=
