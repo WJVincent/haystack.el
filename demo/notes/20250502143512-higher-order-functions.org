@@ -1,0 +1,27 @@
+#+TITLE: Higher-Order Functions in Lisp
+#+DATE: 2025-05-02
+# %%% pkm-end-frontmatter %%%
+Higher-order functions take other functions as arguments or return functions as
+their result, treating functions as first-class values alongside numbers and
+strings. The canonical Lisp higher-order functions are ~map~ (apply a function
+to each element), ~filter~ (keep elements satisfying a predicate), and ~reduce~
+(fold a list into a single value with a combining function). In emacs-lisp,
+these appear as ~mapcar~, ~cl-remove-if-not~, and ~cl-reduce~; the ~dash~
+library provides a more modern API with ~-map~, ~-filter~, ~-reduce~, and dozens
+of variants. Common Lisp (cl) provides ~mapcar~, ~mapcan~, ~remove-if~, ~remove-
+if-not~, and ~reduce~ in the core language; they are not optional additions.
+Clojure's immutable persistent collections pair naturally with higher-order
+functions: ~map~, ~filter~, ~reduce~, ~keep~, ~mapcat~, and ~into~ form the core
+data transformation vocabulary. Scheme's R5RS and R7RS standards include ~map~,
+~for-each~, ~filter~, and ~fold-left~/~fold-right~ as fundamental list
+operations. Partial application and currying — creating a function with some
+arguments pre-filled — are natural companions to higher-order functions; ~apply-
+partially~ in emacs-lisp and ~partial~ in clojure serve this role. Function
+composition with ~compose~ or the ~-compose~ from dash chains multiple
+transformations into a single function without intermediate variable names. In
+Haystack's elisp codebase, higher-order functions process note candidate lists:
+sorting by frecency, filtering by frontmatter fields, and mapping display
+formatters over result sets all use this pattern. Higher-order functions are the
+backbone of functional programming in any Lisp dialect — learning to think in
+terms of transformations rather than loops is the paradigm shift that unlocks
+their full power.

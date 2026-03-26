@@ -1,0 +1,34 @@
+#+TITLE: Haystack Design Philosophy
+#+DATE: 2025-03-31
+# %%% pkm-end-frontmatter %%%
+Haystack's design philosophy can be summarized in one principle: personal
+knowledge management (pkm) should be organized around retrieval, not storage,
+and retrieval should be fast enough to be frictionless. The decision to use
+ripgrep (rg) as the search backend rather than a maintained index reflects a
+deliberate trade-off: rg is fast enough that a fresh search on every query is
+cheaper than maintaining an always-current index. Haystack does not try to be a
+zettelkasten system in the strict sense — it does not enforce note formats,
+manage link databases, or provide graph visualizations — because those features
+add maintenance overhead that most users do not need. The second-brain
+philosophy is honored in spirit: Haystack treats your notes directory as an
+external knowledge store and provides the fastest possible path from "I need a
+note about X" to "that note is on screen." Expansion groups are the most
+opinionated part of Haystack's design: they encode the insight that vocabulary
+consistency across a long-lived notes corpus is impossible, and that the system
+should accommodate vocabulary-gap rather than demanding that the user avoid it.
+The frecency engine reflects a belief that context matters as much as content:
+the note most relevant to your current task is not always the note most
+textually similar to your query, but the one you have been using most
+intensively in recent sessions. Haystack's integration with Emacs's completing-
+read infrastructure is a conscious choice to stay composable: by using the
+standard interface, Haystack works with Vertico, Embark, Orderless, and any
+future completion tools without modification. The flat notes directory design
+(no subdirectories required) is a deliberate simplification: folder hierarchies
+impose organizational decisions at write time, creating cognitive overhead and
+making notes harder to link across categories. Haystack is designed to be
+augmented rather than replaced: users who want org-roam's backlink graph,
+Obsidian's graph view, or spaced repetition can add those tools without removing
+Haystack's search layer. The deepest design choice is what Haystack does not do:
+it does not sync, does not cloud-store, does not provide a mobile app, and does
+not maintain a database — these are all left to the user's existing
+infrastructure, keeping Haystack focused and fast.

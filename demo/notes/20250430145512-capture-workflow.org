@@ -1,0 +1,29 @@
+#+TITLE: Capture Workflow
+#+DATE: 2025-04-30
+# %%% pkm-end-frontmatter %%%
+Capture is the first step in any knowledge-management (pkm) workflow: getting an
+idea, observation, or reference into your system before it disappears from
+working memory. The cardinal rule of capture is low friction — the harder it is
+to capture, the more ideas you will lose to inertia, and the more valuable the
+ones you do capture feel (a survivorship bias that distorts your sense of what
+is worth writing down). Org mode's capture system (~org-capture~) is one of the
+most powerful capture implementations: configurable templates can route captures
+to different files (inbox, daily note, specific project) based on the template
+chosen. Haystack's ~haystack-new-note~ command is designed for fast note
+creation: it prompts for a title, generates a timestamped filename, inserts the
+appropriate frontmatter, and opens the buffer for immediate writing. A capture
+workflow should have at most two stages: capture (write it down now) and process
+(decide what it means and where it belongs, later). Interrupting the capture
+stage with filing decisions defeats the purpose: the goal is to capture without
+breaking flow, not to maintain a perfectly organized system in real time.
+Fleeting notes, literature notes, and permanent notes are three distinct capture
+types in the zettelkasten model; each has different processing requirements and
+a different destination in the second-brain. Mobile capture — capturing ideas
+when away from your primary machine — requires a pipeline back to your main
+notes directory; common solutions include a simple text file synced via cloud
+storage or a dedicated mobile app with org-protocol integration. The capture-to-
+review ratio matters: a healthy workflow processes captures promptly enough that
+the inbox does not become an anxiety-inducing backlog. Reviewing captured notes
+while they are still fresh — within a day or two — dramatically increases the
+probability that they will be developed into evergreen notes rather than
+forgotten in an inbox.

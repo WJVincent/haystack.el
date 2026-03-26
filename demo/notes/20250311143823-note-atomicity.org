@@ -1,0 +1,28 @@
+#+TITLE: Note Atomicity
+#+DATE: 2025-03-11
+# %%% pkm-end-frontmatter %%%
+Note atomicity is the practice of writing each zettel around a single, clearly
+defined idea — a principle that makes notes more linkable, more retrievable, and
+more useful over time. An atomic note has a natural title that captures its
+single central claim: "Search-first PKM reduces maintenance overhead" is atomic;
+"Thoughts on PKM tools" is not. The atomicity principle applies across all
+knowledge-management formats — org files, Markdown zettel, and plain text notes
+all benefit equally from being scoped to one idea. Non-atomic notes dilute
+search (rg/ripgrep queries surface them for multiple unrelated topics), weaken
+link precision (you can only link to the whole note, not the relevant sub-idea),
+and resist refactoring. A common anti-pattern is the "topic note" — a note
+titled "Emacs" that grows into an ever-expanding collection of loosely related
+observations, resisting the splitting that atomicity requires. Splitting a non-
+atomic note is a high-value PKM maintenance task: each sub-idea becomes its own
+zettel, and the original note becomes either an MOC (Map of Content) that links
+to the children or is deleted. In a second-brain with strong atomicity, the act
+of writing a new note naturally surfaces which existing notes it should link to,
+because a single-idea note has a unique identity that maps cleanly onto other
+ideas. Haystack's search model rewards atomicity: a ripgrep (rg) search for a
+specific concept returns the specific atomic note about that concept rather than
+one large note that mentions it in passing. Atomicity is not the same as brevity
+— an atomic note may be long if the single idea it covers requires extended
+explanation, as long as every sentence is in service of that one idea. Building
+a corpus of well-atomized notes is a compounding investment: each new note added
+to a well-structured corpus is more findable and more linkable than a note added
+to an undifferentiated pile.

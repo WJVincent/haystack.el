@@ -1,0 +1,25 @@
+#+TITLE: Emacs Windows and Frames
+#+DATE: 2025-01-16
+# %%% pkm-end-frontmatter %%%
+In Emacs, the word "window" means something different from the OS concept: a
+window is a viewport into a buffer within a single Emacs frame. A frame is what
+most operating systems call a window — a top-level GUI container managed by the
+window manager. You can split a single frame into multiple windows horizontally
+or vertically, and each window can display a different buffer or even a
+different position in the same buffer. The ~winner-mode~ package records window
+configurations and lets you undo accidental layout changes with ~C-c left~,
+which is invaluable when a command unexpectedly destroys your carefully arranged
+splits. Dedicated windows can be locked to a specific buffer so that display
+functions do not repurpose them — useful for keeping a compilation window or
+org-agenda fixed in one corner. The ~display-buffer-alist~ variable gives fine-
+grained control over where and how Emacs places buffers, letting you route
+certain buffers to specific frames or windows based on rules. Multiple frames
+are especially useful when working across monitors: you might keep your editing
+buffers on one screen and reference notes on another, leveraging your pkm notes
+alongside code. The minibuffer technically lives in its own special window at
+the bottom of a frame, and its interaction model is central to Emacs completions
+and commands. Window management integrates tightly with Vertico and Consult for
+buffer switching, making the combination feel like a fluid navigation system
+rather than a series of discrete steps. Mastering frame and window configuration
+is one of the higher-leverage Emacs skills — it determines the shape of your
+entire working environment.

@@ -1,0 +1,26 @@
+#+TITLE: Plists and Alists
+#+DATE: 2025-02-13
+# %%% pkm-end-frontmatter %%%
+Emacs Lisp (emacs-lisp) provides two idiomatic key-value data structures built
+from plain lists: property lists (plists) and association lists (alists). A
+plist is a flat list of alternating keys and values: ~(:name "Alice" :age 30)~;
+lookup is done with ~plist-get~ and mutation with ~plist-put~. An alist is a
+list of cons pairs where each car is a key and each cdr is the value: ~((name .
+"Alice") (age . 30))~; lookup uses ~assoc~ (string/equal keys) or ~assq~
+(symbol/eq keys). Plists are common for symbol properties and lightweight
+records; alists are common for mapping tables where entries are frequently
+added, removed, or reordered. In Common Lisp (cl), association lists with
+~assoc~ and ~assq~ behave identically; the ~cl-plist~, ~cl-getf~, and ~cl-remf~
+macros provide CL-style plist access in emacs-lisp via ~cl-lib~. Hash tables
+(~make-hash-table~) outperform both plists and alists for large collections
+because lookup is O(1) rather than O(n), but they are heavier to construct and
+not natively printable as readable forms. In the Haystack codebase, plists are
+frequently used for passing structured data between functions without defining a
+full struct, taking advantage of the readability of keyword-keyed plists.
+Clojure prefers persistent hash maps ~{:key val}~ over alists and plists, but
+the conceptual role is identical: associating keys with values in an immutable
+structure. Text properties in Emacs buffers are stored as plists attached to
+character ranges, meaning every string of characters can carry arbitrary
+metadata as a property list. Knowing when to use a plist versus an alist versus
+a hash table is a practical Lisp skill that affects both performance and code
+clarity in non-trivial elisp programs.

@@ -1,0 +1,27 @@
+#+TITLE: Lisp Macros
+#+DATE: 2025-02-07
+# %%% pkm-end-frontmatter %%%
+Macros in Lisp are code-transformation functions that run at compile/read time,
+taking unevaluated s-expressions as input and returning new s-expressions for
+the evaluator to execute. Because Lisp code is data (homoiconicity), macros are
+just functions operating on lists — there is no separate macro language or
+template system, only the same Lisp you already know. The ~defmacro~ form
+defines a macro; backquote (~`~) and comma (~,~) provide quasi-quotation for
+constructing the output form with selective evaluation of sub-expressions. Macro
+expansion can be inspected with ~macroexpand~ and ~macroexpand-all~, which are
+essential debugging tools when a macro produces unexpected results. Common Lisp
+(cl) macros are the gold standard: ~cl-loop~, ~cl-defstruct~, and ~cl-letf~ are
+all macros that extend the language with new syntax while remaining pure lisp.
+In emacs-lisp, the ~cl-lib~ package imports many of these Common Lisp macros;
+packages like ~dash~ and ~s~ add additional macro-based utilities for list
+processing and string manipulation. Clojure macros follow the same principles
+but target a JVM environment; ~defmacro~ in clojure produces code that compiles
+to JVM bytecode rather than interpreted s-expressions. Hygienic macros, as
+implemented in Scheme via ~syntax-rules~, avoid accidental variable capture by
+automatically renaming introduced bindings — a problem that classic Lisp macros
+handle manually with ~gensym~. Gensyms (~gensym~ in Common Lisp and emacs-lisp)
+generate unique symbols at macro-expansion time to prevent the macro's internal
+variable names from colliding with caller code. The ability to extend the
+language itself through macros is the defining superpower of Lisp, enabling
+libraries like ~use-package~ and ~org-mode~'s babel system to read as natural
+language.

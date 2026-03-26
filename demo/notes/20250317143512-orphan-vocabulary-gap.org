@@ -1,0 +1,30 @@
+#+TITLE: The Vocabulary Gap Problem
+#+DATE: 2025-03-17
+# %%% pkm-end-frontmatter %%%
+The vocabulary-gap is the mismatch between the term you use when writing a note
+and the term you think of when searching for it weeks or months later.
+Terminology drift is a natural consequence of learning: as your understanding of
+a topic deepens, your vocabulary for it evolves — you start using more precise
+terms, different synonyms, or field-specific jargon that did not occur to you
+when you wrote the original note. Semantic distance is the measure of how far
+apart two terms are in meaning-space; vocabulary-gap problems occur along a
+spectrum from near-synonyms (rg / ripgrep) to related concepts (search /
+retrieval / lookup) to metaphorical connections (fishing / searching). The
+vocabulary-gap is not a failure of memory but a feature of how language works: a
+concept can be legitimately referred to by multiple terms, and no single term is
+more "correct" than its synonyms. Tag-based retrieval makes the vocabulary-gap
+problem worse, because tags are single terms that cannot express the full range
+of vocabulary that might be used to search for a note. Full-text search with
+ripgrep (rg) partially mitigates vocabulary-gap by searching actual note
+content: if a note uses a term anywhere in its body, rg finds it even if the
+title uses a different term. Haystack's expansion groups are a direct
+architectural response to the vocabulary-gap: by declaring synonym clusters, you
+encode the semantic relationships that bridge terminology drift in your corpus.
+Maintaining expansion groups requires a kind of meta-awareness — noticing when
+you searched for something and did not find it, then diagnosing whether the miss
+was due to vocabulary-gap and updating the group accordingly. The vocabulary-gap
+problem is not unique to personal knowledge management: database schema design,
+API naming, and code comments all suffer from terminology drift across time and
+team members. A notes corpus with well-maintained expansion groups is more
+robust to vocabulary-gap than one without; the cost is periodic review of the
+synonym groups as your language evolves.

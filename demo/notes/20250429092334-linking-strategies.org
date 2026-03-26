@@ -1,0 +1,28 @@
+#+TITLE: Linking Strategies in PKM
+#+DATE: 2025-04-29
+# %%% pkm-end-frontmatter %%%
+Linking is the mechanism that transforms a collection of notes (zettel) into a
+knowledge network: each link declares a meaningful relationship between two
+ideas. Not all links are equal in value: a link from a synthesis note to two
+source zettel carries more intellectual weight than a tag-style link from a
+topic index to a long list of tangentially related notes. The zettelkasten
+tradition distinguishes between structural links (navigational, connecting notes
+in a sequence or hierarchy), content links (semantic, connecting notes by shared
+ideas), and tag links (categorical, grouping by type). In org-roam, links are
+created with ~org-roam-insert~ and stored in a SQLite database, enabling
+backlink queries that show all notes pointing to the current one. Haystack
+relies on search-based implicit linking rather than explicit link maintenance:
+two notes are "linked" whenever they share concepts that rg retrieval can
+surface together. The overhead of explicit link creation is non-trivial:
+choosing to link requires recognizing a relationship, deciding it is worth
+recording, and creating the link without breaking your writing flow. Bi-
+directional links (where both notes display the connection in a backlinks panel)
+reduce the cost of linking by letting you create a one-directional link and have
+the system infer the other direction. Over-linking is a real failure mode: notes
+connected to hundreds of others via shallow links lose their identity and the
+links lose their meaning, degrading into a flat tag cloud. A practical linking
+heuristic: link when you actively want to be able to navigate from one note to
+another, not just because two notes mention related topics. Combining explicit
+links for key relationships with Haystack's search-based retrieval for broader
+exploration gives the benefits of both approaches without the full maintenance
+burden of either.

@@ -46,6 +46,36 @@ Set your notes directory and bind the prefix map:
 The prefix map is intentionally unbound by default — `C-c <letter>`
 bindings are reserved for users.
 
+## Demo Mode
+
+Not sure if Haystack's workflow fits you? Try it on a bundled corpus
+before touching your own notes:
+
+```
+M-x haystack-demo
+```
+
+This copies 84 ai-generated notes into a temporary directory and points
+Haystack there. Your real `haystack-notes-directory` is untouched. A
+warning banner appears in every results buffer as a reminder. When
+you're done:
+
+```
+M-x haystack-demo-stop
+```
+
+This kills all demo buffers, deletes the temp directory, and restores
+your previous configuration.
+
+The corpus spans Emacs, Lisp, PKM, and Haystack topics across eight
+file types. It comes with pre-built expansion groups and frecency
+history so features like `C-u C-c h f` (leaf/all toggle) and synonym
+expansion work immediately. From any results buffer, try `/orphan` or
+`/synthesis` as filename filters to find the intentionally isolated
+notes and the cross-topic synthesis candidates.
+
+See `demo/README.org` for a guided walkthrough.
+
 ## Quick Start
 
 | Key | Command |
@@ -56,6 +86,7 @@ bindings are reserved for users.
 | `C-c h f` | Jump to a frecent search |
 | `C-c h y` | Yank a MOC at point |
 | `C-c h t` | Show the buffer tree |
+| `C-c h D` | Start demo mode |
 
 ## Creating Notes
 
@@ -151,9 +182,10 @@ different filters, and navigate freely between them.
 ## Expansion Groups
 
 Expansion groups are a synonym system for bridging vocabulary gaps
-without rewriting your notes. When you associate two terms, any
-single-word search for either automatically expands to a ripgrep
-alternation across all members of the group.
+without rewriting your notes. When you associate two terms, any search
+for either automatically expands to a ripgrep alternation across all
+members of the group. Both single-word and multi-word terms are
+supported.
 
 ```
 ;; After (haystack-associate "rust" "rustlang"):
@@ -326,9 +358,13 @@ run often and recently score highest.
 
 ### Jumping to a Frecent Search
 
-`haystack-frecent` (`C-c h f`) presents all recorded search chains via
+`haystack-frecent` (`C-c h f`) presents recorded search chains via
 `completing-read`, sorted by score. Scores are shown as completion
 annotations. Vertico and Orderless work out of the box.
+
+By default only **leaf** entries are shown — chains that are not merely
+an intermediate step toward a more-visited deeper search. Use `C-u
+haystack-frecent` to show all recorded chains instead.
 
 Selecting an entry replays the full chain internally and surfaces only
 the final result buffer — the intermediate steps are never shown. The
@@ -342,7 +378,7 @@ access:
 
 ```
 ;;;;------------------------------------------------------------
-;;;;  Haystack — frecent searches  [sort: score  |  ?=help]
+;;;;  Haystack — frecent searches  [sort: score  view: leaf  |  ?=help]
 ;;;;------------------------------------------------------------
 
   score     visits  days    chain
@@ -358,6 +394,7 @@ access:
 | `t` | Sort by score |
 | `f` | Sort by frequency (visit count) |
 | `r` | Sort by recency (last accessed) |
+| `v` | Toggle between all entries and leaf-only view |
 | `k` | Kill the entry at point (with confirmation) |
 | `?` | Show help |
 

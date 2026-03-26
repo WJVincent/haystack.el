@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.5.0
+;; Version: 0.7.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -104,6 +104,10 @@ Example: (\"*.md\" \"*.org\")"
 
 (defvar-local haystack--parent-buffer nil
   "The haystack results buffer that spawned this one, or nil for roots.")
+
+(defvar-local haystack--buffer-notes-dir nil
+  "The expanded `haystack-notes-directory' at the time this buffer was created.
+Used to scope tree views and kill operations to the correct notes directory.")
 
 (defvar-local haystack--search-descriptor nil
   "Plist describing the full search chain for this buffer.
@@ -331,7 +335,9 @@ file, and runs `haystack-after-create-hook'."
     (when (file-exists-p path)
       (user-error "Haystack: file already exists: %s" path))
     (with-temp-file path
-      (when fm (insert fm)))
+      (when fm (insert fm))
+      (when haystack--demo-active
+        (insert "HAYSTACK DEMO NOTE — this file will be deleted when haystack-demo-stop is called.\n\n")))
     (find-file path)
     (goto-char (point-max))
     (run-hooks 'haystack-after-create-hook)))
@@ -835,6 +841,8 @@ FILES and MATCHES are the result counts."
   (let ((rule (concat ";;;;" (make-string 60 ?-))))
     (concat rule "\n"
             ";;;;  Haystack\n"
+            (when haystack--demo-active
+              ";;;;  *** DEMO MODE — changes will be discarded on haystack-demo-stop ***\n")
             (format ";;;;  %s\n" chain-string)
             (format ";;;;  %d files  ·  %d matches\n" files matches)
             ";;;;  [root]  [up]  [down]  [tree]\n"
@@ -893,9 +901,10 @@ and stores DESCRIPTOR and PARENT-BUF as buffer-locals."
           (let ((inhibit-read-only t))
             (put-text-property (point-min) header-end 'read-only t))
           (setq haystack--search-descriptor descriptor
-                haystack--parent-buffer parent-buf
-                default-directory (file-name-as-directory
-                                   (expand-file-name haystack-notes-directory)))
+                haystack--parent-buffer    parent-buf
+                haystack--buffer-notes-dir (expand-file-name haystack-notes-directory)
+                default-directory          (file-name-as-directory
+                                            (expand-file-name haystack-notes-directory)))
           ;; Land on the first result line so n/p/RET work immediately.
           (goto-char header-end))))
     buf))
@@ -1599,11 +1608,15 @@ q closes the tree window without navigating."
 ;;;; Buffer tree navigation
 
 (defun haystack--all-haystack-buffers ()
-  "Return a list of all live haystack results buffers."
-  (cl-remove-if-not
-   (lambda (buf)
-     (buffer-local-value 'haystack--search-descriptor buf))
-   (buffer-list)))
+  "Return live haystack results buffers belonging to `haystack-notes-directory'."
+  (let ((notes-dir (and haystack-notes-directory
+                        (expand-file-name haystack-notes-directory))))
+    (cl-remove-if-not
+     (lambda (buf)
+       (and (buffer-local-value 'haystack--search-descriptor buf)
+            (equal (buffer-local-value 'haystack--buffer-notes-dir buf)
+                   notes-dir)))
+     (buffer-list))))
 
 (defun haystack--children-of (buf)
   "Return all live haystack buffers whose direct parent is BUF."
@@ -2019,6 +2032,17 @@ Persisted to `.haystack-frecency.el' in the notes directory.")
 (defvar haystack--frecency-timer nil
   "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
 
+;;;; Demo mode state
+
+(defvar haystack--demo-active nil
+  "Non-nil while Haystack demo mode is active.")
+
+(defvar haystack--demo-temp-dir nil
+  "Absolute path to the temporary demo notes directory.")
+
+(defvar haystack--demo-saved-state nil
+  "Plist of state saved before demo start; restored by `haystack-demo-stop'.")
+
 (defun haystack--frecency-file ()
   "Return the absolute path of the frecency data file."
   (expand-file-name ".haystack-frecency.el" haystack-notes-directory))
@@ -2382,6 +2406,92 @@ argument ALL, show every recorded chain."
          (choice      (completing-read prompt table nil t)))
     (haystack--frecency-replay (gethash choice display-map))))
 
+;;;; Demo mode
+
+(defun haystack--demo-package-dir ()
+  "Return the directory containing haystack.el."
+  (file-name-directory (or load-file-name
+                           (locate-library "haystack")
+                           (buffer-file-name))))
+
+;;;###autoload
+(defun haystack-demo ()
+  "Start Haystack demo mode using the bundled sample corpus.
+Your `haystack-notes-directory' is temporarily shadowed by a fresh
+copy of the bundled demo corpus in a temporary directory.  You can
+search, filter, create notes, and use every Haystack feature normally.
+All changes are isolated — nothing touches your real notes.
+
+A warning banner appears in every results buffer header while demo
+mode is active.  Call `haystack-demo-stop' to end the session;
+this kills all demo buffers, deletes the temporary directory, and
+restores your previous `haystack-notes-directory'."
+  (interactive)
+  (when haystack--demo-active
+    (user-error "Haystack demo is already running — call `haystack-demo-stop' first"))
+  (let* ((pkg-dir (haystack--demo-package-dir))
+         (src-dir (expand-file-name "demo/notes" pkg-dir)))
+    (unless (file-directory-p src-dir)
+      (user-error "Haystack: demo corpus not found at %s" src-dir))
+    (let ((temp-dir (make-temp-file "haystack-demo-" t)))
+      (let ((exit (call-process "cp" nil nil nil "-r"
+                                (concat (file-name-as-directory src-dir) ".")
+                                temp-dir)))
+        (unless (zerop exit)
+          (delete-directory temp-dir t)
+          (user-error "Haystack: failed to copy demo corpus to %s" temp-dir)))
+      (setq haystack--demo-saved-state
+            (list :notes-dir   haystack-notes-directory
+                  :frecency    (copy-sequence haystack--frecency-data)
+                  :exp-groups  (copy-sequence haystack--expansion-groups)))
+      (setq haystack--demo-temp-dir  temp-dir
+            haystack--demo-active    t
+            haystack-notes-directory temp-dir)
+      (haystack--load-expansion-groups)
+      (haystack--load-frecency)
+      (message (concat "Haystack demo active.\n"
+                       "Notes directory: %s\n"
+                       "Call `haystack-demo-stop' when done — all changes will be discarded.")
+               temp-dir))))
+
+;;;###autoload
+(defun haystack-demo-stop ()
+  "Stop Haystack demo mode and restore your previous configuration.
+Kills all Haystack results buffers and any file-visiting buffers in the
+temporary demo directory, then deletes that directory and restores your
+previous `haystack-notes-directory'."
+  (interactive)
+  (unless haystack--demo-active
+    (user-error "Haystack demo is not running"))
+  ;; Kill only the haystack results buffers that belong to the demo directory.
+  (let ((demo-dir (expand-file-name haystack--demo-temp-dir)))
+    (dolist (buf (buffer-list))
+      (when (and (buffer-live-p buf)
+                 (equal (buffer-local-value 'haystack--buffer-notes-dir buf)
+                        demo-dir))
+        (kill-buffer buf))))
+  ;; Kill file-visiting buffers inside the temp dir.
+  (when haystack--demo-temp-dir
+    (let ((prefix (file-name-as-directory haystack--demo-temp-dir)))
+      (dolist (buf (buffer-list))
+        (when (buffer-live-p buf)
+          (let ((fname (buffer-file-name buf)))
+            (when (and fname (string-prefix-p prefix (expand-file-name fname)))
+              (kill-buffer buf)))))))
+  ;; Restore saved state.
+  (let ((saved haystack--demo-saved-state))
+    (setq haystack-notes-directory     (plist-get saved :notes-dir)
+          haystack--frecency-data      (plist-get saved :frecency)
+          haystack--expansion-groups   (plist-get saved :exp-groups)))
+  ;; Clean up.
+  (let ((temp-dir haystack--demo-temp-dir))
+    (setq haystack--demo-active      nil
+          haystack--demo-temp-dir    nil
+          haystack--demo-saved-state nil)
+    (when (and temp-dir (file-directory-p temp-dir))
+      (delete-directory temp-dir t)))
+  (message "Haystack demo stopped.  Your notes directory has been restored."))
+
 ;;;; Global prefix map
 
 (defvar haystack-prefix-map (make-sparse-keymap)
@@ -2394,6 +2504,7 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "y" #'haystack-yank-moc)
 (define-key haystack-prefix-map "t" #'haystack-show-tree)
 (define-key haystack-prefix-map "f" #'haystack-frecent)
+(define-key haystack-prefix-map "D" #'haystack-demo)
 
 (haystack--frecency-setup-timer)
 

@@ -1,0 +1,29 @@
+#+TITLE: Retrieval Over Tagging
+#+DATE: 2025-03-12
+# %%% pkm-end-frontmatter %%%
+A recurring insight in personal knowledge management (pkm) is that retrieval
+quality matters more than organizational structure: a note you can find is
+infinitely more valuable than a perfectly organized note you cannot. Tag-based
+and folder-based organization require predicting at write-time which categories
+a note will be searched under — but retrieval needs change over time in ways
+that are impossible to predict. Full-text search with ripgrep (rg) operates on
+the note's actual content rather than on metadata assigned at creation; it finds
+notes by what they say rather than by how they were filed. The vocabulary-gap
+problem is the fundamental obstacle to tag-based retrieval: the term you use
+when searching may not be the term used when writing, and tags bridge this gap
+poorly. Haystack's expansion groups are a deliberate answer to the vocabulary-
+gap: declaring that "search", "rg", "ripgrep", and "full-text search" are
+synonyms ensures that searching for any one finds notes using any other.
+Zettelkasten practitioners who rely primarily on search often report that their
+notes become more useful over time, not less — because the corpus accumulates
+vocabulary density that improves rg recall. Backlink-based retrieval (as in org-
+roam) is more precise than full-text search for deliberately connected notes but
+requires upfront investment in link creation and maintenance. A combined
+strategy: use explicit links for "I know these notes are related and want to
+preserve that connection," and use full-text rg search for "I want to see what
+I've written about this topic." The second-brain literature is gradually
+shifting toward retrieval-centric design: tools like Haystack, Logseq's full-
+text search, and Obsidian's quick switcher all emphasize finding over filing.
+The meta-skill in knowledge-management is not organizing your notes well — it is
+writing notes with enough vocabulary richness that retrieval is reliably
+effective.

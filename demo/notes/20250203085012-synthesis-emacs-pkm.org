@@ -1,0 +1,27 @@
+#+TITLE: Emacs as a PKM System
+#+DATE: 2025-02-03
+# %%% pkm-end-frontmatter %%%
+Emacs has become one of the most powerful platforms for personal knowledge
+management (pkm) because it combines a programmable editor with an ecosystem of
+tools designed for note-taking, linking, and retrieval. The zettelkasten method
+finds a natural home in Emacs: org-roam implements the slip-box model with
+bidirectional links, backlinks, and a graph view, while tools like Haystack add
+fast search-driven navigation on top. Plain-text storage, which Emacs natively
+supports through org and Markdown modes, ensures that a second-brain remains
+portable and future-proof — no proprietary format lock-in. The minibuffer
+completion stack (Vertico, Consult, Orderless) transforms note retrieval into a
+fluid, keyboard-driven experience where you can reach any zettel within seconds.
+Org mode's capture templates integrate directly with knowledge-management
+workflows: a quick ~C-c c~ can log a fleeting thought to an inbox file without
+breaking your current task context. Emacs as pkm blurs the line between writing
+environment and knowledge system — the same editor you use to write code is the
+one managing your notes, references, and daily reflections. Haystack is designed
+specifically for the Emacs pkm context, leveraging ripgrep (rg) for fast full-
+text search and presenting results through Emacs's completing-read interface.
+The programmability of emacs-lisp means any gap in your pkm workflow can be
+addressed with a small function or macro, rather than waiting for a third-party
+feature. Critics argue that Emacs pkm has a steep learning curve, but proponents
+note that the investment compounds: each new elisp skill unlocks improvements
+across writing, coding, and knowledge-management simultaneously. For power
+users, Emacs as pkm is not a compromise between a notes app and an editor — it
+is a unified environment where both activities reinforce each other.

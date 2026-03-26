@@ -1,0 +1,25 @@
+#+TITLE: Embark Actions
+#+DATE: 2025-01-23
+# %%% pkm-end-frontmatter %%%
+Embark is an Emacs package that provides context-sensitive actions on the thing
+at point or the current minibuffer candidate. The central command ~embark-act~
+opens a dispatch menu of actions relevant to the current target — a file,
+symbol, URL, buffer, or any other recognized type. When used in the minibuffer
+during a Consult search, Embark lets you act on a candidate without committing
+to the original command: for example, opening a file in another window while
+searching with ~consult-find~. Embark Collect gathers all current minibuffer
+candidates into a buffer where you can act on individual items or apply bulk
+operations to the whole set. ~embark-export~ is particularly powerful: it
+exports a list of grep results into a proper ~grep-mode~ buffer, or a file list
+into Dired, giving you the full suite of commands for that mode. Embark works
+well in pkm workflows: searching for notes with Consult and then using Embark to
+open, rename, or act on multiple zettel at once streamlines routine maintenance.
+The action map for each target type is an ordinary keymap, making it
+straightforward to add custom actions via ~add-to-list~ or ~embark-define-
+keymap~. Embark respects the Emacs convention that everything is extensible in
+emacs-lisp, and adding a new target type or action requires only a small amount
+of elisp. The ~embark-isearch-highlight-indicator~ and similar indicator options
+control how Embark highlights its current target, which aids discoverability.
+Embark is best thought of as a generalization of right-click context menus into
+the Emacs paradigm, fully keyboard-driven and composable with the rest of the
+ecosystem.

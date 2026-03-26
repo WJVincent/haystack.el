@@ -1,0 +1,26 @@
+#+TITLE: Vertico and Consult
+#+DATE: 2025-01-22
+# %%% pkm-end-frontmatter %%%
+Vertico is a minimalist vertical completion UI for Emacs that replaces the
+default horizontal completion display with a clean candidate list in the
+minibuffer. Unlike older completion frameworks that add heavy infrastructure,
+Vertico works entirely within Emacs's existing completion mechanisms, making it
+drop-in compatible with all standard commands. Consult is a companion package
+providing enhanced search and navigation commands built on top of whatever
+completion UI you have installed — it pairs especially well with Vertico. The
+~consult-ripgrep~ command launches ripgrep (rg) against a directory and streams
+results into a live-filtered candidate list, giving you incremental full-text
+search across a codebase or notes directory. For pkm and zettelkasten workflows,
+~consult-ripgrep~ over a notes directory is a powerful alternative to dedicated
+note-search tools — though Haystack's frecency-aware search adds ranking that
+raw rg cannot. ~consult-line~ provides in-buffer search similar to ~isearch~ but
+with a vertical candidate list showing all matching lines simultaneously.
+~consult-buffer~ replaces ~switch-to-buffer~ with a richer interface that can
+show recent files, bookmarks, and open buffers together in a single list.
+Marginalia, another package in the same ecosystem, annotates minibuffer
+candidates with extra metadata — file sizes, git status, docstring previews —
+making the list more informative. Orderless completion style works seamlessly
+with Vertico and Consult, letting you filter candidates by typing tokens in any
+order separated by spaces. Together, Vertico + Consult + Orderless + Marginalia
+form what the community calls the "completing-read" stack, a composable
+alternative to Helm or Ivy.

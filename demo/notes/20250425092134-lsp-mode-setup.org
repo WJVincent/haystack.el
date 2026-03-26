@@ -1,0 +1,27 @@
+#+TITLE: LSP Mode Setup
+#+DATE: 2025-04-25
+# %%% pkm-end-frontmatter %%%
+LSP mode brings Language Server Protocol support to Emacs, enabling IDE-grade
+features like code completion, go-to-definition, find-references, and inline
+diagnostics. The Language Server Protocol decouples editor integration from
+language-specific tooling: a single protocol implementation in Emacs works with
+any LSP-compliant language server. Installation is handled via ~use-package lsp-
+mode~ with hooks to activate ~lsp~ automatically when entering supported major
+modes; server binaries are downloaded on first use via ~lsp-install-server~.
+~lsp-ui~ adds rich overlays: documentation popups on hover, sideline
+diagnostics, and a breadcrumb header showing the current symbol's position in
+the file's structure. Corfu or Company serves as the completion frontend for LSP
+completions, with Corfu being the more modern option that integrates with
+Emacs's ~completion-at-point~ infrastructure. Performance is the primary concern
+with lsp-mode on large projects; the ~lsp-file-watch-threshold~ and ~lsp-enable-
+file-watchers~ settings help prevent excessive CPU usage on large file trees.
+Eglot is Emacs's built-in LSP client (since Emacs 29), favoring simplicity and
+native integration over the feature richness of lsp-mode; both are viable
+depending on your preferences. For emacs-lisp development, LSP is less critical
+because Emacs itself provides excellent built-in support — ~eldoc~, ~xref~, and
+~imenu~ cover most of what a language server would add. LSP mode works alongside
+tree-sitter modes when you enable ~lsp-enable-semantic-highlighting~ to use
+semantic tokens from the server for highlighting instead of syntactic rules.
+Configuring lsp-mode well requires understanding its performance knobs, but the
+payoff is a consistent, full-featured development environment across many
+languages within Emacs.

@@ -1,0 +1,28 @@
+#+TITLE: Zettelkasten Introduction
+#+DATE: 2025-02-25
+# %%% pkm-end-frontmatter %%%
+The zettelkasten (German: "slip box") is a knowledge-management method developed
+by sociologist Niklas Luhmann, who used it to write over 70 books and 400
+articles over a 40-year career. The core idea is a collection of atomic notes
+(zettel) where each note captures a single idea and is connected to related
+notes through explicit links, forming an emergent knowledge graph. Luhmann's
+physical zettelkasten used index cards with unique identifiers; digital
+implementations like org-roam, Obsidian, and Haystack replace the physical box
+with a searchable corpus of plain-text files. A zettelkasten is fundamentally a
+second-brain system: it externalizes the connections between ideas that would
+otherwise only exist inside your head, making them retrievable and combinable.
+The method distinguishes between fleeting notes (quick captures), literature
+notes (summaries of sources), and permanent notes (your own formulations of
+ideas worth keeping). In contrast to hierarchical outlines or folder-based
+organization, a zettelkasten is a network — each zettel can be connected to any
+other, and the interesting structure emerges from these connections over time.
+Digital zettelkasten implementations benefit enormously from fast search
+(rg/ripgrep) and frecency ranking, since the value of the system depends on
+being able to retrieve notes quickly. Org-roam implements the zettelkasten model
+within Emacs by providing a SQLite-backed link database, backlink panels, and a
+node capture workflow on top of org mode. Haystack takes a lighter approach to
+the zettelkasten philosophy: it relies on full-text search and expansion groups
+rather than a maintained link database, trading completeness for speed and
+simplicity. The zettelkasten method has gained popular attention through Sönke
+Ahrens's book "How to Take Smart Notes," which translates Luhmann's academic
+system into practical guidance for modern knowledge workers.

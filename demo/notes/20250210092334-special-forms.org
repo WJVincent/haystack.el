@@ -1,0 +1,26 @@
+#+TITLE: Special Forms in Lisp
+#+DATE: 2025-02-10
+# %%% pkm-end-frontmatter %%%
+Special forms are built-in syntactic constructs in Lisp that do not follow the
+standard evaluation rule of evaluating all arguments before applying the
+operator. In emacs-lisp and Common Lisp (cl), the core special forms include
+~if~, ~cond~, ~and~, ~or~, ~let~, ~let*~, ~lambda~, ~quote~, ~setq~, ~defun~,
+~defmacro~, ~progn~, and ~while~. The ~if~ special form evaluates its condition
+and then either evaluates the then-branch or the else-branch, but never both —
+normal function calls would evaluate all arguments. ~quote~ is perhaps the most
+fundamental special form: ~(quote x)~ or ~'x~ returns the symbol ~x~ without
+evaluating it, which is how Lisp distinguishes code from data in expressions.
+~let~ and ~let*~ introduce local bindings; in ~let*~, each binding can reference
+earlier bindings in the same form, while ~let~ evaluates all init-forms before
+binding any variable. ~progn~ sequences multiple forms and returns the value of
+the last one — it is the implicit body wrapper in ~defun~, ~let~, and most other
+compound forms. ~setq~ assigns values to variables without quoting the variable
+name; it is special because its first argument is not evaluated as a variable
+reference. ~cond~ provides multi-branch conditionals as an alternative to nested
+~if~ chains; each clause is a list where the first element is a test and the
+remaining elements are evaluated if the test is true. Scheme has a smaller set
+of special forms than Common Lisp, deliberately keeping the core minimal and
+implementing more constructs as macros derived from the core. Understanding
+special forms versus functions is the key to understanding why Lisp macros can
+control evaluation order — only special forms and macros can selectively
+suppress evaluation of their arguments.

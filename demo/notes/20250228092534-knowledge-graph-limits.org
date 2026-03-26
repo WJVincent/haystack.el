@@ -1,0 +1,31 @@
+#+TITLE: Knowledge Graph Limits
+#+DATE: 2025-02-28
+# %%% pkm-end-frontmatter %%%
+Knowledge graphs — networks where notes (zettel) are nodes and explicit links
+are edges — are a compelling model for personal knowledge management (pkm), but
+they have practical limitations that are often underappreciated. The maintenance
+burden is the first limitation: every link must be created and kept up to date
+manually; a large corpus with thousands of nodes and edges quickly becomes
+expensive to curate accurately. Graph visualization, while visually impressive,
+rarely provides actionable insight: a dense hairball of 500 interconnected nodes
+tells you less about your knowledge than a well-maintained set of evergreen
+notes. Link rot is a significant problem — as notes are renamed, split, or
+merged, hard-coded links break silently and must be repaired through either
+tooling (org-roam handles this with its ID-based system) or discipline. The
+vocabulary-gap problem is particularly acute for graphs: if you linked a note
+about "retrieval" but later search for "search," the link is invisible unless
+you also indexed the synonym. Haystack's design explicitly sidesteps graph
+maintenance by relying on full-text search (rg/ripgrep) and expansion groups for
+synonym handling; the system finds connections dynamically rather than requiring
+you to declare them in advance. Emergent connections — ideas that only become
+related after both notes exist — are systematically harder to capture in a link-
+based graph than in a search-based system, because they require retroactive link
+creation. The second-brain literature sometimes overstates graph density as a
+quality signal; a knowledge-management system's value comes from retrieval
+quality and insight generation, not from having many links. For small corpora
+(under a few hundred notes), graph-based systems like org-roam work well; for
+larger corpora, the maintenance overhead often degrades into a partially stale
+graph that is less reliable than fresh search. The most robust pkm systems
+combine both approaches: explicit links for the most important relationships,
+and full-text search for everything else, using each where it has a comparative
+advantage.

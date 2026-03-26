@@ -1,0 +1,29 @@
+#+TITLE: Emergence in Notes
+#+DATE: 2025-05-01
+# %%% pkm-end-frontmatter %%%
+Emergence in personal knowledge management (pkm) refers to insights, patterns,
+and connections that become visible only when a corpus of notes is large enough
+and well-structured enough to surface them. A zettelkasten is designed to be an
+emergence engine: by accumulating atomic zettel and linking them densely, you
+create a system that "thinks back" at you when you browse it. The experience of
+emergence is often described as finding a note you wrote months ago that is
+precisely relevant to something you are working on today — relevance that you
+could not have predicted when writing the original note. Haystack's frecency-
+weighted search supports emergence by surfacing recently-relevant notes: a note
+that you have visited multiple times recently will rank higher, reflecting its
+current salience to your work. Emergence requires critical mass: a corpus of 50
+notes is unlikely to produce surprising connections; at 500 or 5000, unexpected
+affinities between ideas become a regular experience. The search model is
+central to emergence: ripgrep (rg) with expansion groups finds notes by content
+regardless of when they were written, making old notes as findable as recent
+ones. Map of Content (MOC) notes in Haystack are an explicit emergence
+mechanism: assembling an MOC forces you to scan related notes and often reveals
+both gaps and unexpected convergences. Writing in a second-brain with emergence
+in mind means using consistent vocabulary across notes: when "search,"
+"retrieval," and "ripgrep" all appear in notes about the same concept, rg finds
+them all together. The zettelkasten literature describes the slip-box as a
+"conversation partner" — a system that, through emergence, produces responses
+and connections that feel like external intellectual input rather than mere
+retrieval. Nurturing emergence requires both depth (substantial individual
+notes) and breadth (many notes covering diverse topics) — one without the other
+produces either rich isolated islands or a shallow index.

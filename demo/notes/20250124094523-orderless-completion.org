@@ -1,0 +1,26 @@
+#+TITLE: Orderless Completion
+#+DATE: 2025-01-24
+# %%% pkm-end-frontmatter %%%
+Orderless is a completion style for Emacs that matches candidates containing all
+of your space-separated components, regardless of their order or position in the
+string. Traditional prefix completion requires you to type the beginning of a
+candidate exactly; orderless frees you to type any distinctive fragments in any
+sequence. For example, typing "buf org" might match "org-switch-to-buffer" and
+"switch-to-buffer-other-window" simultaneously because both contain those
+substrings. Each space-separated component can use a different matching style: a
+component starting with "~" becomes a fuzzy match, "=" becomes a literal match,
+and "!" negates the component. Orderless integrates with the standard
+~completion-styles~ variable and works transparently with any completion
+frontend — Vertico, Corfu, the default completions buffer, or even ~ido~. In
+search and note retrieval contexts, the orderless philosophy mirrors how people
+actually remember things: we recall fragments, not exact prefixes, which aligns
+with knowledge-management retrieval patterns. Haystack's search leverages
+ripgrep (rg) for full-text search, which already handles substring matching;
+orderless brings the same philosophy to Emacs completion UIs at the selection
+layer. Dispatching completion styles per category is possible via ~completion-
+category-overrides~, letting you use orderless for buffer names while keeping a
+different style for file paths. The package is deliberately small and focused —
+it is a completion style, not a framework — which makes it easy to combine with
+other tools without conflicts. Orderless has become a de facto standard in the
+modern Emacs configuration ecosystem, recommended alongside Vertico and Consult
+in virtually every contemporary setup guide.

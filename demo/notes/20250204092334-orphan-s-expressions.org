@@ -1,0 +1,27 @@
+#+TITLE: S-Expressions
+#+DATE: 2025-02-04
+# %%% pkm-end-frontmatter %%%
+S-expressions (symbolic expressions) are the fundamental syntactic unit of Lisp:
+a notation where both code and data are represented as nested parenthesized
+lists. The term "s-expression" was coined by John McCarthy in his original 1960
+Lisp paper, where symbolic expressions were the primary vehicle for describing
+both programs and their inputs. An s-expression is either an atom (a symbol,
+number, string, or other primitive) or a pair written as ~(A . B)~ where A and B
+are themselves s-expressions. Compound s-expressions read naturally as trees:
+~(+ (* 2 3) 4)~ is a tree with ~+~ at the root, ~(* 2 3)~ as the left child, and
+~4~ as the right child. The power of s-expressions lies in the fact that code
+and data share the same representation — a program is a list, and lists are
+first-class data that can be constructed and manipulated at runtime. This
+property, called homoiconicity, is the foundation of Lisp macros: a macro
+receives its arguments as unevaluated s-expressions and returns a new
+s-expression that the evaluator then executes. Editing s-expressions with
+structural editors like Paredit or Smartparens enforces balanced parentheses and
+enables operations like slurping, barfing, and splicing that move code around by
+structure rather than by character. Symbolic expressions appear across the
+entire Lisp family: Common Lisp (cl), Scheme, Clojure, and Emacs Lisp all share
+the same s-expression syntax at their core. In Emacs, s-expressions are
+navigable with ~forward-sexp~, ~backward-sexp~, ~up-list~, and ~down-list~,
+making structural movement a first-class editing operation. The simplicity of
+s-expressions as a notation — just atoms and nested lists — is deceptive; it is
+sufficient to express any computation and has proven remarkably durable across
+six decades of Lisp dialects.

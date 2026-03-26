@@ -1,0 +1,25 @@
+#+TITLE: Dired Navigation
+#+DATE: 2025-01-27
+# %%% pkm-end-frontmatter %%%
+Dired (Directory Editor) is Emacs's built-in file manager, displaying directory
+contents as an editable buffer where each line represents a file or
+subdirectory. Navigation in Dired uses standard Emacs motion keys: ~n~/~p~ move
+down/up through entries, ~RET~ opens the file or enters the directory, and ~^~
+goes to the parent directory. Dired marks files with ~m~ and unmarks with ~u~;
+marked files can then be operated on in bulk — copied, moved, deleted, renamed,
+or run through shell commands with a single key press. Wdired mode (~C-x C-q~)
+makes the Dired buffer directly editable: you rename files by editing their
+names in place and then committing the changes with ~C-c C-c~. The ~dired-do-
+shell-command~ (~!~) and ~dired-do-async-shell-command~ (~&~) commands let you
+pipe marked files through arbitrary shell commands, bridging Dired with the full
+Unix toolchain. Image Dired provides thumbnail previews, and ~dired-subtree~ (a
+third-party package) enables tree-style inline expansion of subdirectories. For
+pkm workflows using a flat notes directory, Dired provides a quick visual
+inventory of all notes and makes bulk operations (prefixing files, reorganizing)
+straightforward. Dired integrates with Embark: running ~embark-export~ on a file
+list from a Consult search produces a proper Dired buffer with all matched
+files, enabling further bulk operations. The ~ls-lisp~ package reimplements
+directory listing in elisp, providing consistent Dired behavior across platforms
+including Windows where system ~ls~ is unavailable. Dired is a demonstration of
+the Emacs principle that editable text buffers are a universal interface — even
+the file system is just text you can act on.

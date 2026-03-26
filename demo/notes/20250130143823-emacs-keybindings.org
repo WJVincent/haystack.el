@@ -1,0 +1,25 @@
+#+TITLE: Emacs Keybindings
+#+DATE: 2025-01-30
+# %%% pkm-end-frontmatter %%%
+Emacs keybindings are organized as a hierarchy of keymaps: the global keymap
+applies everywhere, major mode keymaps shadow it within a buffer, and minor mode
+keymaps can shadow both. The ~C-x~ prefix is the command prefix for less
+frequently used commands, while ~C-c~ is conventionally reserved for user and
+major-mode-specific bindings. ~define-key~, ~global-set-key~, and ~keymap-set~
+(the modern Emacs 29+ version) are the primary functions for creating custom
+bindings in emacs-lisp. Modifier keys in Emacs notation: ~C-~ is Control, ~M-~
+is Meta (Alt), ~S-~ is Shift, ~s-~ is Super (Windows/Command key), and ~H-~ is
+Hyper — rarely used on modern hardware. The ~which-key~ package displays a popup
+listing available key continuations after a prefix like ~C-x~ or ~C-c~,
+dramatically improving discoverability for new and intermediate users. Evil mode
+provides a full Vim keybinding layer on top of Emacs, and many users combine it
+with Emacs-native tools like Magit, Org, and Haystack through carefully crafted
+Evil integration. Transient keymaps, activated temporarily with ~set-transient-
+map~, provide modal editing islands — a short-lived keymap that expires after
+one command or based on a predicate. Haystack uses a ~haystack-mode-map~ with
+sensible defaults that can be overridden via ~use-package~ ~:bind~ or direct
+~keymap-set~ calls in your init. The ~describe-key~ (~C-h k~) and ~describe-
+bindings~ (~C-h b~) commands are essential for introspecting the current keymap
+state when debugging binding conflicts. Thoughtful keybinding design is a
+significant part of building an ergonomic Emacs workflow, and getting it right
+reduces the friction in everything from editing to pkm.

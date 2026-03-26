@@ -1,0 +1,29 @@
+#+TITLE: Creating New Notes with Haystack
+#+DATE: 2025-03-19
+# %%% pkm-end-frontmatter %%%
+The ~haystack-new-note~ command is the primary entry point for creating notes in
+Haystack: it prompts for a title, generates a timestamped filename, writes the
+appropriate frontmatter, and opens the buffer for editing. Filename generation
+follows the zettelkasten convention of a numeric timestamp prefix:
+~20250319143012-note-title.org~ encodes the creation date in the filename,
+ensuring chronological sorting in directory listings. The frontmatter format
+depends on the note type: org files receive ~#+TITLE~, ~#+DATE~, and the ~# %%%
+pkm-end-frontmatter %%%~ sentinel; Markdown files receive YAML frontmatter with
+the HTML comment sentinel. Haystack can be configured to use a custom template
+for new notes via ~haystack-new-note-template~, allowing you to prepend standard
+headings, property drawers, or section scaffolding to every new note. The
+~haystack-notes-directory~ variable points Haystack at your notes folder; all rg
+searches, frecency tracking, and new note creation operate relative to this
+directory. Creating a note in Haystack does not require any database
+registration or link insertion — the note exists as a file and becomes
+searchable immediately on the next rg invocation. For pkm workflows, the speed
+of the capture path matters: ~haystack-new-note~ is designed to get out of your
+way as quickly as possible, landing you in the buffer body ready to write. Org
+mode's capture system can be configured to call ~haystack-new-note~ as its
+action for certain template types, integrating Haystack creation with the org
+capture workflow. After creating a note and writing its initial content,
+Haystack automatically registers the visit in the frecency engine, so new notes
+with immediate follow-up visits surface quickly in search results. The
+combination of timestamped filenames, frontmatter sentinels, and instant rg
+searchability makes every Haystack note a first-class citizen of the corpus from
+the moment it is created.

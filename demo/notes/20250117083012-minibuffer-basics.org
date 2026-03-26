@@ -1,0 +1,23 @@
+#+TITLE: Minibuffer Basics
+#+DATE: 2025-01-17
+# %%% pkm-end-frontmatter %%%
+The minibuffer is a single-line buffer at the bottom of an Emacs frame that
+temporarily takes input for commands requiring arguments. When you invoke ~M-x~,
+~C-x C-f~, or most interactive commands, you are thrust into the minibuffer to
+supply the missing information. The minibuffer supports its own keybindings and
+history navigation — pressing ~M-p~ and ~M-n~ cycles through previous inputs for
+the same prompt type. Completion in the minibuffer is one of the most composable
+aspects of Emacs; packages like Vertico transform it from a modest text field
+into a full vertical candidate list. Orderless completion style lets you type
+multiple space-separated patterns that can match in any order against the
+candidate list, making it far easier to narrow down long lists. The minibuffer
+can be recursive: if you run a command while already in the minibuffer (when
+~enable-recursive-minibuffers~ is set), you open a nested minibuffer session.
+Default values are often provided in the minibuffer prompt and can be accepted
+immediately with ~RET~, saving keystrokes on common operations. Embark
+integrates tightly with minibuffer candidates, letting you act on any candidate
+in the list without confirming the original command first. Understanding
+minibuffer interaction is foundational to Emacs fluency; every advanced workflow
+from Consult searches to Magit commands funnels through it. The minibuffer is,
+in a sense, the universal interface of Emacs — a single consistent mechanism
+through which the entire system accepts structured input.

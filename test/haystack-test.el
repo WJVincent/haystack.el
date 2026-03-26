@@ -2881,5 +2881,76 @@ Saves and restores the global and the dirty flag."
   (should (eq (lookup-key haystack-results-mode-map (kbd "RET"))
               'haystack-ret)))
 
+;;;; Demo mode
+
+(defmacro haystack-test--with-demo-dir (&rest body)
+  "Run BODY with a temporary demo source directory and reset demo state after."
+  `(let* ((demo-src (make-temp-file "haystack-demo-src-" t))
+          (saved-notes haystack-notes-directory)
+          (saved-demo haystack--demo-active))
+     (unwind-protect
+         (progn
+           ;; Create a minimal demo/notes layout at demo-src
+           (make-directory (expand-file-name "demo/notes" demo-src) t)
+           (with-temp-file (expand-file-name "demo/notes/sample.org" demo-src)
+             (insert "#+TITLE: Sample\n#+DATE: 2025-01-01\n# %%% pkm-end-frontmatter %%%\n\nSample note.\n"))
+           (cl-letf (((symbol-function 'haystack--demo-package-dir)
+                      (lambda () demo-src)))
+             ,@body))
+       (setq haystack--demo-active     saved-demo
+             haystack--demo-temp-dir   nil
+             haystack--demo-saved-state nil
+             haystack-notes-directory  saved-notes)
+       (delete-directory demo-src t))))
+
+(ert-deftest haystack-test/demo-sets-notes-directory ()
+  "haystack-demo switches haystack-notes-directory to a temp copy."
+  (haystack-test--with-demo-dir
+   (haystack-demo)
+   (should haystack--demo-active)
+   (should haystack--demo-temp-dir)
+   (should (not (equal haystack-notes-directory saved-notes)))
+   (should (file-directory-p haystack-notes-directory))
+   ;; Clean up the temp dir.
+   (let ((td haystack--demo-temp-dir))
+     (setq haystack--demo-active nil haystack--demo-temp-dir nil
+           haystack--demo-saved-state nil haystack-notes-directory saved-notes)
+     (when (file-directory-p td) (delete-directory td t)))))
+
+(ert-deftest haystack-test/demo-errors-if-already-active ()
+  "haystack-demo signals if called while already active."
+  (haystack-test--with-demo-dir
+   (haystack-demo)
+   (should-error (haystack-demo) :type 'user-error)
+   (let ((td haystack--demo-temp-dir))
+     (setq haystack--demo-active nil haystack--demo-temp-dir nil
+           haystack--demo-saved-state nil haystack-notes-directory saved-notes)
+     (when (file-directory-p td) (delete-directory td t)))))
+
+(ert-deftest haystack-test/demo-stop-restores-directory ()
+  "haystack-demo-stop restores the original notes directory."
+  (haystack-test--with-demo-dir
+   (haystack-demo)
+   (haystack-demo-stop)
+   (should (equal haystack-notes-directory saved-notes))
+   (should (not haystack--demo-active))
+   (should (not haystack--demo-temp-dir))))
+
+(ert-deftest haystack-test/demo-stop-errors-if-not-active ()
+  "haystack-demo-stop signals if demo is not running."
+  (should-error (haystack-demo-stop) :type 'user-error))
+
+(ert-deftest haystack-test/demo-header-shows-warning ()
+  "haystack--format-header includes demo warning when demo is active."
+  (let ((haystack--demo-active t))
+    (should (string-match-p "DEMO MODE"
+                            (haystack--format-header "root=test" 1 1)))))
+
+(ert-deftest haystack-test/demo-header-no-warning-when-inactive ()
+  "haystack--format-header does not include demo warning when inactive."
+  (let ((haystack--demo-active nil))
+    (should (not (string-match-p "DEMO MODE"
+                                 (haystack--format-header "root=test" 1 1))))))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

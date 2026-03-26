@@ -1,0 +1,29 @@
+#+TITLE: Haystack Workflow
+#+DATE: 2025-05-08
+# %%% pkm-end-frontmatter %%%
+A typical Haystack workflow consists of three recurring loops: capture (write
+new notes quickly), search (find relevant notes by content), and explore
+(navigate related notes through tree view or MOCs). The capture loop begins with
+~haystack-new-note~: type a title, press enter, write the note body, and save —
+the entire sequence takes under 30 seconds for a typical atomic zettel. The
+search loop is the core daily workflow: a query via ~haystack-search~ returns a
+frecency-ranked list of matching notes, and pressing ~RET~ on any candidate
+opens it immediately in the current window. For the exploration loop, ~haystack-
+moc~ or ~haystack-tree-view~ from a central note expands outward to reveal
+related notes you may have forgotten existed but are highly relevant to your
+current thinking. The weekly review loop (not a Haystack-specific concept but
+important to any second-brain) involves opening recently created notes,
+processing captures from daily notes, and updating MOCs with newly relevant
+zettel. Integration with org-capture enhances the capture loop: a capture
+template can call ~haystack-new-note~ with a pre-filled title, making capture
+from any buffer as fast as ~C-c c n title RET~. The search loop benefits from
+Orderless: you can filter Haystack results further after rg completes by typing
+additional tokens in the completing-read interface, narrowing without rerunning
+the search. Embark actions extend the workflow: from a ~haystack-search~ results
+list, ~embark-act~ lets you delete, rename, or export a note without leaving the
+search interface. For writing projects, a Haystack workflow might involve
+opening an MOC for the topic, tree-viewing its constituent notes, pulling
+insights into a new synthesis note, and then linking back to the sources. The
+entire workflow operates within Emacs without switching applications, making the
+second-brain a genuinely integrated part of your coding, writing, and research
+environment.

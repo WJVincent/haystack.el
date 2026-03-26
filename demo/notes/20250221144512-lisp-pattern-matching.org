@@ -1,0 +1,26 @@
+#+TITLE: Pattern Matching in Lisp
+#+DATE: 2025-02-21
+# %%% pkm-end-frontmatter %%%
+Pattern matching is a control flow mechanism that simultaneously tests the
+structure of a value and binds its components to names, replacing chains of
+conditionals and accessor calls. Emacs Lisp gained the ~pcase~ macro as its
+primary pattern matching facility; ~pcase~ supports literal matches, variable
+captures, predicate guards, and destructuring against list structures. The
+~pcase-let~ and ~pcase-let*~ variants combine pattern matching with local
+binding: ~(pcase-let ((`(,x ,y) pair)) ...)~ destructures a list pair in one
+step. Common Lisp (cl) does not have a built-in pattern matcher, but libraries
+like ~trivia~ provide comprehensive pattern matching with guards, view patterns,
+and extensible pattern types. Clojure provides ~core.match~, a library for
+multi-dispatch pattern matching over maps, vectors, and sequences, heavily
+influenced by ML and Haskell-style algebraic type matching. In Scheme, ~match~
+from SRFI-9 or libraries like Racket's ~match~ form provides similar
+functionality, often with a more uniform syntax than emacs-lisp's ~pcase~. The
+~pcase~ patterns in emacs-lisp include: ~`(,x . ,rest)~ for cons destructuring,
+~(pred predicate)~ for predicate testing, ~(and p1 p2)~ for conjunction, and ~_~
+for wildcards. Pattern matching is increasingly important in elisp for handling
+heterogeneous data from LSP responses, tree-sitter nodes, and complex plist
+structures without deeply nested conditionals. The ~cl-defstruct~ combined with
+~pcase~ creates a powerful pattern: define a struct with known slot names, then
+match on struct instances in conditional branches. Embracing pattern matching in
+Lisp code reduces both bugs and cognitive overhead — the pattern simultaneously
+documents the expected shape of data and handles it correctly.

@@ -1,0 +1,26 @@
+#+TITLE: Emacs Lisp Basics
+#+DATE: 2025-01-31
+# %%% pkm-end-frontmatter %%%
+Emacs Lisp (elisp, emacs-lisp) is the extension language of Emacs and one of the
+oldest actively used Lisp dialects, derived from Maclisp with significant
+influences from Common Lisp. Every Emacs command, package, and configuration
+option is ultimately expressed in emacs-lisp, making it the most important
+language to learn for serious Emacs customization. The core data structure in
+elisp, as in all lisp dialects, is the cons cell: a pair of two values that can
+be chained to form lists, association lists (alists), and trees. Functions in
+emacs-lisp are defined with ~defun~, closures are supported with ~lexical-
+binding: t~ at the top of a file, and anonymous functions use the ~lambda~
+special form. Buffer-local variables, buffer text manipulation functions
+(~insert~, ~delete-region~, ~goto-char~), and marker objects make elisp a
+natural fit for text-processing tasks. The ~cl-lib~ package provides a subset of
+Common Lisp (cl) functions and macros — ~cl-loop~, ~cl-destructuring-bind~, ~cl-
+defstruct~ — that fill gaps in the core elisp library. Interactive functions
+(commands) are declared with ~(interactive ...)~ and can be called via ~M-x~ or
+keybindings; the interactive spec describes how arguments are collected. The
+evaluator in Emacs is available at runtime via ~eval~ and ~funcall~, making
+dynamic code execution a built-in capability rather than a special-purpose tool.
+Macro writing in elisp follows the same patterns as in other lisp dialects —
+~defmacro~ with backquote and comma for quasi-quotation — and is essential for
+removing repetitive boilerplate. Elisp's deep integration with Emacs makes it a
+uniquely practical lisp: every function you write can immediately interact with
+buffers, windows, files, and the entire Emacs ecosystem.

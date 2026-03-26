@@ -1,0 +1,28 @@
+#+TITLE: Daily Notes Habit
+#+DATE: 2025-03-05
+# %%% pkm-end-frontmatter %%%
+The daily note is a capture mechanism used in many personal knowledge management
+(pkm) systems: a date-stamped note that serves as the entry point for everything
+captured that day. Daily notes lower the barrier for capture — instead of
+deciding where a new idea belongs in your second-brain, you write it in today's
+note and process it later when you have time to think. The daily note is
+inherently temporary: its primary purpose is to be processed, with each captured
+item either discarded, elaborated into a permanent zettel, or linked to an
+existing note. Org mode's capture templates with a date-based file target are a
+natural implementation: ~C-c c d~ drops you into a dated daily note without
+interrupting your current task. Logseq and Obsidian both feature daily notes
+prominently as their primary entry interface, reflecting how the daily note
+habit has become central to modern pkm culture. The risk of daily notes is that
+they become a graveyard of unprocessed captures: items logged but never
+reviewed, creating the illusion of a productive knowledge-management practice
+without the substance. A weekly review habit paired with daily notes is the
+standard remedy: once a week, process unreviewed daily note items into permanent
+notes, update evergreen notes, and clear the capture queue. In Haystack, daily
+notes are just files in the notes directory like any other; their date-based
+filenames ensure they sort chronologically and the frecency engine naturally de-
+emphasizes old unvisited daily notes. The daily note habit is most valuable as a
+friction-reducer at the capture stage — it should not become an end in itself
+but a means of feeding a zettelkasten or evergreen notes corpus. Some
+practitioners skip daily notes entirely in favor of direct capture to permanent
+notes; the right choice depends on whether you find the daily note's low-
+friction inbox useful or just a deferred inbox.

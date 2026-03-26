@@ -1,0 +1,26 @@
+#+TITLE: Recursion Patterns in Lisp
+#+DATE: 2025-05-05
+# %%% pkm-end-frontmatter %%%
+Recursion is the natural control flow mechanism in Lisp for traversing recursive
+data structures like lists, trees, and nested s-expressions. The basic
+structural recursion pattern on a list: handle the empty list (~null~ check),
+process the head (~car~), and recurse on the tail (~cdr~). In Scheme, proper
+tail recursion is guaranteed by the language specification — a function that
+recurses only in tail position is optimized to use constant stack space,
+enabling arbitrarily deep recursion. Common Lisp (cl) does not mandate tail call
+optimization (TCO), so deeply recursive algorithms may need to be converted to
+iterative form with ~loop~ or ~do~ for production use. Emacs Lisp (emacs-lisp)
+also lacks TCO in the standard implementation, though the ~cl-lib~ ~cl-loop~
+macro provides an iterative alternative that reads almost as declaratively as
+recursion. Mutual recursion — two functions that call each other — requires
+~letrec~ in Scheme or forward declarations with ~cl-labels~ in Common Lisp to
+avoid "undefined function" errors. Accumulator-style recursion converts a
+recursive process to an iterative one by passing accumulated results as an extra
+argument to the recursive call, setting up for TCO if supported. Tree recursion,
+where each call spawns multiple recursive calls (as in Fibonacci or tree
+traversal), cannot be converted to tail position without an explicit stack data
+structure. In Clojure, the ~recur~ form explicitly marks tail calls, and ~loop~
+provides a local recursion construct that is guaranteed to compile to a JVM loop
+— essential for JVM stack safety. Understanding which recursion patterns are
+safe in each Lisp dialect, and when to substitute iteration, is a key skill for
+writing robust production Lisp code.

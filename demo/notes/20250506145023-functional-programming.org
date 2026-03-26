@@ -1,0 +1,27 @@
+#+TITLE: Functional Programming in Lisp
+#+DATE: 2025-05-06
+# %%% pkm-end-frontmatter %%%
+Functional programming (FP) emphasizes pure functions, immutable data, and
+transformations over values rather than mutation of state, and Lisp dialects
+have been central to FP's history. Pure functions — those with no side effects
+whose return value depends only on their inputs — are the ideal building block
+because they are trivially testable, composable, and parallelizable. Common Lisp
+(cl) is a multi-paradigm language that supports but does not enforce FP; emacs-
+lisp is similarly pragmatic, mixing functional and imperative styles throughout
+the Emacs codebase. Clojure (clojure) is the most fully functional of the major
+Lisp dialects: immutable persistent data structures are the default, side
+effects are explicitly managed with atoms and refs. Scheme's minimalism pushes
+toward FP by providing just enough language to implement everything else with
+functions and lambdas, making functional style the path of least resistance.
+Referential transparency — the ability to replace any expression with its value
+without changing program behavior — is the property that makes FP reasoning
+tractable at scale. In emacs-lisp, adopting FP habits (preferring ~let~ over
+~setq~, using ~mapcar~ over ~dolist~, returning values rather than mutating
+globals) makes code more testable with ~ert~ and easier to refactor. Haystack's
+elisp code leans functional where practical: note list transformations, ranking
+computations, and display formatting are all expressed as pipelines of pure
+transformations. Monads and transducers are advanced FP patterns borrowed into
+Clojure (via the ~clojure.core.async~ and ~xf~ ecosystem), but these concepts
+have less direct representation in elisp. The growing functional style in modern
+elisp — encouraged by lexical binding, ~cl-lib~, ~dash~, and ~pcase~ — shows
+that even an old Lisp can adopt new functional programming idioms effectively.

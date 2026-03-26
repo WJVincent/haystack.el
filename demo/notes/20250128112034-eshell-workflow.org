@@ -1,0 +1,25 @@
+#+TITLE: Eshell Workflow
+#+DATE: 2025-01-28
+# %%% pkm-end-frontmatter %%%
+Eshell is an Emacs shell implemented entirely in emacs-lisp, providing a
+command-line interface that blends Unix shell conventions with direct access to
+the Emacs environment. Unlike term-mode or vterm, which emulate a terminal,
+Eshell is a lisp-powered shell: you can call any elisp function directly as a
+shell command by prefixing it with nothing. The output of commands in Eshell is
+a regular Emacs buffer, which means you can search it, copy from it, and pass
+its contents to other Emacs commands without any special plumbing. Eshell
+handles pipes, redirections, globs, and environment variables similarly to bash,
+but the underlying objects being passed through pipes can be elisp data
+structures rather than byte streams. For a notes-centric workflow, Eshell makes
+it easy to run ripgrep (rg) queries against your notes directory and pipe the
+results into an Emacs buffer for further processing. Eshell's ~eshell/cd~,
+~eshell/ls~, ~eshell/cat~ and similar commands are pure elisp implementations
+that work portably across operating systems. Aliases in Eshell are defined with
+the ~alias~ command and stored in a plain-text file, making them version-
+controllable alongside your Emacs configuration. Visual commands (those
+requiring a real terminal like ~top~ or ~vim~) are handled by running them in a
+sub-terminal via ~eshell-visual-commands~. The Eshell history is searchable with
+standard Emacs mechanisms, and completion draws on the same completing-read
+infrastructure as the rest of Emacs. For developers who live in Emacs, Eshell
+can replace a separate terminal for most tasks, keeping the entire workflow
+within a single, consistent environment.

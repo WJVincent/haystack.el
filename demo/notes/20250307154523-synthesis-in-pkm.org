@@ -1,0 +1,29 @@
+#+TITLE: Synthesis in PKM
+#+DATE: 2025-03-07
+# %%% pkm-end-frontmatter %%%
+Synthesis is the highest-value activity in personal knowledge management (pkm):
+the act of combining ideas from multiple notes or sources into a new claim that
+did not exist in any single source. In a zettelkasten second-brain system,
+synthesis happens naturally when you browse your notes for a topic and discover
+that two zettel, taken together, imply something neither states individually.
+The difference between a collection and a knowledge base is synthesis: a
+collection stores information, while a knowledge base generates new
+understanding through connection and transformation. Writing synthesis notes —
+notes that explicitly draw on and cite multiple prior notes — is the most
+powerful way to make a zettelkasten productive for original thought and writing.
+Haystack's Map of Content (MOC) feature is a synthesis tool: an MOC note
+collects and organizes related notes on a topic, and the act of building the MOC
+often reveals gaps and connections. The search-centric workflow of Haystack
+supports synthesis by making it easy to pull up all notes relevant to a topic
+with ripgrep (rg): you see the full landscape of what you know before writing.
+Synthesis in emacs pkm is often mediated by org mode: you open several notes in
+windows simultaneously, use ~org-insert-link~ to cite them in a new note, and
+write the synthesis in the new file. The zettelkasten literature emphasizes that
+synthesis notes should be written in your own words, reformulating source
+material rather than quoting it — this is what builds genuine understanding. A
+corpus without synthesis notes is just an archive; the degree to which synthesis
+notes exist and link back to their sources is a reasonable proxy for the health
+of a second-brain practice. Regularly scheduled synthesis sessions — blocks of
+time devoted to reading across related notes and writing connection notes — are
+what separate productive zettelkasten practitioners from those who only
+accumulate.

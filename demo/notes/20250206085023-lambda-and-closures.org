@@ -1,0 +1,25 @@
+#+TITLE: Lambda and Closures in Lisp
+#+DATE: 2025-02-06
+# %%% pkm-end-frontmatter %%%
+Lambda expressions are anonymous functions in Lisp, expressed with the ~lambda~
+special form: ~(lambda (x) (* x x))~ creates a function that squares its
+argument. In Emacs Lisp (emacs-lisp), lexical binding must be explicitly enabled
+with ~;; -*- lexical-binding: t; -*-~ at the top of a file before closures
+behave correctly. A closure is a function paired with the environment in which
+it was created, capturing free variables from the enclosing scope so they remain
+accessible even after the enclosing function returns. The classic counter
+example illustrates closures in emacs-lisp: a ~make-counter~ function returns a
+~lambda~ that closes over a mutable variable, incrementing it on each call.
+Common Lisp (cl) has lexical scope by default, and closures are ubiquitous —
+~let~ bindings captured by an inner ~lambda~ are the idiomatic way to create
+stateful abstractions. In Clojure (clojure), closures work identically at the
+conceptual level, though immutable data structures change how you reason about
+captured state. Scheme's design places closures and first-class functions at the
+absolute center of the language — the entire continuation-passing style (CPS)
+transformation relies on closures. Higher-order functions like ~mapcar~, ~cl-
+remove-if~, and ~funcall~ become most powerful when combined with lambdas and
+closures that encapsulate parameterized behavior. Emacs's interactive command
+system uses lambdas extensively: ~(lambda () (interactive) (do-thing arg))~
+creates a one-off command for a keybinding without defining a named function.
+Understanding closures unlocks functional programming patterns across the entire
+Lisp family, from emacs-lisp configuration to production Clojure services.

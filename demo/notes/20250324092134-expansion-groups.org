@@ -1,0 +1,29 @@
+#+TITLE: Haystack Expansion Groups
+#+DATE: 2025-03-24
+# %%% pkm-end-frontmatter %%%
+Expansion groups are Haystack's mechanism for declaring synonyms: groups of
+terms that should be treated as equivalent for search purposes, so querying any
+one term finds notes using any other. The vocabulary-gap problem motivates
+expansion groups: over time you write notes using different words for the same
+concept, and without synonym handling, searches miss notes that use a different
+variant of the term you typed. A typical expansion group declaration looks like:
+~("pkm" "zettelkasten" "knowledge-management" "second-brain")~ — searching for
+any of these terms in Haystack also matches notes containing the others. When rg
+receives an expanded query, Haystack rewrites it as a regex alternation: a
+search for "pkm" becomes ~(pkm|zettelkasten|knowledge-management|second-brain)~
+passed to ripgrep. The performance cost of expansion is minimal: rg handles
+alternations efficiently, and the expanded query runs in roughly the same time
+as the single-term query on any reasonably sized corpus. Expansion groups are
+configured in ~haystack-expansion-groups~ as a list of lists; the variable is
+designed to be set once in your init and then evolved as your vocabulary
+patterns become clear. Term expansion is one-directional from the user's
+perspective but symmetric in effect: writing a note with "rg" and later
+searching for "ripgrep" finds that note if both terms are in the same expansion
+group. Expansion groups document your own terminology conventions — they are a
+meta-note about how you use language, stored as configuration rather than in the
+corpus itself. For multi-language corpora or notes that mix technical jargon
+with common language, expansion groups can bridge formal and informal
+vocabulary: grouping "git" with "version-control" and "vcs." The combination of
+rg's speed and expansion groups' vocabulary coverage makes Haystack searches
+highly reliable even in a corpus where note vocabulary has drifted over months
+or years.

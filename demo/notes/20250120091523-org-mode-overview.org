@@ -1,0 +1,24 @@
+#+TITLE: Org Mode Overview
+#+DATE: 2025-01-20
+# %%% pkm-end-frontmatter %%%
+Org mode is a major mode for Emacs that combines outlining, task management,
+literate programming, and rich document authoring in a single plain-text format.
+Headlines marked with asterisks form a hierarchy that can be folded and
+unfolded, making it easy to navigate large documents without losing the broader
+structure. TODO keywords, priorities, and tags make org mode a capable task
+manager; the agenda view aggregates items from multiple files into a unified
+daily/weekly view. Org-babel allows executable code blocks in dozens of
+languages to be embedded directly in org documents, with results captured inline
+— this is the foundation of literate programming in Emacs. Org mode is widely
+used in pkm and zettelkasten workflows because its hierarchical structure,
+linking syntax, and export capabilities map naturally to knowledge-management
+needs. The ~#+TITLE~, ~#+DATE~, ~#+AUTHOR~, and other ~#+~ keywords form a
+lightweight frontmatter system that tools like Haystack rely on when parsing
+note metadata. Internal links with ~[[id:...]]~ or ~[[file:...]]~ syntax enable
+a web of connected notes, and org-roam extends this into a full zettelkasten-
+style second-brain system. Properties drawers allow arbitrary key-value metadata
+to be attached to any heading, providing structured data without cluttering the
+visible text. Org mode export can render documents to HTML, LaTeX, Markdown,
+plain text, and dozens of other formats via the ~org-export-dispatch~ command.
+For anyone using Emacs as their primary pkm environment, mastering org mode is
+non-negotiable — it is the connective tissue of the ecosystem.

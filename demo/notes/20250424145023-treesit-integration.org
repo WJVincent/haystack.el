@@ -1,0 +1,26 @@
+#+TITLE: Tree-sitter Integration in Emacs
+#+DATE: 2025-04-24
+# %%% pkm-end-frontmatter %%%
+Emacs 29 introduced built-in support for tree-sitter, a parsing library that
+constructs concrete syntax trees for source code in real time as you type. The
+~treesit~ module replaces regex-based font-lock and navigation with precise
+structural understanding, enabling accurate highlighting even for deeply nested
+or unusual constructs. Major modes with ~-ts-mode~ suffixes (e.g., ~python-ts-
+mode~, ~rust-ts-mode~) use the tree-sitter grammar for that language to drive
+both fontification and structural navigation. Tree-sitter grammars must be
+compiled and installed separately; the ~treesit-install-language-grammar~
+command automates downloading and compiling grammars from their source
+repositories. Structural navigation commands like ~treesit-beginning-of-defun~
+and ~treesit-end-defun~ use the syntax tree to move precisely between top-level
+definitions rather than relying on heuristic patterns. The ~treesit-explore-
+mode~ displays a live visualization of the syntax tree alongside the source
+buffer, which is invaluable when developing queries or debugging tree-sitter-
+based tooling. Tree-sitter queries use an s-expression syntax borrowed from lisp
+to match nodes by type and capture them for use in fontification, indentation,
+or custom navigation commands. LSP mode and Eglot can coexist with tree-sitter
+modes: tree-sitter handles local syntax concerns while the language server
+provides cross-file semantic information. For emacs-lisp itself, a tree-sitter
+grammar is available but less critical since the built-in font-lock already
+understands the lisp structure intimately. Tree-sitter integration represents
+Emacs's most significant leap in language-aware editing capabilities since the
+introduction of font-lock decades ago.

@@ -1,0 +1,29 @@
+#+TITLE: Haystack Frecency Engine
+#+DATE: 2025-03-25
+# %%% pkm-end-frontmatter %%%
+Frecency is a portmanteau of "frequency" and "recency," and Haystack's frecency
+engine uses both signals to rank search results beyond simple text relevance.
+The frecency score for a note increases each time you open it and decays over
+time: a note visited three times last week ranks higher than one visited three
+times last year, even if both have identical visit counts. The decay function is
+typically exponential: the score contribution of a visit halves (or decreases by
+some configurable factor) with each passing time period, ensuring old visits
+contribute progressively less to current ranking. Frecency ranking addresses the
+core limitation of pure text relevance: in a large zettelkasten, many notes may
+match a query equally well, and text relevance alone cannot distinguish "the
+note I usually want" from "a note that happens to contain these words." The
+frecency data is stored in ~haystack-frecency-file~, a simple association list
+mapping note filenames to their visit records; this file is updated on every
+note open and used during result ranking. Unlike a full-text index, the frecency
+store is tiny: it only contains note identifiers and visit timestamps, not any
+content, keeping it fast to read and write on every interaction. The frecency
+engine adapts to changing work patterns: if you spent last month on emacs-lisp
+and this month shift to pkm topics, the ranking automatically reflects your
+current focus within a few sessions. Haystack's frecency model is inspired by
+the Firefox URL bar's frecency algorithm and by z/zoxide's directory navigation
+frecency, both of which have proven highly effective in practice. When search
+results are identical in text relevance, frecency breaks the tie in a way that
+reflects genuine utility: the note you actually use most often floats to the
+top. The combination of rg's complete recall (ripgrep finds everything that
+matches) and frecency's precision ranking (the most relevant result appears
+first) is the core value proposition of Haystack.

@@ -1,0 +1,25 @@
+#+TITLE: use-package Configuration
+#+DATE: 2025-01-29
+# %%% pkm-end-frontmatter %%%
+~use-package~ is a macro for organizing Emacs package configuration in a
+declarative, self-documenting style that has become the dominant approach in the
+community. Each ~use-package~ form bundles together the package name, loading
+conditions, keybindings, hooks, and configuration variables into a single
+readable block. The ~:ensure~ keyword (or its successor in Emacs 29+ built-in
+~package-install~) causes ~use-package~ to install the package automatically if
+it is not already present. The ~:defer~ keyword prevents a package from being
+loaded at startup, reducing initialization time by loading it only when first
+needed — important for keeping Emacs startup fast. The ~:hook~ keyword attaches
+functions to hooks without requiring separate ~add-hook~ calls, keeping the
+association between a package and its hooks collocated. The ~:bind~ keyword
+registers keybindings and creates the binding-to-command association in the
+package's own keymap or globally, with autoloading set up automatically. The
+~:custom~ and ~:config~ sections allow both ~customize~-compliant variable
+settings and arbitrary elisp post-load configuration within the same form. For
+Haystack configuration, a ~use-package haystack~ block with ~:bind~, ~:custom~,
+and ~:hook~ keywords provides a clean, maintainable setup that integrates with
+the rest of your init. ~use-package~ integrates with ~straight.el~ or ~elpaca~
+for source-based package management, where ~:straight t~ replaces ~:ensure t~ to
+pull directly from a git repository. Well-organized ~use-package~ forms are a
+form of executable documentation — reading an init file structured this way
+communicates intent as clearly as any comment.

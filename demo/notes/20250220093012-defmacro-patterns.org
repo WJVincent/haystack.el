@@ -1,0 +1,26 @@
+#+TITLE: Defmacro Patterns
+#+DATE: 2025-02-20
+# %%% pkm-end-frontmatter %%%
+~defmacro~ in emacs-lisp and Common Lisp (cl) defines a macro: a function that
+runs at compile time and transforms one s-expression into another before
+evaluation. The most common pattern is the "wrapping macro" that adds setup and
+teardown around a body: ~(defmacro with-foo (args &rest body) `(let ((foo
+,args)) ,@body))~. Anaphoric macros introduce a named variable like ~it~ that
+captures the result of the test clause, avoiding redundant evaluation:
+~(anaphoric-when condition (use it))~. The ~&rest body~ parameter captures an
+arbitrary number of body forms, and ~,@body~ splices them into the macro output
+so they execute in sequence as if in a ~progn~. Gensyms prevent variable
+capture: whenever a macro introduces a binding that the user code should not
+see, generating a unique symbol with ~gensym~ ensures no collision.
+~macroexpand~ and ~pp-macroexpand-expression~ are essential debugging tools for
+defmacro authors — always check the expansion before assuming a macro works
+correctly. In emacs-lisp, many common patterns that would require macros in
+strict functional languages are addressable with dynamic binding, but lexical
+binding and proper macros are generally cleaner. The ~define-advice~ and ~cl-
+defgeneric~ mechanisms provide macro-like extensibility without requiring users
+to write macros directly, leveraging Emacs's method dispatch system. Common
+patterns in pkm-related elisp code include macros for defining note templates,
+wrapping file operations with rollback, and generating interactive commands from
+declarative specs. Learning to write robust defmacro forms — with proper
+gensyms, correct backquote usage, and clear expansion — is a significant
+milestone in emacs-lisp mastery.

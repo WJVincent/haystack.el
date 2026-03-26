@@ -1,0 +1,27 @@
+#+TITLE: Haystack Overview
+#+DATE: 2025-03-18
+# %%% pkm-end-frontmatter %%%
+Haystack is an Emacs package for personal knowledge management (pkm) that
+provides fast, search-first navigation over a flat directory of plain-text
+notes. Its core capability is full-text search powered by ripgrep (rg): given a
+query, Haystack runs rg against the notes directory and presents results through
+Emacs's completing-read interface with frecency-based ranking. The name
+"Haystack" reflects the design philosophy: finding a needle in a haystack is
+trivial if you have the right search tool — the hard part is having notes worth
+finding. Haystack requires no database, no link maintenance, and no complex
+configuration to start using: point it at a notes directory and begin searching.
+Expansion groups are Haystack's mechanism for synonym handling: you declare that
+"search," "rg," and "ripgrep" are equivalent, and any search for one will match
+notes containing any of the others. The frecency engine combines recency (when
+was this note last visited?) and frequency (how often is it visited?) to rank
+results beyond simple text relevance, surfacing the notes most likely to be what
+you need right now. Haystack supports multiple note formats — org, Markdown, and
+plain-text code files — by using a frontmatter sentinel (~# %%% pkm-end-
+frontmatter %%%~) to delimit metadata from body content regardless of format.
+The package integrates naturally with the broader Emacs completion ecosystem:
+Vertico, Consult, Orderless, and Embark all compose with Haystack's completing-
+read-based interface. Haystack is designed for the zettelkasten-style second-
+brain workflow but deliberately avoids prescribing a specific note-taking
+methodology — it is a retrieval engine, not a philosophy enforcer. For
+experienced Emacs users managing a large notes corpus, Haystack offers a fast,
+frictionless alternative or complement to heavier pkm systems like org-roam.

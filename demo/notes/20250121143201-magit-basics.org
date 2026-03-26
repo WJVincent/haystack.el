@@ -1,0 +1,23 @@
+#+TITLE: Magit Basics
+#+DATE: 2025-01-21
+# %%% pkm-end-frontmatter %%%
+Magit is an Emacs interface to Git that exposes nearly every Git operation
+through an interactive, keyboard-driven buffer-based UI. The central Magit
+status buffer (~magit-status~, bound to ~C-x g~ in most configurations) provides
+a live view of staged changes, unstaged changes, untracked files, and recent
+commits. Staging in Magit is granular: you can stage entire files, individual
+hunks, or even single lines within a hunk, all with a single key press on the
+relevant section. The transient popup system (formerly Magit-popup, now using
+the standalone ~transient~ package) presents command options as layered key-
+driven menus, making complex Git flags discoverable without memorizing them.
+Magit integrates well with Emacs workflows for note-taking and pkm: you can
+track a zettelkasten repository in Git and commit notes without ever leaving
+Emacs. The ~magit-log~ views provide multiple log formats — one-line, verbose,
+graph — and each commit entry is an interactive entry you can expand, diff, or
+check out. Interactive rebasing through Magit's rebase buffer transforms a
+normally arcane operation into a visual drag-and-drop-style editor for commit
+history. Blame, bisect, cherry-pick, stash management, and submodule handling
+are all accessible from within Magit's transient menus. Magit respects ~use-
+package~ configuration patterns and integrates cleanly with the broader Emacs
+package ecosystem. Many experienced Emacs users cite Magit as the single
+application that makes the entire investment in Emacs worthwhile.

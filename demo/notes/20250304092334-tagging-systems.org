@@ -1,0 +1,27 @@
+#+TITLE: Tagging Systems in PKM
+#+DATE: 2025-03-04
+# %%% pkm-end-frontmatter %%%
+Tagging is a common organization strategy in personal knowledge management
+(pkm): attaching keywords to notes (zettel) so they can be retrieved by category
+rather than by content search. Tags work best for stable, high-level categories
+like "reference," "project," or "review-needed" — they fail as a comprehensive
+retrieval system because they require predicting search terms at write time. The
+vocabulary-gap problem undermines tag-based retrieval: the tag you assigned when
+writing a note ("retrieval") may not match the word you think of when searching
+("lookup" or "finding"). Haystack's expansion groups partially address this gap:
+by declaring synonyms explicitly, a search for "search" can match notes tagged
+with "retrieval" or "rg" or "ripgrep" — but this requires manual maintenance.
+Flat tagging (a list of tags on each note) is simpler than hierarchical tagging
+but creates a sprawling taxonomy that becomes hard to navigate as the corpus
+grows. Hierarchical tags (e.g., ~lisp/emacs-lisp~, ~pkm/zettelkasten~) add
+structure but increase the cost of tagging decisions and the risk of taxonomy
+drift across notes written at different times. The alternative to tags as
+primary organization is full-text search via ripgrep (rg): if notes use
+consistent vocabulary, search subsumes most of what tags would provide without
+requiring active maintenance. Org mode supports tags on headings with the
+~:tag:~ syntax and inherits tags from parent headings; filtering the org agenda
+by tag is one of the most common org-mode workflows. Obsidian popularized the
+inline hashtag syntax (~#topic~) within note bodies, allowing tags to appear in
+context rather than only in frontmatter. A pragmatic tagging strategy for a
+zettelkasten combines minimal stable tags (status, type) with full-text search
+for content retrieval — each mechanism doing what it does best.

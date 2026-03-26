@@ -1,0 +1,29 @@
+#+TITLE: Plain Text Benefits for PKM
+#+DATE: 2025-03-03
+# %%% pkm-end-frontmatter %%%
+Plain text is the most durable storage format for personal knowledge management
+(pkm): it requires no proprietary software, survives format migrations
+trivially, and remains readable on any device. A second-brain built in plain
+text can be version-controlled with Git, diffed line-by-line, searched with
+ripgrep (rg), and processed with any scripting language — capabilities that
+proprietary note formats forfeit. The zettelkasten tradition has always favored
+simple, portable notation: Luhmann's index cards were plain text by necessity,
+and that constraint proved to be a feature. Org mode and Markdown are the two
+dominant plain-text formats for knowledge-management notes; both are human-
+readable without any tooling and machine-parseable with lightweight parsers.
+Haystack is built on the assumption of plain-text notes: its ripgrep (rg) based
+search, frontmatter parsing, and expansion groups all operate on files as
+character sequences, not opaque blobs. Plain text enables a class of powerful
+shell-based workflows: you can grep your entire notes directory, pipe note
+titles through fzf, or process frontmatter with standard Unix tools. The trade-
+off of plain text is formatting limitations: rich tables, embedded images, and
+complex diagrams require extensions (org-mode's built-in table format, Markdown
+image syntax) that vary in portability. Future-proofing is the strongest
+argument for plain text: notes written in org mode today will be fully readable
+in 20 years without any special software, unlike proprietary database-backed
+notes apps. The "plain text portability" argument is not just about format: it
+also means your workflow is not locked to a single operating system, editor, or
+service, which aligns with the long-term nature of knowledge-management. For a
+second-brain to be a genuine long-term investment, the storage format must
+outlive the tools used to manage it — and plain text is the safest bet
+available.

@@ -1,0 +1,119 @@
+#+TITLE: Haystack Demo Corpus
+#+STARTUP: overview
+
+* Overview
+
+This directory contains a pre-built corpus of 84 sample notes for
+trying out Haystack without touching your own notes.
+
+Run ~M-x haystack-demo~ to activate demo mode.  Haystack will copy
+these notes into a temporary directory and point itself there.  A
+warning banner appears in every results buffer.  When you are done,
+~M-x haystack-demo-stop~ kills all demo buffers, deletes the temp
+directory, and restores your previous ~haystack-notes-directory~.
+
+* Corpus layout
+
+The 84 notes span four topic areas:
+
+| Topic   | Notes | File types             |
+|---------+-------+------------------------|
+| Emacs   |    18 | .org                   |
+| Lisp    |    20 | .org, .md              |
+| PKM     |    19 | .org, .md              |
+| Haystack|    19 | .org, .md              |
+| Code    |    12 | .el .py .js .lua .rb .rs|
+
+* Pre-built expansion groups
+
+The following synonym groups are pre-configured in
+~.expansion-groups.el~.  Any member term expands to the full
+alternation during search:
+
+| Root   | Synonyms                                          |
+|--------+---------------------------------------------------|
+| lisp   | common-lisp, cl, scheme, clojure                  |
+| elisp  | emacs-lisp, emacs lisp                            |
+| pkm    | zettelkasten, knowledge-management, second-brain  |
+| search | ripgrep, rg                                       |
+| note   | notes, zettel                                     |
+
+* Pre-built frecency history
+
+The ~.haystack-frecency.el~ file is pre-populated with a realistic
+search history.  Run ~C-c h f~ (~haystack-frecent~) to replay
+frequent searches.
+
+By default only *leaf* entries are shown — chains that are not merely
+an intermediate step toward a more-visited deeper search.  Use ~C-u
+C-c h f~ to see all recorded chains, including intermediate ones
+dominated by their deeper siblings.
+
+* Suggested walkthrough
+
+** 1 · Root search
+   ~C-c h s~ → type =emacs= and press RET.  Note the expanded query
+   in the header: =emacs= is not in an expansion group, so it matches
+   literally.  Then try =lisp=: the header shows the full alternation
+   =(lisp|common-lisp|cl|scheme|clojure)= because "lisp" has an
+   expansion group.
+
+** 2 · Progressive filtering
+   From the =lisp= results buffer, press =f= and type =macros=.  You
+   now have a child buffer scoped to files that matched =lisp= *and*
+   contain =macros=.  Press =u= to go back up.  Press =f= again and
+   try =!macros= (negation) to see files about lisp that do *not*
+   mention macros.
+
+** 3 · Leaf/all frecency
+   ~C-c h f~ shows only leaf searches.  Notice that broad terms like
+   =emacs= and =haystack= are hidden — they are dominated by deeper,
+   more-visited chains like =emacs > org-mode= and
+   =haystack > filtering=.  Use ~C-u C-c h f~ to reveal all chains,
+   or open ~M-x haystack-describe-frecent~ and press =v= to toggle
+   the view.
+
+** 4 · MOC generator
+   From any results buffer, press =c= to copy a Map of Contents to
+   the kill ring, then ~C-c h y~ to yank it into any note.  Open one
+   of the code files and yank there to see language-appropriate
+   formatting: Python gets a list of dicts, Lua gets a local table,
+   Ruby and Rust fall back to comment style (no built-in data
+   formatter).
+
+** 5 · Create a note
+   ~C-c h n~ → enter a slug → choose an extension.  The new note
+   will carry a "HAYSTACK DEMO NOTE" label in its body as a reminder
+   that it lives in the temporary directory and will be discarded on
+   ~haystack-demo-stop~.
+
+** 6 · Orphan notes
+   From any search results buffer, press =f= and type =/orphan= (the
+   =/= prefix triggers a filename filter).  This scopes to the four
+   notes that are intentionally isolated — they share little vocabulary
+   with the rest of the corpus and would be hard to find through
+   content search alone:
+   - =orphan-s-expressions= — symbolic-expression theory, minimal cross-topic refs
+   - =orphan-cognitive-load= — mental overhead framing, unique vocabulary
+   - =orphan-buffer-hierarchy= — haystack tree internals, narrow scope
+   - =orphan-vocabulary-gap= — terminology drift, isolated concept
+
+   These are prime candidates for the Phase 3 discoverability engine
+   (~M-x haystack-describe-discoverability~, not yet implemented).
+
+** 7 · Synthesis candidates
+   From any results buffer, press =f= and type =/synthesis=.  You'll
+   land on four notes that bridge two topic areas and are good
+   candidates for a composite once the Phase 3 composer lands:
+   - =synthesis-emacs-pkm= (Emacs ∩ PKM)
+   - =synthesis-org-roam-vs-haystack= (PKM ∩ Haystack)
+   - =synthesis-plain-text-pkm= (PKM ∩ Haystack)
+   - =synthesis-haystack-pkm= (Haystack ∩ PKM)
+
+* Stopping the demo
+
+~M-x haystack-demo-stop~
+
+This kills all Haystack results buffers, kills any file-visiting
+buffers inside the temp directory, deletes the temp directory, and
+restores your previous ~haystack-notes-directory~.

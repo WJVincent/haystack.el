@@ -1,0 +1,28 @@
+#+TITLE: Spaced Repetition
+#+DATE: 2025-03-06
+# %%% pkm-end-frontmatter %%%
+Spaced repetition is a learning technique that schedules review of material at
+increasing intervals, exploiting the "spacing effect" to maximize long-term
+retention with minimal review time. The algorithm originally formalized by Piotr
+Woźniak as SM-2 (and later SM-18 in the SuperMemo software) schedules each item
+based on how easily it was recalled at the last review. Anki is the most widely
+used spaced repetition software; it implements a variant of the SM-2 algorithm
+and supports text, images, audio, and code snippets as card content. In a
+personal knowledge management (pkm) context, spaced repetition complements but
+does not replace the zettelkasten: a zettelkasten stores and connects ideas,
+while spaced repetition moves them into long-term memory. The org-drill and org-
+fc packages implement spaced repetition within Emacs org mode, treating org
+headings as cards and scheduling them through the agenda system. A common
+criticism of spaced repetition in pkm is that it optimizes for recall of
+isolated facts rather than for understanding of connected ideas — which is
+precisely what a zettelkasten second-brain is designed to build. Synthesis —
+connecting ideas, generating new claims, writing permanent zettel — may do more
+for deep understanding than rote review, though the two approaches are
+complementary. Creating good spaced repetition cards from notes requires the
+same atomicity discipline as writing good zettel: one concept per card, phrased
+in a way that tests understanding rather than pattern-matching. The Leitner box
+system is a physical analog to spaced repetition: cards are organized into
+compartments reviewed at different frequencies based on how often they were
+recalled correctly. For Emacs users, integrating spaced repetition through org-
+drill with the same notes used in Haystack creates a unified workflow where
+notes serve double duty as knowledge-management zettel and review material.

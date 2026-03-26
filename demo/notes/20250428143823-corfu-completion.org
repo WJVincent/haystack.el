@@ -1,0 +1,26 @@
+#+TITLE: Corfu Completion
+#+DATE: 2025-04-28
+# %%% pkm-end-frontmatter %%%
+Corfu is an in-buffer completion UI for Emacs that displays candidates in a
+small popup near the cursor rather than in the minibuffer, providing context-
+aware completions as you type. It is built entirely on Emacs's standard
+~completion-at-point-functions~ (CAPF) mechanism, meaning it works with any
+backend that provides a CAPF — LSP, elisp, file paths, dictionary words. Unlike
+Company mode, Corfu is deliberately minimal: it delegates filtering and sorting
+to completion styles like Orderless, keeping its own codebase focused on display
+and interaction. The ~corfu-auto~ option enables automatic popup triggering
+after a configurable delay, while ~corfu-quit-no-match~ controls behavior when
+no candidates match the current prefix. ~cape~ (Completion At Point Extensions)
+provides additional CAPF backends for Corfu: ~cape-file~ for file paths, ~cape-
+dabbrev~ for dynamic abbreviation, ~cape-elisp-symbol~ for emacs-lisp symbols.
+Corfu's popup respects ~completion-styles~, so configuring Orderless globally
+gives you multi-token fuzzy matching in the in-buffer completion popup
+automatically. For emacs-lisp development, Corfu paired with the built-in
+~elisp-completion-at-point~ function provides excellent symbol completion
+including function signatures in the echo area. The ~corfu-terminal~ package
+extends Corfu to terminal (non-GUI) Emacs sessions by rendering the popup using
+terminal character graphics. Corfu integrates with lsp-mode and Eglot seamlessly
+— both use the CAPF mechanism, so Corfu handles their completions without any
+special configuration. As part of the modern completing-read ecosystem alongside
+Vertico and Orderless, Corfu completes the picture: Vertico handles minibuffer
+completions while Corfu handles in-buffer completions.

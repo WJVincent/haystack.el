@@ -1,0 +1,29 @@
+#+TITLE: Haystack Search
+#+DATE: 2025-03-20
+# %%% pkm-end-frontmatter %%%
+Search is the central operation in Haystack: the ~haystack-search~ command
+launches a ripgrep (rg) query against the notes directory and presents matching
+notes through a completing-read interface with frecency ranking. Ripgrep (rg) is
+chosen as the search backend because it is the fastest general-purpose text
+search tool available: on a corpus of 10,000 notes, rg completes in well under
+100ms even on modest hardware. Haystack passes the user's query to rg with
+appropriate flags — case-insensitive by default, with multiline context if
+configured — and collects the list of matching files rather than individual line
+matches. Results are ranked by a frecency score that combines recency (time
+since last visit) and frequency (total visit count), so the note you visited
+three times this week ranks above one you visited once six months ago. Expansion
+groups multiply the effective recall of a search: a query for "zettelkasten"
+also finds notes containing "pkm," "knowledge-management," and "second-brain" if
+those terms are grouped together. The search interface is a standard completing-
+read call, which means Vertico's vertical list, Orderless's multi-token
+filtering, and Embark's action dispatch all work with Haystack search results
+without any special integration. Haystack search operates on file content after
+the frontmatter sentinel, ensuring that title and date metadata do not pollute
+body search results. The ~haystack-search-all~ variant searches both frontmatter
+and body, useful when you remember a specific title or date but not the content.
+For a second-brain with thousands of zettel, the combination of fast rg search
+and frecency ranking makes Haystack feel qualitatively different from simple
+grep: it finds the right note, not just notes that match. Search in Haystack is
+not merely a lookup operation — it is the primary navigation mechanism,
+replacing folder browsing and tag hierarchies with a single fast, expressive
+interface.

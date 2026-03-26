@@ -1,0 +1,29 @@
+#+TITLE: Haystack Discoverability
+#+DATE: 2025-04-07
+# %%% pkm-end-frontmatter %%%
+Discoverability in Haystack is the probability that a note you need will surface
+when you search for it, even if you cannot remember exactly what you wrote or
+how you titled it. The three mechanisms that drive discoverability are: rg's
+complete recall (it finds all matching files), expansion groups' vocabulary
+coverage (it handles synonym gaps), and frecency ranking (it prioritizes likely
+candidates). A note is only as discoverable as its vocabulary: notes that use
+multiple related terms for their concepts are found by more queries than notes
+that use a single precise term. Writing with discoverability in mind means
+including near-synonyms, informal variants, and related terms in note bodies —
+not stuffing keywords, but naturally mentioning related concepts as you would in
+a well-rounded discussion. The vocabulary-gap problem is the primary threat to
+discoverability: if you write "retrieval" now and search for "lookup" in six
+months, without an expansion group the note is invisible to that search.
+Expansion groups are the configured solution; natural vocabulary richness in
+note bodies is the complementary informal solution — and together they provide
+high discoverability without constant maintenance. Haystack's MOC feature
+improves discoverability at a meta-level: an MOC for "pkm" that links to twenty
+related notes creates additional text that rg can match, surfacing the MOC
+itself as a hub for the topic. Frecency contributes to discoverability by
+ensuring that notes you use regularly are always near the top of relevant
+searches — the system learns which notes you find valuable and surfaces them
+proactively. The tree view aids a different kind of discoverability:
+serendipitous discovery of related notes that you did not know to search for,
+revealed by the parent-child structure of a connected topic area. Maximizing
+discoverability is the primary quality metric for a notes corpus: a note that
+cannot be found when needed has no value, regardless of how well-written it is.

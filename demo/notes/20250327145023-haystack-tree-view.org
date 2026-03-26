@@ -1,0 +1,29 @@
+#+TITLE: Haystack Tree View
+#+DATE: 2025-03-27
+# %%% pkm-end-frontmatter %%%
+Haystack's tree view renders the connections between notes as a collapsible
+outline in a dedicated Emacs buffer, providing a hierarchical browsing mode on
+top of the flat notes directory. The tree view is constructed dynamically by
+following links from a root note (typically a Map of Content) and recursively
+expanding connected notes, forming a buffer-hierarchy that mirrors the
+conceptual structure of a topic. Unlike a static file hierarchy, the tree view
+in Haystack is derived from the content of notes: the parent-child relationships
+in the tree reflect semantic connections rather than filesystem nesting. Each
+node in the tree view is a clickable note title; pressing ~RET~ or ~o~ on a node
+opens that note's buffer, and the tree collapses/expands with ~TAB~ following
+standard Emacs outline conventions. The ~haystack-tree-view~ command accepts a
+root note or a search query as its starting point; beginning from an MOC note
+produces a particularly useful overview of a topic area. The parent-child
+structure in the tree view is not fixed: re-running the tree from a different
+root produces a different hierarchy of the same notes, reflecting the relational
+flexibility of a flat zettelkasten. Tree view complements rather than replaces
+search: use search to find the entry point you need, then use tree view to
+explore the surrounding landscape of related notes. For notes that explicitly
+link to each other (as in org-roam-style links), the tree view accurately
+reflects those connections; for search-connected notes, Haystack builds a
+heuristic tree based on content similarity. The buffer-hierarchy displayed in
+the tree view is a temporary, navigational view — it does not persist or affect
+the underlying files, which remain as flat plain-text notes in the notes
+directory. Haystack's tree view is one of the features that bridges the gap
+between a fully flat search-based system and the structured navigation that some
+users expect from a pkm tool.

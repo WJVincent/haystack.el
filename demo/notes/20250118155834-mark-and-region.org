@@ -1,0 +1,23 @@
+#+TITLE: Mark and Region in Emacs
+#+DATE: 2025-01-18
+# %%% pkm-end-frontmatter %%%
+The mark is an invisible saved position in a buffer; the region is the span of
+text between the mark and the current cursor position (point). Setting the mark
+with ~C-SPC~ begins defining a region, and subsequent movement commands extend
+it until you act on the selection or deactivate the mark. Transient Mark Mode,
+enabled by default in modern Emacs, highlights the active region visually so you
+always know what text will be affected by region-aware commands. Commands like
+~kill-region~, ~copy-region-as-kill~, ~indent-region~, and ~comment-region~ all
+operate on the active region, making mark management central to efficient
+editing. The mark ring stores the last several mark positions in each buffer, so
+~C-u C-SPC~ pops back through recent positions like a navigation history. The
+global mark ring extends this idea across buffers, letting ~C-x C-SPC~ jump back
+to the last marked position in a different buffer. Rectangular regions, accessed
+through the ~rect~ commands or via the ~C-x r~ prefix, let you operate on
+columns of text rather than contiguous spans. Packages like ~expand-region~ add
+ergonomic commands to progressively expand the region outward through syntactic
+units: word → symbol → string → expression → defun. In emacs-lisp programming,
+the region often plays a role in interactive commands — ~(interactive "r")~
+passes the region boundaries as arguments to an elisp function. Understanding
+the mark and region is essential before exploring more advanced Emacs text
+manipulation tools.

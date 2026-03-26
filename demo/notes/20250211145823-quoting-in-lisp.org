@@ -1,0 +1,25 @@
+#+TITLE: Quoting in Lisp
+#+DATE: 2025-02-11
+# %%% pkm-end-frontmatter %%%
+Quoting in Lisp prevents evaluation: ~'x~ or ~(quote x)~ returns the symbol ~x~
+itself rather than the value bound to ~x~. This distinction is essential because
+Lisp uses the same syntax for both data structures and executable code; quoting
+is the mechanism that says "treat this as data, not code." A quoted list ~'(1 2
+3)~ creates a literal list data structure; without the quote, Lisp would try to
+call the function bound to ~1~ with arguments ~2~ and ~3~. Backquote (~`~) is
+quasi-quotation: it quotes an expression but allows selective unquoting with
+comma (~,~) so certain sub-expressions are evaluated while the rest remain
+literal. ~,@~ (unquote-splicing) evaluates an expression that must return a list
+and splices its elements into the surrounding structure, replacing the single
+~,@expr~ position with multiple elements. In emacs-lisp, backquote is used
+extensively in macro definitions and in code that programmatically constructs
+lists: ~`(setq ,var ,val)~ builds a ~setq~ form with variable values substituted
+in. Common Lisp (cl) provides ~quote~, ~quasiquote~, ~unquote~, and ~unquote-
+splicing~ with the same semantics as emacs-lisp, since both descended from
+Maclisp. Clojure adds ~syntax-quote~ (~`~) which differs from Common Lisp
+backquote in one important way: it fully namespace-qualifies all symbols to
+prevent accidental capture. Scheme's hygienic macro system with ~syntax-rules~
+sidesteps many quoting issues by operating at a higher level of abstraction than
+raw s-expression manipulation. Understanding quoting deeply is a prerequisite
+for writing macros and for reading any Lisp code that constructs forms
+programmatically — it is where data and code meet.

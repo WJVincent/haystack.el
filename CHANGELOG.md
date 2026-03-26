@@ -7,6 +7,43 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.7.0] — 2026-03-25
+
+### Added
+- **Demo mode** — `haystack-demo` copies the bundled `demo/notes/`
+  corpus into a fresh temporary directory and redirects
+  `haystack-notes-directory` there.  Every results buffer header shows
+  a `*** DEMO MODE ***` warning banner.  New notes created during the
+  demo carry a body label indicating they will be discarded.
+  `haystack-demo-stop` kills all demo results buffers and file-visiting
+  buffers, deletes the temp directory, and restores the previous
+  `haystack-notes-directory`, frecency data, and expansion groups.
+- **Bundled demo corpus** (`demo/notes/`) — 84 pre-written notes across
+  four topic areas (Emacs, Lisp, PKM, Haystack) in eight file types
+  (`.org`, `.md`, `.el`, `.py`, `.js`, `.lua`, `.rb`, `.rs`).
+  Includes pre-built `.expansion-groups.el` and
+  `.haystack-frecency.el` so frecency, leaf/all toggle, and expansion
+  groups are immediately demonstrable.  Orphan notes and synthesis
+  candidates are distributed throughout the corpus for realism.
+- `demo/README.org` — guided walkthrough covering search, progressive
+  filtering, leaf frecency, MOC generation, orphan notes, and
+  synthesis candidates.
+- `D` binding on `haystack-prefix-map` → `haystack-demo`.
+
+### Internal
+- `haystack--demo-active`, `haystack--demo-temp-dir`,
+  `haystack--demo-saved-state` — demo state variables.
+- `haystack--demo-package-dir` — locates the haystack.el directory
+  for resolving the bundled `demo/notes/` path.
+- `haystack--format-header` injects the demo warning line when
+  `haystack--demo-active` is non-nil.
+
+---
+
+## [0.6.0] — 2026-03-25
+
 ### Added
 - **Frecency leaf/all toggle** — `haystack-frecent` now defaults to
   leaf-only mode, hiding intermediate chains dominated by a deeper

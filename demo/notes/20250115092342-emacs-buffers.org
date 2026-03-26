@@ -1,0 +1,25 @@
+#+TITLE: Emacs Buffers
+#+DATE: 2025-01-15
+# %%% pkm-end-frontmatter %%%
+Buffers are the fundamental unit of work in Emacs; nearly everything you
+interact with lives inside one. Unlike most editors that tie buffers directly to
+files, Emacs buffers can hold file contents, shell output, compilation results,
+or purely in-memory text with no backing file at all. The ~*scratch*~ buffer is
+perhaps the most iconic example of a non-file buffer, serving as an interactive
+elisp playground from the moment Emacs starts. Every buffer has a major mode
+that determines its syntax highlighting, keybindings, and available commands —
+switching modes does not create a new buffer, it transforms the existing one.
+The buffer-list is maintained as an ordered structure, and the concept of a
+buffer-hierarchy becomes relevant when you begin thinking about how parent
+frames and child windows relate to the buffers they display. You can have dozens
+of buffers open simultaneously without displaying them; most exist quietly in
+the background until you summon them via ~switch-to-buffer~ or a completion
+frontend like Vertico. Buffer-local variables allow each buffer to carry its own
+version of any Emacs setting, which is how major modes customize indentation,
+fill-column, and other behavior without affecting the global state. Narrowing a
+buffer with ~narrow-to-region~ makes only a portion of the buffer visible and
+editable, a powerful technique for focusing on a subsection of a large file. The
+~ibuffer~ package provides a full-featured buffer manager displayed in its own
+buffer, letting you filter, sort, and operate on groups of buffers at once.
+Understanding buffers deeply unlocks a more fluid Emacs workflow — rather than
+managing files, you manage a living workspace of named text containers.

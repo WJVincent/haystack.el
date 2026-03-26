@@ -1,0 +1,5 @@
+(("lisp" . ("common-lisp" "cl" "scheme" "clojure"))
+ ("elisp" . ("emacs-lisp" "emacs lisp"))
+ ("pkm" . ("zettelkasten" "knowledge-management" "second-brain"))
+ ("search" . ("ripgrep" "rg"))
+ ("note" . ("notes" "zettel")))

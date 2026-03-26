@@ -1,0 +1,30 @@
+#+TITLE: Search as Navigation
+#+DATE: 2025-05-09
+# %%% pkm-end-frontmatter %%%
+Search as navigation is the design principle that retrieval — typing a query and
+selecting from results — should be the primary way to move through a knowledge
+system, replacing folder browsing and menu navigation. Traditional file managers
+and note apps present hierarchical navigation as the default: you browse
+folders, open directories, and navigate by location in a tree structure. Search-
+as-navigation inverts this: instead of knowing where a note is, you express what
+you need, and the system finds it — the note's location in the filesystem
+becomes irrelevant to its retrieval. Haystack's entire interface is built on
+this principle: ~haystack-search~ is the primary entry point for all note
+access, and the flat notes directory design ensures there is no folder hierarchy
+to browse instead. The efficiency gains are significant: in a well-indexed
+corpus, reaching any note via ripgrep (rg) search takes 2-4 seconds from intent
+to open; browsing a folder tree to the same note can take 10-30 seconds. The
+cognitive shift required is non-trivial: users habituated to folder-based
+navigation initially find search-as-navigation disorienting because it requires
+trusting that the system will find what they need. Once internalized, search-as-
+navigation becomes the dominant mental model: you stop thinking about where
+notes live and start thinking about what they contain — which aligns better with
+how memory actually works. Browser URL bars (with frecency-ranked history),
+command palettes in modern editors (VS Code's ~Cmd-P~), and zoxide for directory
+navigation all apply search-as-navigation to their respective domains.
+Haystack's expansion groups are critical to making search-as-navigation
+reliable: if any vocabulary variant of a concept finds the note, navigation-by-
+search becomes trustworthy and the habit of browsing withers away. The second-
+brain literature increasingly treats search-as-navigation as best practice:
+knowledge-management tools that require precise organization impose a cognitive
+overhead that search-first systems eliminate.

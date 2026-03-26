@@ -320,11 +320,14 @@ The most complex subsystems. Benefit from real usage data.
 * Stretch Goals                                                     :stretch:
 Not in scope for 1.0. Recorded so they don't get lost.
 
-** TODO Demo corpus (several hundred synthetic notes)
-- Generate a realistic multi-topic corpus for demos and manual perf testing
-- Mix of org/md/code file types; range of note sizes; expansion-group-friendly vocabulary
-- Script lives in =test/= so it can be re-run after vocabulary changes
-- Not checked in to the repo — generated on demand
+** DONE Demo mode (=haystack-demo= / =haystack-demo-stop=)
+- 84 notes bundled under =demo/notes/= covering Emacs, Lisp, PKM, Haystack
+- Eight file types: .org .md .el .py .js .lua .rb .rs
+- Pre-built =.expansion-groups.el= and =.haystack-frecency.el=
+- =haystack-demo= copies corpus to temp dir and redirects =haystack-notes-directory=
+- =haystack-demo-stop= kills demo buffers, deletes temp dir, restores state
+- Demo warning banner in every results buffer header
+- =demo/README.org= guided walkthrough
 ** TODO MOC structured data format (=haystack-moc-code-style= ='data=)
 - Scaffold exists; =haystack--format-moc-code-data= currently delegates to comment
 - Per-language array/object syntax: JS/TS, Python, Elisp, Lua, Ruby

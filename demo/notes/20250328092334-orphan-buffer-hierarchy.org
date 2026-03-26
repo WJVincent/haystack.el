@@ -1,0 +1,31 @@
+#+TITLE: Buffer Hierarchy in Haystack
+#+DATE: 2025-03-28
+# %%% pkm-end-frontmatter %%%
+Buffer-hierarchy in Haystack refers to the navigational structure created when
+the tree view builds a parent-child relationship among note buffers, reflecting
+how notes connect to each other conceptually. Unlike filesystem directories
+where parent-child relationships are fixed by folder location, the buffer-
+hierarchy in Haystack is dynamic and contextual: the same note can appear as a
+parent in one tree and a child in another, depending on the starting point. The
+parent-child relationship in the buffer tree is derived from note links and
+content similarity: a note that links to five other notes becomes a natural
+parent node, with those five as its children in the rendered tree. Buffer tree
+construction begins from a root buffer (usually an MOC or an entry-point note)
+and recursively discovers children by following outbound links and performing
+related-note lookups. In the tree view buffer, the parent-child structure is
+represented as indented outline nodes; collapsing a parent hides all its
+children, and expanding it reveals the full subtree. The buffer-hierarchy is
+ephemeral by design: it exists as a navigational aid in a Haystack tree buffer
+but does not persist between sessions or modify any underlying note files.
+Navigating via the buffer tree provides a qualitatively different experience
+from flat search: rather than jumping directly to a specific note, you explore
+the neighborhood of a topic by walking the parent-child hierarchy. Multiple
+buffer trees can be open simultaneously in different Emacs windows, each rooted
+at a different note — useful when comparing two topic areas or tracking cross-
+topic connections. The buffer-hierarchy concept distinguishes Haystack from a
+simple search wrapper: it provides structured exploration on top of the flat
+search foundation, offering both depth (tree traversal) and breadth (corpus-wide
+rg search). Understanding how Haystack builds the buffer tree from note content
+helps you write notes that produce better tree views: notes with explicit
+outbound links produce richer, more accurate parent-child structures than link-
+free notes.

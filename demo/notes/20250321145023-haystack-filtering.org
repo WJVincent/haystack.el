@@ -1,0 +1,29 @@
+#+TITLE: Haystack Filtering
+#+DATE: 2025-03-21
+# %%% pkm-end-frontmatter %%%
+Haystack filtering narrows the search space before ripgrep (rg) runs, letting
+you restrict results by file extension, frontmatter field, date range, or
+directory prefix. The ~/ filter~ syntax in Haystack restricts matches to notes
+whose filename contains the given string: ~/emacs~ limits results to notes with
+"emacs" in their filename, which in a flat zettelkasten corresponds to topic-
+prefixed note names. File extension filtering is configured via ~haystack-
+search-extensions~: you can restrict searches to ~.org~ files, ~.md~ files, or
+both, depending on the composition of your notes corpus. Date range filtering
+uses the timestamp embedded in each note's filename: ~haystack-filter-by-date~
+accepts a date range and limits the rg invocation to matching filenames,
+eliminating notes outside the window. Frontmatter field filtering allows you to
+search only notes with specific YAML or org-property values — for example, all
+notes with ~status: review~ in their frontmatter. Filtering and expansion groups
+compose: a filtered search can still expand synonyms, so you can search for
+"pkm" within org files dated this year and have it also match "zettelkasten" and
+"second-brain." The filter layer operates before rg receives the query, which
+means filtering reduces the corpus size before the expensive text search runs —
+an important optimization for large note collections. Haystack's completing-read
+interface allows incremental refinement: you start with a broad query, then
+narrow it with additional tokens (Orderless-style) or switch to a filtered mode
+without retyping the query. For notes organized with naming conventions (e.g.,
+~YYYYMMDD-topic-subtopic.org~), the ~/ filter~ against filename provides a
+lightweight form of hierarchical navigation without needing actual
+subdirectories. Filtering in Haystack is additive and composable — multiple
+filter conditions narrow the corpus progressively, letting you home in on the
+exact subset of notes relevant to your current task.

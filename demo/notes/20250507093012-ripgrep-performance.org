@@ -1,0 +1,29 @@
+#+TITLE: Ripgrep Performance
+#+DATE: 2025-05-07
+# %%% pkm-end-frontmatter %%%
+Ripgrep (rg) is a line-oriented search tool written in Rust that combines the
+speed of a custom regex engine with intelligent file handling, consistently
+outperforming grep, ack, and ag on real-world code and text corpora. On a
+directory of 10,000 plain-text notes, rg typically completes a full-corpus
+search in 50-150ms on modern hardware — fast enough that Haystack can run rg on
+every keystroke change if desired. Ripgrep achieves its speed through several
+mechanisms: it uses a Rust-implemented DFA-based regex engine, it reads files in
+parallel using OS thread pools, and it skips binary files and .gitignore-
+excluded paths automatically. The ~--files~ flag makes rg emit only matching
+filenames rather than line content; Haystack uses this mode when it only needs
+the list of notes containing a query rather than the specific matching lines.
+Ripgrep supports PCRE2 regular expressions via the ~-P~ flag, enabling
+lookahead, lookbehind, and Unicode property escapes beyond what the default Rust
+regex engine supports. Case-insensitive search (~-i~) is the default in
+Haystack's rg invocations, since note-taking vocabulary is rarely case-sensitive
+in a pkm context. The ~--type~ and ~--type-add~ flags allow Haystack to restrict
+rg searches to specific file extensions without constructing manual glob
+patterns, keeping the invocation clean. Ripgrep's automatic .gitignore handling
+means that if your notes directory is a Git repository, rg silently skips backup
+files and generated artifacts — a convenient default for a zettelkasten. The
+alternation pattern that expansion groups generate
+(~(pkm|zettelkasten|knowledge-management)~) is handled efficiently by rg's
+finite automaton engine, with little overhead compared to a single-term search.
+Haystack's benchmark suite verifies that search completes within 500ms for 10k
+notes and 2s for 100k notes on reference hardware, ensuring that rg performance
+remains within acceptable bounds as a corpus grows.

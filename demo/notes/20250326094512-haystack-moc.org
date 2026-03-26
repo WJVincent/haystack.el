@@ -1,0 +1,26 @@
+#+TITLE: Haystack Map of Content
+#+DATE: 2025-03-26
+# %%% pkm-end-frontmatter %%%
+A Map of Content (MOC) is a note that serves as a curated index or overview for
+a topic, collecting links to related notes (zettel) and organizing them into a
+meaningful structure. In Haystack, an MOC is created like any other note via
+~haystack-new-note~, but its body consists primarily of links to and summaries
+of related notes rather than original observations. The ~haystack-moc~ command
+accelerates MOC creation by running a search query and collecting all matching
+notes into a template that populates an MOC note with links and titles. MOCs sit
+one level above atomic notes in the zettelkasten hierarchy without imposing a
+folder structure: they are discovery and navigation aids, not containers. A
+well-maintained MOC for a topic like "emacs pkm" might link to notes on org-
+roam, Haystack, org-mode, Consult, and Vertico, providing a starting point for
+anyone (including your future self) new to the topic. The act of building an MOC
+is itself a synthesis exercise: you must decide which notes belong, how to group
+them, and what the relationships between them are — insights that often surface
+while assembling the list. MOCs in Haystack benefit from expansion groups: if
+your MOC is titled "PKM" but some constituent notes use "zettelkasten" or
+"second-brain," Haystack's expansion ensures searches still find them together.
+The tree view (~haystack-tree-view~) can render an MOC's linked notes as a
+collapsible outline, combining the benefits of hierarchical browsing with the
+flat-file storage model. MOCs should be revisited and updated as new notes
+accumulate: a stale MOC is worse than no MOC because it creates a false sense of
+completeness. For large corpora, having MOCs for each major topic area is the
+difference between a searchable archive and a navigable knowledge system.

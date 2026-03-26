@@ -1,0 +1,26 @@
+#+TITLE: Cons Cells and Lists
+#+DATE: 2025-02-05
+# %%% pkm-end-frontmatter %%%
+A cons cell is the primitive building block of Lisp data structures: a pair of
+two pointers called the car (first element) and cdr (rest), named after the
+registers of the IBM 704 computer. A proper list in Lisp is a chain of cons
+cells where the cdr of the last cell is nil: ~(1 2 3)~ is really ~(1 . (2 . (3 .
+nil)))~ at the memory level. In emacs-lisp and Common Lisp (cl), ~cons~
+constructs a new cell, ~car~ accesses the first element, ~cdr~ accesses the
+rest, and ~list~ is a convenience function that chains multiple cons cells.
+Dotted pairs ~(a . b)~ are cons cells where the cdr is not a list, used directly
+in association lists (alists) where each entry maps a key to a value: ~((key1 .
+val1) (key2 . val2))~. Association lists (alists) and property lists (plists)
+are two common conventions for key-value storage in Lisp, both built from cons
+cells and lists rather than hash tables. In elisp, alist operations like
+~assoc~, ~assq~, and ~alist-get~ provide lookup, while ~cl-pairlis~ and ~mapcar~
+help transform alists programmatically. Circular lists, created by setting a cdr
+to point back to an earlier cell, are possible in Lisp but require care to avoid
+infinite loops in traversal code. Understanding cons cells clarifies why many
+Lisp operations have O(n) complexity: walking a list means following a chain of
+pointers with no random access. The scheme dialect formalizes lists with
+predicates ~pair?~, ~null?~, ~list?~ and the same car/cdr accessors,
+demonstrating how universal the cons cell abstraction is across Lisp variants.
+Mastery of cons cells and lists is the first step toward understanding all Lisp
+data manipulation, since alists, trees, and association structures all reduce to
+cons cell chains.

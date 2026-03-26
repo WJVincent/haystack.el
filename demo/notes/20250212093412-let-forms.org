@@ -1,0 +1,27 @@
+#+TITLE: Let Forms in Lisp
+#+DATE: 2025-02-12
+# %%% pkm-end-frontmatter %%%
+The ~let~ form is the primary mechanism for introducing local variable bindings
+in Lisp, creating a lexical scope where named values are available only within
+the form's body. The syntax is ~(let ((var1 val1) (var2 val2) ...) body...)~:
+all init-forms are evaluated first in the enclosing environment, then the
+bindings are established simultaneously, then the body is evaluated. ~let*~
+(let-star) is the sequential variant: each binding can refer to previously bound
+variables in the same ~let*~ form, making it natural for chains of dependent
+computations. In emacs-lisp with lexical binding enabled, ~let~ creates true
+lexical scope and closures over ~let~-bound variables are well-behaved,
+capturing the binding rather than the global variable. Common Lisp (cl) provides
+~let~, ~let*~, and ~multiple-value-bind~ for destructuring multiple return
+values; ~cl-lib~ brings the last of these to emacs-lisp. ~cl-destructuring-bind~
+allows pattern matching against a list structure in the binding position: ~(cl-
+destructuring-bind (x y z) list ...)~ binds the first three elements. Letrec (in
+Scheme) allows mutually recursive local function definitions; emacs-lisp
+approximates this with ~letrec~ from ~cl-lib~, enabling locally scoped recursive
+helpers. Minimizing ~let~ nesting is a style concern in elisp: the ~thread-
+first~ (~->~) and ~thread-last~ (~->>~) macros from ~dash~ or the built-in
+~thread-first~ help flatten deeply nested let chains. Understanding the
+difference between ~let~ and ~setq~ is fundamental: ~let~ introduces a new
+binding scoped to a block, while ~setq~ mutates a variable in whatever scope it
+already exists. ~let~ forms are the backbone of all Lisp programming — nearly
+every non-trivial function uses them to name intermediate results and keep code
+readable.

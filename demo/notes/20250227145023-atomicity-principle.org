@@ -1,0 +1,28 @@
+#+TITLE: The Atomicity Principle in PKM
+#+DATE: 2025-02-27
+# %%% pkm-end-frontmatter %%%
+The atomicity principle in personal knowledge management (pkm) holds that each
+note should capture one idea — no more, no less — making it a discrete, self-
+contained unit of thought. Atomic notes (zettel) are easier to link to other
+notes precisely because they have a single, clear identity; a note about three
+things can only be linked awkwardly to other notes. The opposite of an atomic
+note is a "brain dump" — a sprawling document containing observations,
+questions, and conclusions mixed together in temporal order, which resists
+retrieval and connection. In a zettelkasten system, atomicity is what enables
+the emergence of unexpected connections: when every note represents exactly one
+idea, placing two notes side by side reveals the relationship between two ideas.
+The challenge of atomicity is deciding where one idea ends and another begins;
+this judgment develops with practice and varies by domain — a note that's atomic
+in philosophy might be too broad in mathematics. Note atomicity does not mean
+notes must be short — an atomic note about a complex concept may run several
+paragraphs as long as every sentence serves the single central claim. Haystack's
+search model benefits from atomicity: when notes are well-scoped, a full-text
+search via ripgrep (rg) for a concept is more likely to return the specific note
+you need rather than a tangentially relevant dump. Org-mode notes can violate
+atomicity through heading hierarchies — it is tempting to cram multiple
+subtopics under one file when the correct zettelkasten move is to split them
+into separate notes. The atomicity principle applies beyond individual notes to
+entire knowledge-management workflows: atomic capture, atomic review, and atomic
+linking keep each step focused and manageable. Over time, a corpus of well-
+atomized notes reveals the genuine structure of your knowledge rather than the
+accidental structure of how information happened to arrive.

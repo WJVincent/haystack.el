@@ -1,0 +1,27 @@
+#+TITLE: Haystack Keybindings
+#+DATE: 2025-04-02
+# %%% pkm-end-frontmatter %%%
+Haystack ships with default keybindings under a ~C-c h~ prefix map, following
+the Emacs convention of ~C-c~ for user and package bindings. The primary
+bindings out of the box: ~C-c h s~ for ~haystack-search~, ~C-c h n~ for
+~haystack-new-note~, ~C-c h m~ for ~haystack-moc~, and ~C-c h t~ for ~haystack-
+tree-view~. All default bindings can be overridden via ~use-package~'s ~:bind~
+keyword or directly with ~keymap-set~ and ~global-set-key~, following standard
+Emacs keybinding conventions. For users of Evil mode, Haystack keybindings
+typically live in the ~normal~ and ~insert~ state maps under a leader key
+prefix; the community convention is to use ~SPC h~ as the Haystack leader in
+Spacemacs/Doom configurations. ~haystack-mode-map~ is available for binding
+commands that should only be active when Haystack's minor mode is on, preventing
+conflicts with other packages in unrelated buffers. A common customization is to
+bind ~haystack-search~ to a global shortcut like ~C-c n~ or even ~<f5>~ for
+single-key access, since search is the most frequently used Haystack command.
+The keybinding design philosophy mirrors Haystack's broader philosophy: minimize
+friction to the most common operations (search, new note) while keeping less
+common operations (MOC, tree view) accessible but not dominant. Integration with
+which-key means all ~C-c h~ sub-bindings appear in the popup after pressing the
+prefix, improving discoverability for new users learning the Haystack workflow.
+Embark actions on Haystack search results can be bound to additional single-
+character shortcuts within the Embark keymap, providing a contextual action menu
+without cluttering the global keymap. Well-configured Haystack keybindings make
+the entire second-brain workflow feel native to Emacs: note creation, search,
+and navigation all accessible within two or three keystrokes from any buffer.

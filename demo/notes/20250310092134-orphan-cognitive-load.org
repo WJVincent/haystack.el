@@ -1,0 +1,27 @@
+#+TITLE: Cognitive Load in Knowledge Work
+#+DATE: 2025-03-10
+# %%% pkm-end-frontmatter %%%
+Cognitive-load is the total amount of mental effort being used in working memory
+at any given moment; managing it is central to designing effective tools for
+knowledge work. Working memory is severely limited — humans can hold roughly 4-7
+chunks of information simultaneously — and when cognitive-load exceeds this
+capacity, performance degrades sharply and errors increase. The mental overhead
+of deciding where to file a note, what to name it, or which tags to assign
+consumes working memory that could otherwise be spent on the actual thinking you
+came to do. PKM systems that minimize cognitive-load at capture time (low-
+friction inboxes, daily notes, quick capture templates) outperform elaborate
+systems that require many filing decisions per note. Cognitive-load theory
+distinguishes intrinsic load (the inherent complexity of the material) from
+extraneous load (difficulty caused by poor tool design or unnecessary complexity
+in the workflow). A well-designed search-first system like Haystack reduces
+extraneous cognitive-load by eliminating the need to pre-organize notes: you
+write, you search, you find — the tool handles retrieval. The mental overhead of
+maintaining a complex tagging taxonomy or a carefully curated link graph can
+itself become a significant cognitive-load burden that detracts from thinking.
+Working memory research supports the idea that offloading information to
+external systems (notes, zettel) frees cognitive resources for higher-order
+reasoning — this is the fundamental rationale for a second-brain. Interface
+design choices accumulate: every extra keypress, every modal dialog, every slow
+operation contributes to mental overhead and chips away at flow state. The best
+pkm tools are invisible — they impose so little cognitive-load that your
+attention stays on ideas rather than on the mechanics of managing them.

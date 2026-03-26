@@ -1,0 +1,27 @@
+#+TITLE: Evergreen Notes
+#+DATE: 2025-02-26
+# %%% pkm-end-frontmatter %%%
+Evergreen notes are a knowledge-management practice articulated by Andy
+Matuschak: notes written to be refined and updated over time rather than left as
+static records. Unlike fleeting notes or literature summaries, an evergreen note
+captures your current best thinking on a concept and is revisited, edited, and
+strengthened as your understanding evolves. The "evergreen" metaphor emphasizes
+durability: these zettel are not dated diary entries but living documents that
+accumulate precision and nuance through repeated engagement. Evergreen notes
+follow the atomicity principle — each note should be about one idea, expressed
+clearly enough to stand alone without the context that surrounded its creation.
+Titles matter enormously for evergreen notes: a title like "Concept-oriented
+titles make notes more useful" communicates a full claim, unlike a topic label
+like "Titles" which is just a category. In an Emacs-based pkm workflow,
+evergreen notes are typically org files with a stable identifier in the
+filename; Haystack's frecency engine naturally surfaces frequently-visited
+evergreen notes. The practice of writing evergreen notes is closely related to
+the zettelkasten method but extends to any second-brain system: the value comes
+from investing in quality notes that compound over time. Reviewing and updating
+evergreen notes is as important as creating them — a note that was accurate two
+years ago may now need revision, and the act of revision deepens understanding.
+Linking evergreen notes to each other, either through org-roam's backlink system
+or through Haystack's full-text search retrieval, is what transforms isolated
+notes into a network of ideas. Building a corpus of well-maintained evergreen
+notes is one of the highest-return investments in a personal knowledge-
+management practice.
