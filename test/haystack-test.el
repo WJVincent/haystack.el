@@ -1250,6 +1250,109 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
                  (when child-buf (kill-buffer child-buf)))))
          (kill-buffer root-buf))))))
 
+;;; Exclusivity guardrail
+
+(ert-deftest haystack-test/filter-further-guardrail-blocks-same-group-term ()
+  "Signals user-error when filter term is in the root's expansion group."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (with-temp-buffer
+      (setq haystack--search-descriptor
+            (list :root-term "programming"
+                  :root-expanded "(programming|coding|scripting)"
+                  :root-expansion '("programming" "coding" "scripting")
+                  :filters nil :composite-filter 'exclude))
+      (insert "/fake/note.org:1:some content\n")
+      (should-error (haystack-filter-further "coding") :type 'user-error))))
+
+(ert-deftest haystack-test/filter-further-guardrail-blocks-root-term-itself ()
+  "Signals user-error when filter term is the root term (member of its own group)."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (with-temp-buffer
+      (setq haystack--search-descriptor
+            (list :root-term "programming"
+                  :root-expanded "(programming|coding|scripting)"
+                  :root-expansion '("programming" "coding" "scripting")
+                  :filters nil :composite-filter 'exclude))
+      (insert "/fake/note.org:1:some content\n")
+      (should-error (haystack-filter-further "programming") :type 'user-error))))
+
+(ert-deftest haystack-test/filter-further-guardrail-case-insensitive ()
+  "Guardrail comparison is case-insensitive."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (with-temp-buffer
+      (setq haystack--search-descriptor
+            (list :root-term "programming"
+                  :root-expanded "(programming|coding|scripting)"
+                  :root-expansion '("programming" "coding" "scripting")
+                  :filters nil :composite-filter 'exclude))
+      (insert "/fake/note.org:1:some content\n")
+      (should-error (haystack-filter-further "CODING") :type 'user-error))))
+
+(ert-deftest haystack-test/filter-further-guardrail-literal-bypasses ()
+  "=term bypasses the guardrail and allows the filter."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (haystack-test--with-notes-dir
+      (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+        (with-temp-file note (insert "programming coding content\n")))
+      (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+                ((symbol-function 'switch-to-buffer) #'ignore))
+        (haystack-run-root-search "programming")
+        (let ((root-buf (get-buffer "*haystack:1:programming*")))
+          (should root-buf)
+          (unwind-protect
+              (with-current-buffer root-buf
+                ;; =coding forces literal search — should not error
+                (should-not
+                 (condition-case _
+                     (progn (haystack-filter-further "=coding") nil)
+                   (user-error t))))
+            (kill-buffer root-buf)
+            (when (get-buffer "*haystack:2:programming:=coding*")
+              (kill-buffer "*haystack:2:programming:=coding*"))))))))
+
+(ert-deftest haystack-test/filter-further-guardrail-no-root-expansion-allows ()
+  "No guardrail fires when root did not expand (no group)."
+  (haystack-test--with-groups nil
+    (haystack-test--with-notes-dir
+      (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+        (with-temp-file note (insert "rust async content\n")))
+      (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+                ((symbol-function 'switch-to-buffer) #'ignore))
+        (haystack-run-root-search "rust")
+        (let ((root-buf (get-buffer "*haystack:1:rust*")))
+          (should root-buf)
+          (unwind-protect
+              (with-current-buffer root-buf
+                (should-not
+                 (condition-case _
+                     (progn (haystack-filter-further "rust") nil)
+                   (user-error t))))
+            (kill-buffer root-buf)
+            (when (get-buffer "*haystack:2:rust:rust*")
+              (kill-buffer "*haystack:2:rust:rust*"))))))))
+
+(ert-deftest haystack-test/filter-further-guardrail-multiword-bypasses ()
+  "Multi-word filter bypasses the guardrail regardless of expansion."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (haystack-test--with-notes-dir
+      (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+        (with-temp-file note (insert "programming coding in detail\n")))
+      (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+                ((symbol-function 'switch-to-buffer) #'ignore))
+        (haystack-run-root-search "programming")
+        (let ((root-buf (get-buffer "*haystack:1:programming*")))
+          (should root-buf)
+          (unwind-protect
+              (with-current-buffer root-buf
+                ;; "coding in detail" is multi-word — should not be blocked
+                (should-not
+                 (condition-case _
+                     (progn (haystack-filter-further "coding in detail") nil)
+                   (user-error t))))
+            (kill-buffer root-buf)
+            (when (get-buffer "*haystack:2:programming:coding in detail*")
+              (kill-buffer "*haystack:2:programming:coding in detail*"))))))))
+
 ;;;; haystack-run-root-search
 
 (ert-deftest haystack-test/run-root-search-errors-without-directory ()
@@ -1422,8 +1525,9 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
     (should (equal (haystack--format-moc-link "/notes/my-note.el" 5 'code "el")
                    ";; my note — /notes/my-note.el"))))
 
-(ert-deftest haystack-test/format-moc-link-code-data-falls-back ()
-  "Code format with data style currently falls back to comment."
+(ert-deftest haystack-test/format-moc-link-code-always-comment ()
+  "haystack--format-moc-link always uses comment style for code files.
+Data style is handled at the block level in haystack-yank-moc."
   (let ((haystack-moc-code-style 'data))
     (should (equal (haystack--format-moc-link "/notes/my-note.el" 5 'code "el")
                    ";; my note — /notes/my-note.el"))))
@@ -1457,6 +1561,178 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
                          '(("/notes/foo.org" . 3)
                            ("/notes/bar.org" . 7)))))
       (kill-buffer buf))))
+
+;;; haystack--descriptor-chain-string
+
+(ert-deftest haystack-test/descriptor-chain-string-root-only ()
+  "Root-only descriptor produces a single root= segment."
+  (should (equal (haystack--descriptor-chain-string
+                  '(:root-term "rust" :root-expansion nil
+                    :root-filename nil :filters nil))
+                 "root=rust")))
+
+(ert-deftest haystack-test/descriptor-chain-string-with-filters ()
+  "Descriptor with filters includes all filter segments."
+  (should (equal (haystack--descriptor-chain-string
+                  '(:root-term "rust" :root-expansion nil :root-filename nil
+                    :filters ((:term "async" :negated nil :filename nil :expansion nil)
+                               (:term "cargo" :negated t :filename nil :expansion nil))))
+                 "root=rust > filter=async > exclude=cargo")))
+
+(ert-deftest haystack-test/descriptor-chain-string-with-expansion ()
+  "Root expansion is shown as alternation."
+  (should (equal (haystack--descriptor-chain-string
+                  '(:root-term "programming"
+                    :root-expansion ("programming" "coding" "scripting")
+                    :root-filename nil :filters nil))
+                 "root=(programming|coding|scripting)")))
+
+;;; haystack-moc-quote-string
+
+(ert-deftest haystack-test/moc-quote-string-simple ()
+  (should (equal (haystack-moc-quote-string "hello") "\"hello\"")))
+
+(ert-deftest haystack-test/moc-quote-string-escapes-internal-quotes ()
+  (should (equal (haystack-moc-quote-string "say \"hi\"") "\"say \\\"hi\\\"\"")))
+
+;;; haystack--format-moc-data-block
+
+(ert-deftest haystack-test/moc-data-block-js ()
+  "JS block has chain comment, const declaration, and one entry per locus."
+  (let ((result (haystack--format-moc-data-block
+                 '(("/notes/20240101000000-rust.org" . 3)
+                   ("/notes/20240101000001-async.org" . 7))
+                 "root=rust"
+                 "js")))
+    (should (string-match-p "^// haystack: root=rust" result))
+    (should (string-match-p "^const haystack = \\[" result))
+    (should (string-match-p "title:" result))
+    (should (string-match-p "path:" result))
+    (should (string-match-p "line: 3" result))
+    (should (string-match-p "line: 7" result))
+    (should (string-match-p "];" result))))
+
+(ert-deftest haystack-test/moc-data-block-ts-same-as-js ()
+  "TypeScript produces the same output shape as JavaScript."
+  (let ((js-out (haystack--format-moc-data-block
+                 '(("/notes/note.org" . 1)) "root=rust" "js"))
+        (ts-out (haystack--format-moc-data-block
+                 '(("/notes/note.org" . 1)) "root=rust" "ts")))
+    (should (equal js-out ts-out))))
+
+(ert-deftest haystack-test/moc-data-block-python ()
+  "Python block has # comment, list assignment, and dict entries."
+  (let ((result (haystack--format-moc-data-block
+                 '(("/notes/20240101000000-rust.org" . 3))
+                 "root=rust"
+                 "py")))
+    (should (string-match-p "^# haystack: root=rust" result))
+    (should (string-match-p "^haystack = \\[" result))
+    (should (string-match-p "\"title\":" result))
+    (should (string-match-p "\"path\":" result))
+    (should (string-match-p "\"line\": 3" result))
+    (should (string-match-p "]" result))))
+
+(ert-deftest haystack-test/moc-data-block-elisp-single-entry ()
+  "Elisp block with one entry uses compact single-line form."
+  (let ((result (haystack--format-moc-data-block
+                 '(("/notes/20240101000000-rust.el" . 3))
+                 "root=rust"
+                 "el")))
+    (should (string-match-p "^;; haystack: root=rust" result))
+    (should (string-match-p "(defvar haystack" result))
+    (should (string-match-p ":title" result))
+    (should (string-match-p ":path" result))
+    (should (string-match-p ":line 3" result))))
+
+(ert-deftest haystack-test/moc-data-block-elisp-multi-entry ()
+  "Elisp block with multiple entries indents continuation entries."
+  (let ((result (haystack--format-moc-data-block
+                 '(("/notes/20240101000000-a.el" . 1)
+                   ("/notes/20240101000001-b.el" . 5))
+                 "root=rust"
+                 "el")))
+    (should (string-match-p "(defvar haystack" result))
+    ;; Second entry indented with 4 spaces
+    (should (string-match-p "\n    (" result))))
+
+(ert-deftest haystack-test/moc-data-block-lua ()
+  "Lua block has -- comment, local table, and one entry per locus."
+  (let ((result (haystack--format-moc-data-block
+                 '(("/notes/20240101000000-rust.lua" . 3))
+                 "root=rust"
+                 "lua")))
+    (should (string-match-p "^-- haystack: root=rust" result))
+    (should (string-match-p "^local haystack = {" result))
+    (should (string-match-p "title =" result))
+    (should (string-match-p "path =" result))
+    (should (string-match-p "line = 3" result))
+    (should (string-match-p "}" result))))
+
+(ert-deftest haystack-test/moc-data-block-unknown-ext-falls-back ()
+  "Unknown extension falls back to comment style (one line per file)."
+  (let ((result (haystack--format-moc-data-block
+                 '(("/notes/20240101000000-note.xyz" . 3))
+                 "root=rust"
+                 "xyz")))
+    ;; Falls back to comment — no data structure keywords
+    (should-not (string-match-p "const\\|local\\|defvar" result))
+    (should (string-match-p "/notes/20240101000000-note.xyz" result))))
+
+(ert-deftest haystack-test/moc-data-block-custom-formatter-is-called ()
+  "A user-registered formatter in `haystack-moc-data-formatters' is invoked."
+  (let ((haystack-moc-data-formatters
+         (cons '("rb" . (lambda (loci chain)
+                          (concat "# custom: " chain "\n"
+                                  "LINKS = []\n")))
+               haystack-moc-data-formatters)))
+    (let ((result (haystack--format-moc-data-block
+                   '(("/notes/note.rb" . 1))
+                   "root=ruby"
+                   "rb")))
+      (should (string-match-p "^# custom: root=ruby" result))
+      (should (string-match-p "LINKS" result)))))
+
+;;; copy-moc stores chain
+
+(ert-deftest haystack-test/copy-moc-stores-chain ()
+  "haystack-copy-moc stores the search chain alongside loci."
+  (let ((buf (haystack-test--make-results-buf
+              " *hs-copy-chain*" nil
+              '(:root-term "rust" :root-expansion nil :root-filename nil
+                :filters ((:term "async" :negated nil :filename nil :expansion nil)))))
+        (haystack--last-moc nil)
+        (haystack--last-moc-chain nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (setq default-directory "/notes/")
+          (insert "foo.el:3:content\n")
+          (haystack-copy-moc)
+          (should (equal haystack--last-moc-chain "root=rust > filter=async")))
+      (kill-buffer buf))))
+
+;;; yank-moc uses data block for code files when style is data
+
+(ert-deftest haystack-test/yank-moc-data-style-js ()
+  "Data style produces a JS const block, not a comment line."
+  (let ((haystack--last-moc '(("/notes/20240101000000-rust.org" . 3)))
+        (haystack--last-moc-chain "root=rust")
+        (haystack-moc-code-style 'data))
+    (with-temp-buffer
+      (let ((buffer-file-name "/target/index.js"))
+        (haystack-yank-moc)
+        (should (string-match-p "^// haystack:" (buffer-string)))
+        (should (string-match-p "const haystack" (buffer-string)))))))
+
+(ert-deftest haystack-test/yank-moc-data-style-org-unaffected ()
+  "Data style has no effect on org targets — org link format is unchanged."
+  (let ((haystack--last-moc '(("/notes/20240101000000-rust.org" . 3)))
+        (haystack--last-moc-chain "root=rust")
+        (haystack-moc-code-style 'data))
+    (with-temp-buffer
+      (let ((buffer-file-name "/target/index.org"))
+        (haystack-yank-moc)
+        (should (string-match-p "\\[\\[file:" (buffer-string)))))))
 
 ;;;; haystack-yank-moc
 

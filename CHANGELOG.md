@@ -7,6 +7,41 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **MOC structured data format** — `haystack-moc-code-style 'data` now
+  produces language-appropriate data structures instead of falling back
+  to comment style. Supported out of the box: JS/TS/JSX/TSX (`const`
+  array), Python (list of dicts), Lisp dialects — Emacs Lisp, Common
+  Lisp, Scheme, Clojure (`defvar` plist list), Lua/Fennel (local
+  table). Each block opens with a comment line containing the
+  full search chain.
+- `haystack-moc-data-formatters` defcustom — alist mapping file
+  extensions to formatter functions `(loci chain) → string`. Add a
+  language with one line:
+  `(push '("rb" . my-formatter) haystack-moc-data-formatters)`.
+  Mirrors the `haystack-frontmatter-functions` extensibility pattern.
+- `haystack-moc-quote-string` — public helper for building
+  double-quoted string literals in custom formatter functions.
+- Filter prompt updated to `[=]literal  [/]filename  [!]negate
+  [~]regex` format for improved scannability.
+
+### Changed
+- `haystack-copy-moc` now also stores the search chain string
+  (`haystack--last-moc-chain`) for use as a comment header in
+  data-style output.
+
+### Internal
+- Built-in data formatters extracted into named functions
+  (`haystack--moc-data-format-js`, `haystack--moc-data-format-python`,
+  `haystack--moc-data-format-elisp`, `haystack--moc-data-format-lua`)
+  so they can be referenced or reused by custom formatters.
+- `haystack--format-moc-data-block` is now a pure dispatcher over
+  `haystack-moc-data-formatters`; language logic no longer lives in a
+  `cond`.
+- `haystack--descriptor-chain-string` — formats the complete search
+  chain from a stored descriptor without appending a current term;
+  used by `haystack-copy-moc`.
+
 ---
 
 ## [0.3.0] — 2026-03-25

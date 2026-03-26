@@ -13,7 +13,7 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - [X] ~compile-goto-error~ works from every results buffer (implicit via grep-mode format)
 - [X] Vertico/Orderless buffer switching works with the naming scheme (free from =*haystack:N:term*= convention)
 - [X] Tree view and header navigation buttons complete
-- [ ] Manually tested against a 100+ note corpus
+- [X] Manually tested against a 100+ note corpus
 
 ** Package Scaffolding
 *** DONE Set up haystack.el package skeleton
@@ -168,39 +168,39 @@ Create notes, search them progressively, export links. Ship this and use it dail
 Expansion groups and frecency. Force multipliers that make the most sense once a base corpus exists.
 
 ** Definition of Done
-- [ ] Expansion groups load, validate, and expand search terms
-- [ ] =haystack-associate= handles all three states correctly
+- [X] Expansion groups load, validate, and expand search terms
+- [X] =haystack-associate= handles all three states correctly
 - [ ] =haystack-rename-group-root= updates groups, frecency, composites atomically
-- [ ] Exclusivity guardrail blocks redundant filters and suggests ~=~
+- [X] Exclusivity guardrail blocks redundant filters and suggests ~=~
 - [ ] Frecency records every buffer, scores on read, replays leaf-only
 - [ ] Deferred writes flush on idle timer and shutdown
-- [ ] ~=~ literal prefix works in both root search and filter
-- [ ] Buffer headers show expanded query feedback
+- [X] ~=~ literal prefix works in both root search and filter
+- [X] Buffer headers show expanded query feedback
 
 ** Expansion Groups — Data Layer
-*** TODO Load =.expansion-groups.el= with =condition-case=
+*** DONE Load =.expansion-groups.el= with =condition-case=
 - On failure: warn, set empty alist, continue
-*** TODO =haystack-validate-groups=
+*** DONE =haystack-validate-groups=
 - Iterate all groups, collect terms in hash table, flag duplicates
 - Emit warning buffer on conflicts
 - Run on every load
-*** TODO =haystack-describe-expansion-groups=
+*** DONE =haystack-describe-expansion-groups=
 - Dump full alist in readable format
 
 ** Expansion Groups — Search Integration
-*** TODO Expansion group lookup in input pipeline
+*** DONE Expansion group lookup in input pipeline
 - Single-word, no ~=~ prefix: look up group (case-insensitive)
 - If found: construct =(escaped_A|escaped_B|escaped_C)= alternation
 - Each member through =regexp-quote= before insertion
-*** TODO Expanded query feedback in buffer header
+*** DONE Expanded query feedback in buffer header
 - Show full expansion: =root=(Programming|Coding|Code|Scripting)=
-*** TODO Exclusivity guardrail for filtering
+*** DONE Exclusivity guardrail for filtering
 - Block single-word filter if term already in root expansion (either direction)
 - Suggest ~=~ prefix
 - Multi-word phrases bypass this check entirely
 
 ** Expansion Groups — Management
-*** TODO =haystack-associate= three-state flow
+*** DONE =haystack-associate= three-state flow
 - State 1: B unassigned → prompt to add B to A's group or create new
 - State 2: B in different group → fail, show both groups, offer move/abort
   - Move = detach single term, add to other group
@@ -322,6 +322,11 @@ The most complex subsystems. Benefit from real usage data.
 * Stretch Goals                                                     :stretch:
 Not in scope for 1.0. Recorded so they don't get lost.
 
+** TODO Demo corpus (several hundred synthetic notes)
+- Generate a realistic multi-topic corpus for demos and manual perf testing
+- Mix of org/md/code file types; range of note sizes; expansion-group-friendly vocabulary
+- Script lives in =test/= so it can be re-run after vocabulary changes
+- Not checked in to the repo — generated on demand
 ** TODO MOC structured data format (=haystack-moc-code-style= ='data=)
 - Scaffold exists; =haystack--format-moc-code-data= currently delegates to comment
 - Per-language array/object syntax: JS/TS, Python, Elisp, Lua, Ruby

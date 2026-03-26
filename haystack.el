@@ -904,6 +904,28 @@ are shown the same way."
                                        (haystack--display-term current-term))))))
     (mapconcat #'identity parts " > ")))
 
+(defun haystack--descriptor-chain-string (descriptor)
+  "Return the full search chain string for DESCRIPTOR.
+Formats root + all stored filters with no additional current term appended.
+Used to produce the header comment in data-style MOC output."
+  (let* ((root-label   (if (plist-get descriptor :root-filename) "filename" "root"))
+         (root-exp     (plist-get descriptor :root-expansion))
+         (root-display (if root-exp
+                           (haystack--expansion-alternation root-exp)
+                         (haystack--display-term (plist-get descriptor :root-term))))
+         (parts (list (format "%s=%s" root-label root-display))))
+    (dolist (f (plist-get descriptor :filters))
+      (let* ((f-exp     (plist-get f :expansion))
+             (f-display (if f-exp
+                            (haystack--expansion-alternation f-exp)
+                          (haystack--display-term (plist-get f :term)))))
+        (setq parts (nconc parts
+                           (list (format "%s=%s"
+                                         (haystack--filter-label (plist-get f :negated)
+                                                                 (plist-get f :filename))
+                                         f-display))))))
+    (mapconcat #'identity parts " > ")))
+
 (defun haystack--child-buffer-name (descriptor new-term new-negated
                                                new-filename new-literal new-regex)
   "Return the results buffer name for a child filter of DESCRIPTOR.
@@ -1016,7 +1038,7 @@ Extracts files from the current buffer, runs rg scoped to those files,
 and opens the child results buffer in the current window.
 Prefix RAW-INPUT with ! to exclude files containing the term."
   (interactive
-   (list (read-string "Filter  (! negate  / filename  = literal  ~ regex): ")))
+   (list (read-string "[=]literal  [/]filename  [!]negate  [~]regex\nFilter: ")))
   (unless (and (boundp 'haystack--search-descriptor)
                haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
@@ -1032,9 +1054,26 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
          (negated      (plist-get parsed :negated))
          (filename     (plist-get parsed :filename))
          (expansion    (plist-get parsed :expansion))
-         (filenames    (haystack--extract-filenames (buffer-string))))
+         (filenames    (haystack--extract-filenames (buffer-string)))
+         (root-exp     (plist-get descriptor :root-expansion)))
     (when (null filenames)
       (user-error "Haystack: no files in current buffer to filter"))
+    ;; Exclusivity guardrail: a bare single-word term that belongs to the
+    ;; same expansion group as the root is already covered — filtering with
+    ;; it would produce a redundant (and confusing) sub-search.  Suggest =
+    ;; to force a literal search instead.
+    (when (and root-exp
+               (not (plist-get parsed :literal))
+               (not (plist-get parsed :filename))
+               (not (plist-get parsed :regex))
+               (not (plist-get parsed :multi-word))
+               (cl-some (lambda (m) (string= (downcase term) (downcase m)))
+                        root-exp))
+      (user-error
+       "Haystack: '%s' is already in the root expansion (%s) — use =%s to search literally"
+       term
+       (mapconcat #'identity root-exp "|")
+       term))
     (let* ((raw-output
             (if filename
                 ;; Filename filter: narrow filelist by basename match in elisp,
@@ -1649,6 +1688,10 @@ Buffers with living children are left alone — they become de facto roots."
 A list of (PATH . LINE) conses with absolute paths, one per unique file.
 Format-agnostic; rendered at yank time by `haystack-yank-moc'.")
 
+(defvar haystack--last-moc-chain nil
+  "Search chain string from the most recent `haystack-copy-moc' call.
+Used as a header comment in data-style MOC output.")
+
 (defun haystack--extract-file-loci (text)
   "Return a list of (PATH . LINE) for the first match per file in TEXT.
 Paths are expanded to absolute using `default-directory'.  Header lines
@@ -1701,24 +1744,138 @@ Line numbers are omitted — this format is for reference, not navigation."
         (title  (haystack--pretty-title (file-name-nondirectory path))))
     (format "%s %s — %s" prefix title path)))
 
-(defun haystack--format-moc-code-data (path ext)
-  "Format PATH as language-appropriate structured data for EXT.
-Phase 2: structured data formats per language are not yet implemented.
-Falls back to `haystack--format-moc-code-comment'."
-  (haystack--format-moc-code-comment path ext))
+(defun haystack-moc-quote-string (s)
+  "Return S as a double-quoted string literal, escaping internal double-quotes.
+Available as a helper for custom `haystack-moc-data-formatters' functions."
+  (concat "\"" (replace-regexp-in-string "\"" "\\\\\"" s) "\""))
+
+(defun haystack--moc-data-format-js (loci chain)
+  "Format LOCI as a JavaScript/TypeScript const array.
+CHAIN is the search chain string, included as a leading // comment."
+  (let ((entries (mapcar (lambda (locus)
+                           (format "  { title: %s, path: %s, line: %d },"
+                                   (haystack-moc-quote-string
+                                    (haystack--pretty-title
+                                     (file-name-nondirectory (car locus))))
+                                   (haystack-moc-quote-string (car locus))
+                                   (cdr locus)))
+                         loci)))
+    (concat "// haystack: " chain "\n"
+            "const haystack = [\n"
+            (mapconcat #'identity entries "\n")
+            "\n];")))
+
+(defun haystack--moc-data-format-python (loci chain)
+  "Format LOCI as a Python list of dicts.
+CHAIN is the search chain string, included as a leading # comment."
+  (let ((entries (mapcar (lambda (locus)
+                           (format "    {\"title\": %s, \"path\": %s, \"line\": %d},"
+                                   (haystack-moc-quote-string
+                                    (haystack--pretty-title
+                                     (file-name-nondirectory (car locus))))
+                                   (haystack-moc-quote-string (car locus))
+                                   (cdr locus)))
+                         loci)))
+    (concat "# haystack: " chain "\n"
+            "haystack = [\n"
+            (mapconcat #'identity entries "\n")
+            "\n]")))
+
+(defun haystack--moc-data-format-elisp (loci chain)
+  "Format LOCI as an Emacs Lisp defvar holding a list of plists.
+CHAIN is the search chain string, included as a leading ;; comment."
+  (let ((entries (mapcar (lambda (locus)
+                           (format "(:title %s :path %s :line %d)"
+                                   (haystack-moc-quote-string
+                                    (haystack--pretty-title
+                                     (file-name-nondirectory (car locus))))
+                                   (haystack-moc-quote-string (car locus))
+                                   (cdr locus)))
+                         loci)))
+    (if (null (cdr entries))
+        (concat ";; haystack: " chain "\n"
+                "(defvar haystack\n"
+                "  '(" (car entries) "))")
+      (concat ";; haystack: " chain "\n"
+              "(defvar haystack\n"
+              "  '(" (car entries) "\n"
+              (mapconcat (lambda (e) (concat "    " e)) (cdr entries) "\n")
+              "))"))))
+
+(defun haystack--moc-data-format-lua (loci chain)
+  "Format LOCI as a Lua table of record tables.
+CHAIN is the search chain string, included as a leading -- comment."
+  (let ((entries (mapcar (lambda (locus)
+                           (format "  { title = %s, path = %s, line = %d },"
+                                   (haystack-moc-quote-string
+                                    (haystack--pretty-title
+                                     (file-name-nondirectory (car locus))))
+                                   (haystack-moc-quote-string (car locus))
+                                   (cdr locus)))
+                         loci)))
+    (concat "-- haystack: " chain "\n"
+            "local haystack = {\n"
+            (mapconcat #'identity entries "\n")
+            "\n}")))
+
+(defcustom haystack-moc-data-formatters
+  '(("js"     . haystack--moc-data-format-js)
+    ("mjs"    . haystack--moc-data-format-js)
+    ("jsx"    . haystack--moc-data-format-js)
+    ("ts"     . haystack--moc-data-format-js)
+    ("tsx"    . haystack--moc-data-format-js)
+    ("py"     . haystack--moc-data-format-python)
+    ("el"     . haystack--moc-data-format-elisp)
+    ("lisp"   . haystack--moc-data-format-elisp)
+    ("cl"     . haystack--moc-data-format-elisp)
+    ("rkt"    . haystack--moc-data-format-elisp)
+    ("scm"    . haystack--moc-data-format-elisp)
+    ("ss"     . haystack--moc-data-format-elisp)
+    ("clj"    . haystack--moc-data-format-elisp)
+    ("cljs"   . haystack--moc-data-format-elisp)
+    ("cljc"   . haystack--moc-data-format-elisp)
+    ("lua"    . haystack--moc-data-format-lua)
+    ("fnl"    . haystack--moc-data-format-lua)
+    ("fennel" . haystack--moc-data-format-lua))
+  "Alist mapping file extensions to data-style MOC formatter functions.
+Each function receives (LOCI CHAIN) and must return a formatted string:
+  LOCI  — list of (PATH . LINE) conses, one per result file
+  CHAIN — the search chain string (e.g. \"root=rust > filter=async\")
+
+To add a language, push a new entry:
+  (push \\='(\"rb\" . my-ruby-moc-formatter) haystack-moc-data-formatters)
+
+`haystack-moc-quote-string' is available as a helper for building
+double-quoted string literals in formatter output.
+
+Extensions not present in this alist fall back to comment-style output
+when `haystack-moc-code-style' is \\='data."
+  :type '(alist :key-type (string :tag "Extension")
+                :value-type (function :tag "Formatter"))
+  :group 'haystack)
+
+(defun haystack--format-moc-data-block (loci chain ext)
+  "Return a structured data block for LOCI using the formatter for EXT.
+Looks up EXT in `haystack-moc-data-formatters'.  Falls back to one
+comment line per file when no formatter is registered for EXT."
+  (let ((formatter (cdr (assoc ext haystack-moc-data-formatters))))
+    (if formatter
+        (funcall formatter loci chain)
+      (mapconcat (lambda (locus)
+                   (haystack--format-moc-code-comment (car locus) ext))
+                 loci "\n"))))
 
 (defun haystack--format-moc-link (path lnum format ext)
   "Return a formatted link string for PATH at line LNUM.
 FORMAT is \\='org, \\='markdown, or \\='code.  EXT is the target file extension,
-used to select comment syntax and (Phase 2) structured data format."
+used to select comment syntax.  The \\='data code style is handled at the
+block level in `haystack-yank-moc' — this function always uses comment style
+for code files."
   (let ((title (haystack--pretty-title (file-name-nondirectory path))))
     (pcase format
       ('org      (format "[[file:%s::%d][%s]]" path lnum title))
       ('markdown (format "[%s](%s#L%d)" title path lnum))
-      ('code     (pcase haystack-moc-code-style
-                   ('data    (haystack--format-moc-code-data    path ext))
-                   ('comment (haystack--format-moc-code-comment path ext))
-                   (_ (haystack--format-moc-code-comment path ext))))
+      ('code     (haystack--format-moc-code-comment path ext))
       (_ (user-error "Haystack: unknown moc format: %s" format)))))
 
 ;;;###autoload
@@ -1733,6 +1890,9 @@ Use `haystack-yank-moc' to insert the links into a target buffer."
     (when (zerop n)
       (user-error "Haystack: no results to copy"))
     (setq haystack--last-moc loci)
+    (setq haystack--last-moc-chain
+          (when (bound-and-true-p haystack--search-descriptor)
+            (haystack--descriptor-chain-string haystack--search-descriptor)))
     (message "Haystack: copied %d file link%s" n (if (= 1 n) "" "s"))))
 
 ;;;###autoload
@@ -1749,11 +1909,16 @@ kill ring."
                         (file-name-extension (buffer-file-name)))
                    haystack-default-extension))
          (fmt  (haystack--moc-format-for-extension ext))
-         (text (mapconcat (lambda (locus)
-                            (haystack--format-moc-link
-                             (car locus) (cdr locus) fmt ext))
-                          haystack--last-moc
-                          "\n")))
+         (text (if (and (eq fmt 'code) (eq haystack-moc-code-style 'data))
+                   (haystack--format-moc-data-block
+                    haystack--last-moc
+                    (or haystack--last-moc-chain "search")
+                    ext)
+                 (mapconcat (lambda (locus)
+                              (haystack--format-moc-link
+                               (car locus) (cdr locus) fmt ext))
+                            haystack--last-moc
+                            "\n"))))
     (kill-new text)
     (insert text "\n")))
 
