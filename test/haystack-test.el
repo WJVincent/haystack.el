@@ -405,13 +405,14 @@
 
 (ert-deftest haystack-test/build-pattern-literal-suppresses-expansion ()
   (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
-    (should (equal (haystack--build-pattern "rust" nil t nil)
+    (should (equal (haystack--build-pattern "rust" nil t)
                    (regexp-quote "rust")))))
 
-(ert-deftest haystack-test/build-pattern-multi-word-suppresses-expansion ()
-  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
-    (should (equal (haystack--build-pattern "rust" nil nil t)
-                   (regexp-quote "rust")))))
+(ert-deftest haystack-test/build-pattern-multi-word-expands-if-in-group ()
+  "Multi-word terms that are in a group still expand."
+  (let ((haystack--expansion-groups '(("emacs lisp" . ("elisp")))))
+    (should (equal (haystack--build-pattern "emacs lisp" nil)
+                   "(emacs lisp|elisp)"))))
 
 (ert-deftest haystack-test/build-pattern-regex-suppresses-expansion ()
   (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
@@ -569,12 +570,12 @@ Writes INITIAL-GROUPS to disk so functions that call
       (haystack-associate "rust" "rustlang")
       (should (equal haystack--expansion-groups groups)))))
 
-(ert-deftest haystack-test/associate-rejects-multi-word ()
+(ert-deftest haystack-test/associate-accepts-multi-word ()
+  "Multi-word terms can now be added to expansion groups."
   (haystack-test--with-groups nil
-    (should-error (haystack-associate "rust ownership" "rustlang")
-                  :type 'user-error)
-    (should-error (haystack-associate "rust" "rust lang")
-                  :type 'user-error)))
+    (haystack-associate "emacs lisp" "elisp")
+    (should (haystack--lookup-group "emacs lisp"))
+    (should (haystack--lookup-group "elisp"))))
 
 (ert-deftest haystack-test/associate-rejects-same-term ()
   (haystack-test--with-groups nil
@@ -630,11 +631,12 @@ Writes INITIAL-GROUPS to disk so functions that call
     (should-error (haystack-rename-group-root "python" "py")
                   :type 'user-error)))
 
-(ert-deftest haystack-test/rename-group-root-errors-on-multiword ()
-  "Errors if the new name contains whitespace."
+(ert-deftest haystack-test/rename-group-root-accepts-multiword ()
+  "Multi-word new root names are now allowed."
   (haystack-test--with-groups '(("rust" . ("rustlang")))
-    (should-error (haystack-rename-group-root "rust" "rust lang")
-                  :type 'user-error)))
+    (haystack-rename-group-root "rust" "rust lang")
+    (should (haystack--lookup-group "rust lang"))
+    (should (haystack--lookup-group "rustlang"))))
 
 (ert-deftest haystack-test/rename-group-root-errors-if-new-name-taken ()
   "Errors if the new name is already in any group."
@@ -711,7 +713,7 @@ Writes INITIAL-GROUPS to disk so functions that call
 
 (ert-deftest haystack-test/build-emacs-pattern-literal-suppresses-expansion ()
   (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
-    (should (equal (haystack--build-emacs-pattern "rust" nil t nil)
+    (should (equal (haystack--build-emacs-pattern "rust" nil t)
                    (regexp-quote "rust")))))
 
 ;;; haystack--parse-input :emacs-pattern
@@ -813,10 +815,19 @@ Writes INITIAL-GROUPS to disk so functions that call
     (should (equal (plist-get result :regex)   t))
     (should (equal (plist-get result :pattern) "rus+t"))))
 
-(ert-deftest haystack-test/parse-input-multi-word ()
+(ert-deftest haystack-test/parse-input-multi-word-no-group ()
+  "Multi-word terms without a group fall back to regexp-quote."
   (let ((result (haystack--parse-input "rust ownership")))
     (should (plist-get result :multi-word))
     (should (equal (plist-get result :pattern) (regexp-quote "rust ownership")))))
+
+(ert-deftest haystack-test/parse-input-multi-word-expands ()
+  "Multi-word terms that are in a group expand."
+  (let* ((haystack--expansion-groups '(("emacs lisp" . ("elisp"))))
+         (result (haystack--parse-input "emacs lisp")))
+    (should (plist-get result :multi-word))
+    (should (plist-get result :expansion))
+    (should (string-match-p "elisp" (plist-get result :pattern)))))
 
 (ert-deftest haystack-test/parse-input-special-chars-quoted ()
   "Special regex characters in bare terms are escaped."
@@ -2299,6 +2310,44 @@ Saves and restores the global and the dirty flag."
         (should (not haystack--frecency-dirty))
         (should (file-exists-p (haystack--frecency-file)))))))
 
+;;; haystack--frecent-leaf-p / haystack--frecent-leaves
+
+(ert-deftest haystack-test/frecent-leaf-p-standalone-is-leaf ()
+  "An entry with no deeper chain is always a leaf."
+  (let* ((now (float-time))
+         (entries (list (cons '("rust") (list :count 5 :last-access now)))))
+    (should (haystack--frecent-leaf-p (car entries) entries))))
+
+(ert-deftest haystack-test/frecent-leaf-p-dominated-is-not-leaf ()
+  "An entry dominated by a deeper higher-scored chain is not a leaf."
+  (let* ((now (float-time))
+         (root  (cons '("rust")         (list :count 2 :last-access now)))
+         (child (cons '("rust" "async") (list :count 5 :last-access now)))
+         (entries (list root child)))
+    (should-not (haystack--frecent-leaf-p root entries))
+    (should     (haystack--frecent-leaf-p child entries))))
+
+(ert-deftest haystack-test/frecent-leaf-p-higher-scored-root-is-leaf ()
+  "A root with higher score than its child is still a leaf."
+  (let* ((now (float-time))
+         (root  (cons '("rust")         (list :count 5 :last-access now)))
+         (child (cons '("rust" "async") (list :count 2 :last-access now)))
+         (entries (list root child)))
+    (should (haystack--frecent-leaf-p root  entries))
+    (should (haystack--frecent-leaf-p child entries))))
+
+(ert-deftest haystack-test/frecent-leaves-filters-correctly ()
+  "`haystack--frecent-leaves' keeps only leaf entries."
+  (let* ((now (float-time))
+         (root  (cons '("rust")         (list :count 2 :last-access now)))
+         (child (cons '("rust" "async") (list :count 5 :last-access now)))
+         (other (cons '("python")       (list :count 3 :last-access now)))
+         (entries (list root child other)))
+    (let ((leaves (haystack--frecent-leaves entries)))
+      (should     (member child leaves))
+      (should     (member other leaves))
+      (should-not (member root  leaves)))))
+
 ;;; haystack--frecency-score
 
 (ert-deftest haystack-test/frecency-score-recent-entry ()
@@ -2493,12 +2542,34 @@ Saves and restores the global and the dirty flag."
     (goto-char (point-min))
     (should-error (haystack-frecent-kill-entry) :type 'user-error)))
 
+(ert-deftest haystack-test/frecent-toggle-leaf-toggles ()
+  "a toggles haystack--frecent-leaf-only and rerenders."
+  (haystack-test--with-frecent-buf nil
+    (should-not haystack--frecent-leaf-only)
+    (haystack-frecent-toggle-leaf)
+    (should haystack--frecent-leaf-only)
+    (should (string-match-p "view: leaf" (buffer-string)))
+    (haystack-frecent-toggle-leaf)
+    (should-not haystack--frecent-leaf-only)
+    (should (string-match-p "view: all" (buffer-string)))))
+
+(ert-deftest haystack-test/frecent-toggle-leaf-filters-entries ()
+  "Leaf mode hides dominated entries."
+  (let* ((now (float-time))
+         (data (list (cons '("rust")         (list :count 2 :last-access now))
+                     (cons '("rust" "async") (list :count 5 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (haystack-frecent-toggle-leaf)
+      (should     (string-match-p "async" (buffer-string)))
+      (should-not (string-match-p "^  .*rust$" (buffer-string))))))
+
 (ert-deftest haystack-test/frecent-mode-keybindings ()
-  "s/t/f/r/k/? are bound in haystack-frecent-mode-map."
+  "s/t/f/r/a/k/? are bound in haystack-frecent-mode-map."
   (should (eq (lookup-key haystack-frecent-mode-map "s") #'haystack-frecent-toggle-sort))
   (should (eq (lookup-key haystack-frecent-mode-map "t") #'haystack-frecent-sort-score))
   (should (eq (lookup-key haystack-frecent-mode-map "f") #'haystack-frecent-sort-frequency))
   (should (eq (lookup-key haystack-frecent-mode-map "r") #'haystack-frecent-sort-recency))
+  (should (eq (lookup-key haystack-frecent-mode-map "v") #'haystack-frecent-toggle-leaf))
   (should (eq (lookup-key haystack-frecent-mode-map "k") #'haystack-frecent-kill-entry))
   (should (eq (lookup-key haystack-frecent-mode-map "?") #'haystack-frecent-help)))
 

@@ -172,6 +172,7 @@ Expansion groups and frecency. Force multipliers that make the most sense once a
 - [X] =haystack-associate= handles all three states correctly
 - [ ] =haystack-rename-group-root= updates groups, frecency, composites atomically
 - [X] Exclusivity guardrail blocks redundant filters and suggests ~=~
+- [X] Multi-word terms supported in expansion groups
 - [X] Frecency records every buffer, scores on read, replays leaf-only
 - [X] Deferred writes flush on idle timer and shutdown
 - [X] ~=~ literal prefix works in both root search and filter
@@ -251,17 +252,10 @@ Expansion groups and frecency. Force multipliers that make the most sense once a
 - Materialize only final result buffer
 - Full =haystack--search-descriptor=, nil =haystack--parent-buffer=
 - Buffer name reflects full chain
-*** TODO All/Leaf toggle
-- Transient menu switch between all atoms and leaf-only display
+*** DONE All/Leaf toggle
+- Default mode is leaf-only; C-u shows all in completing-read
+- In describe-frecent buffer: v toggles all/leaf
 - Leaf = entries not a prefix of any higher-scored entry
-
-** Composite Filter (Transient Menu)
-*** TODO Three-state toggle: exclude / only / all
-- =--glob '!@*'= to exclude (default)
-- =--glob '@*'= to isolate
-- No glob for all
-- Child buffers inherit from parent descriptor, not transient state
-
 
 * Phase 3 — Synthesis & Diagnostics
 The most complex subsystems. Benefit from real usage data.
@@ -303,6 +297,10 @@ The most complex subsystems. Benefit from real usage data.
 - Runs regardless of composite filter state
 *** TODO Composite format templates
 - Org (default), Markdown, Plaintext — per spec Section 3F
+*** TODO Composite filter transient menu
+- Three-state toggle: exclude composites (default) / only composites / all files
+- =--glob '!@*'= to exclude, =--glob '@*'= to isolate, no glob for all
+- Child buffers inherit from parent descriptor, not transient state
 
 ** Discoverability Engine
 *** TODO Stop word infrastructure

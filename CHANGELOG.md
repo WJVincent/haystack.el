@@ -7,6 +7,26 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Frecency leaf/all toggle** — `haystack-frecent` now defaults to
+  leaf-only mode, hiding intermediate chains dominated by a deeper
+  more-visited search. `C-u haystack-frecent` shows all recorded
+  chains. In `*haystack-frecent*`, `v` toggles between views; the
+  header reflects the current mode (`view: leaf` / `view: all`).
+- **Multi-word expansion groups** — expansion groups now accept
+  multi-word terms (e.g. `"emacs lisp"`). Associating, renaming, and
+  dissolving groups works identically for multi-word and single-word
+  members. Searching for a multi-word term that belongs to a group
+  expands it to a ripgrep alternation just like single-word terms.
+
+### Internal
+- `haystack--frecent-leaf-p` — predicate: non-nil if no deeper chain
+  with a strictly higher score starts with this entry's chain.
+- `haystack--frecent-leaves` — filters an entry list to leaves only.
+- `haystack--build-pattern` / `haystack--build-emacs-pattern` —
+  `multi-word` parameter removed; expansion is now suppressed only by
+  the `literal` flag.
+
 ---
 
 ## [0.5.0] — 2026-03-25

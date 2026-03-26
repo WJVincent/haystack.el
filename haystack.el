@@ -542,12 +542,6 @@ Multi-word terms are rejected.  Three states:
   (interactive
    (list (read-string "Term A: ")
          (read-string "Term B: ")))
-  (when (haystack--multi-word-p term-a)
-    (user-error "Haystack: %S is multi-word — groups support single-word terms only"
-                term-a))
-  (when (haystack--multi-word-p term-b)
-    (user-error "Haystack: %S is multi-word — groups support single-word terms only"
-                term-b))
   (when (string= (downcase term-a) (downcase term-b))
     (user-error "Haystack: TERM-A and TERM-B must be different"))
   (let* ((group-a (haystack--lookup-group term-a))
@@ -614,7 +608,7 @@ Only the root (car) of each group is matched; members are not affected."
 (defun haystack-rename-group-root (old-root new-root)
   "Rename the canonical root term OLD-ROOT to NEW-ROOT in the expansion groups.
 OLD-ROOT must be the root (not just a member) of an existing group.
-NEW-ROOT must be a single-word term not already present in any group.
+NEW-ROOT must not already be present in any group.
 
 Note: when frecency and composite notes are implemented, those records
 will also be updated here.  For now only the groups file is changed."
@@ -626,8 +620,6 @@ will also be updated here.  For now only the groups file is changed."
             (new   (read-string (format "Rename %S to: " old))))
        (list old new))))
   (haystack--load-expansion-groups)
-  (when (haystack--multi-word-p new-root)
-    (user-error "Haystack: %S is multi-word — group roots must be single-word" new-root))
   (when (string= (downcase old-root) (downcase new-root))
     (user-error "Haystack: new root is the same as the old root"))
   (unless (assoc (downcase old-root)
@@ -705,23 +697,24 @@ if its corresponding prefix was present.  Detection order: ! then / then = then 
   "Return non-nil if TERM contains any whitespace (multi-word query)."
   (string-match-p "[[:space:]]" term))
 
-(defun haystack--build-pattern (term regex &optional literal multi-word)
+(defun haystack--build-pattern (term regex &optional literal)
   "Return the ripgrep pattern string for TERM.
 If REGEX is non-nil, TERM is used as-is (raw ripgrep regex).
-If LITERAL or MULTI-WORD is non-nil, expansion is suppressed and
-`regexp-quote' is applied directly.
+If LITERAL is non-nil, expansion is suppressed and `regexp-quote' is
+applied directly.
 Otherwise: look up an expansion group for TERM (case-insensitive); if
 found, return a ripgrep alternation pattern; if not found, fall back to
-`regexp-quote'."
+`regexp-quote'.  Multi-word terms participate in expansion if a group
+contains them."
   (cond
    (regex term)
-   ((or literal multi-word) (regexp-quote term))
+   (literal (regexp-quote term))
    (t (let ((group (haystack--lookup-group term)))
         (if group
             (haystack--expansion-alternation group)
           (regexp-quote term))))))
 
-(defun haystack--build-emacs-pattern (term regex &optional literal multi-word)
+(defun haystack--build-emacs-pattern (term regex &optional literal)
   "Return an Emacs regexp for TERM, for use with `string-match-p'.
 Same expansion logic as `haystack--build-pattern', but uses Emacs
 alternation syntax (\\|) so the result works with `string-match-p'.
@@ -730,7 +723,7 @@ responsible for Emacs regexp syntax when using the ~ prefix on a
 filename filter."
   (cond
    (regex term)
-   ((or literal multi-word) (regexp-quote term))
+   (literal (regexp-quote term))
    (t (let ((group (haystack--lookup-group term)))
         (if group
             (mapconcat #'regexp-quote group "\\|")
@@ -751,10 +744,10 @@ Returns a plist:
   (cl-destructuring-bind (term negated filename literal regex)
       (haystack--strip-prefixes raw)
     (let* ((multi-word (haystack--multi-word-p term))
-           (expansion  (and (not regex) (not literal) (not multi-word)
+           (expansion  (and (not regex) (not literal)
                             (haystack--lookup-group term)))
-           (pattern    (haystack--build-pattern       term regex literal multi-word))
-           (emacs-pat  (haystack--build-emacs-pattern term regex literal multi-word)))
+           (pattern    (haystack--build-pattern       term regex literal))
+           (emacs-pat  (haystack--build-emacs-pattern term regex literal)))
       (list :term          term
             :negated       negated
             :filename      filename
@@ -1142,7 +1135,6 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                (not (plist-get parsed :literal))
                (not (plist-get parsed :filename))
                (not (plist-get parsed :regex))
-               (not (plist-get parsed :multi-word))
                (cl-some (lambda (m) (string= (downcase term) (downcase m)))
                         root-exp))
       (user-error
@@ -2121,10 +2113,34 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
          (days    (/ (- (float-time) last-ts) 86400.0)))
     (/ (float count) (max days 1.0))))
 
+(defun haystack--frecent-leaf-p (entry all-entries)
+  "Return non-nil if ENTRY is a leaf among ALL-ENTRIES.
+An entry is a leaf if no other entry with a strictly higher score has a
+chain that starts with this entry's chain — i.e. this is not merely an
+intermediate step toward a more-visited deeper search."
+  (let ((chain (car entry))
+        (score (haystack--frecency-score entry)))
+    (not (cl-some
+          (lambda (other)
+            (and (not (equal (car other) chain))
+                 (> (haystack--frecency-score other) score)
+                 (let ((oc (car other)))
+                   (and (> (length oc) (length chain))
+                        (equal (cl-subseq oc 0 (length chain)) chain)))))
+          all-entries))))
+
+(defun haystack--frecent-leaves (entries)
+  "Return only the leaf entries from ENTRIES."
+  (cl-remove-if-not (lambda (e) (haystack--frecent-leaf-p e entries))
+                    entries))
+
 ;;; Frecency diagnostic buffer mode
 
 (defvar-local haystack--frecent-sort-order 'score
   "Current sort order for *haystack-frecent*: `score', `frequency', or `recency'.")
+
+(defvar-local haystack--frecent-leaf-only nil
+  "When non-nil, *haystack-frecent* shows only leaf entries.")
 
 (defun haystack--frecent-sort-entries (entries order)
   "Return ENTRIES sorted by ORDER (`score', `frequency', or `recency')."
@@ -2138,18 +2154,21 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
                                        (plist-get (cdr b) :last-access)))))))
 
 (defun haystack--frecent-render ()
-  "Redraw *haystack-frecent* using the current sort order."
+  "Redraw *haystack-frecent* using the current sort order and leaf filter."
   (let* ((inhibit-read-only t)
-         (entries    (haystack--frecent-sort-entries haystack--frecency-data
-                                                     haystack--frecent-sort-order))
+         (base       (if haystack--frecent-leaf-only
+                         (haystack--frecent-leaves haystack--frecency-data)
+                       haystack--frecency-data))
+         (entries    (haystack--frecent-sort-entries base haystack--frecent-sort-order))
          (sort-label (pcase haystack--frecent-sort-order
                        ('score     "score")
                        ('frequency "frequency")
-                       (_          "recency"))))
+                       (_          "recency")))
+         (view-label (if haystack--frecent-leaf-only "leaf" "all")))
     (erase-buffer)
     (insert ";;;;------------------------------------------------------------\n")
-    (insert (format ";;;;  Haystack — frecent searches  [sort: %s  |  ?=help]\n"
-                    sort-label))
+    (insert (format ";;;;  Haystack — frecent searches  [sort: %s  view: %s  |  ?=help]\n"
+                    sort-label view-label))
     (insert ";;;;------------------------------------------------------------\n\n")
     (if (null entries)
         (insert "  (no entries recorded yet)\n")
@@ -2204,6 +2223,16 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
   (goto-char (point-min))
   (message "Haystack frecent: sorting by recency"))
 
+(defun haystack-frecent-toggle-leaf ()
+  "Toggle between showing all entries and leaf-only entries.
+A leaf entry is one where no deeper chain with a higher score exists."
+  (interactive)
+  (setq haystack--frecent-leaf-only (not haystack--frecent-leaf-only))
+  (haystack--frecent-render)
+  (goto-char (point-min))
+  (message "Haystack frecent: showing %s"
+           (if haystack--frecent-leaf-only "leaves only" "all entries")))
+
 (defun haystack-frecent-kill-entry ()
   "Kill the frecency entry at point after `y-or-n-p' confirmation."
   (interactive)
@@ -2239,6 +2268,9 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
                      (format ";;;;    %-8s  sort by frequency (visits)" (funcall key 'haystack-frecent-sort-frequency))
                      (format ";;;;    %-8s  sort by recency"            (funcall key 'haystack-frecent-sort-recency))
                      ""
+                     ";;;;  View"
+                     (format ";;;;    %-8s  toggle all / leaf-only"     (funcall key 'haystack-frecent-toggle-leaf))
+                     ""
                      ";;;;  Entries"
                      (format ";;;;    %-8s  kill entry at point"        (funcall key 'haystack-frecent-kill-entry))
                      ""
@@ -2267,6 +2299,7 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
   :group 'haystack)
 
 (define-key haystack-frecent-mode-map "s" #'haystack-frecent-toggle-sort)
+(define-key haystack-frecent-mode-map "v" #'haystack-frecent-toggle-leaf)
 (define-key haystack-frecent-mode-map "t" #'haystack-frecent-sort-score)
 (define-key haystack-frecent-mode-map "f" #'haystack-frecent-sort-frequency)
 (define-key haystack-frecent-mode-map "r" #'haystack-frecent-sort-recency)
@@ -2312,15 +2345,23 @@ alone in the tree."
     current-buf))
 
 ;;;###autoload
-(defun haystack-frecent ()
+(defun haystack-frecent (&optional all)
   "Select a frecent search chain via `completing-read' and replay it.
 Entries are sorted by score (visit count / days since last access).
-Each entry's score is shown as a completion annotation."
-  (interactive)
+Each entry's score is shown as a completion annotation.
+By default only leaf entries are shown — chains that are not merely an
+intermediate step toward a more-visited deeper search.  With a prefix
+argument ALL, show every recorded chain."
+  (interactive "P")
   (haystack--load-frecency)
   (unless haystack--frecency-data
     (user-error "Haystack: no frecent searches recorded yet"))
-  (let* ((sorted      (sort (copy-sequence haystack--frecency-data)
+  (let* ((pool        (if all
+                          haystack--frecency-data
+                        (haystack--frecent-leaves haystack--frecency-data)))
+         (_           (unless pool
+                        (user-error "Haystack: no leaf entries (use C-u to show all)")))
+         (sorted      (sort (copy-sequence pool)
                             (lambda (a b) (> (haystack--frecency-score a)
                                              (haystack--frecency-score b)))))
          (display-map (make-hash-table :test #'equal))
@@ -2337,7 +2378,8 @@ Each entry's score is shown as a completion annotation."
                         (if (eq action 'metadata)
                             `(metadata (annotation-function . ,annot))
                           (complete-with-action action candidates string pred))))
-         (choice      (completing-read "Haystack frecent: " table nil t)))
+         (prompt      (if all "Haystack frecent (all): " "Haystack frecent: "))
+         (choice      (completing-read prompt table nil t)))
     (haystack--frecency-replay (gethash choice display-map))))
 
 ;;;; Global prefix map
