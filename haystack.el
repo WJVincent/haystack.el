@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.3.0
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -599,6 +599,82 @@ Multi-word terms are rejected.  Three states:
       (message "Haystack: added %S to group: (%s)"
                term-a
                (mapconcat #'identity (haystack--lookup-group term-b) ", "))))))
+
+(defun haystack--groups-rename-root (groups old-root new-root)
+  "Return GROUPS with OLD-ROOT replaced by NEW-ROOT as the canonical root.
+Only the root (car) of each group is matched; members are not affected."
+  (let ((key (downcase old-root)))
+    (mapcar (lambda (group)
+              (if (string= key (downcase (car group)))
+                  (cons new-root (cdr group))
+                group))
+            groups)))
+
+;;;###autoload
+(defun haystack-rename-group-root (old-root new-root)
+  "Rename the canonical root term OLD-ROOT to NEW-ROOT in the expansion groups.
+OLD-ROOT must be the root (not just a member) of an existing group.
+NEW-ROOT must be a single-word term not already present in any group.
+
+Note: when frecency and composite notes are implemented, those records
+will also be updated here.  For now only the groups file is changed."
+  (interactive
+   (progn
+     (haystack--load-expansion-groups)
+     (let* ((roots (mapcar #'car haystack--expansion-groups))
+            (old   (completing-read "Rename root: " roots nil t))
+            (new   (read-string (format "Rename %S to: " old))))
+       (list old new))))
+  (haystack--load-expansion-groups)
+  (when (haystack--multi-word-p new-root)
+    (user-error "Haystack: %S is multi-word — group roots must be single-word" new-root))
+  (when (string= (downcase old-root) (downcase new-root))
+    (user-error "Haystack: new root is the same as the old root"))
+  (unless (assoc (downcase old-root)
+                 (mapcar (lambda (g) (cons (downcase (car g)) g))
+                         haystack--expansion-groups))
+    (user-error "Haystack: %S is not the root of any group" old-root))
+  (when (haystack--lookup-group new-root)
+    (user-error "Haystack: %S is already in a group — choose a fresh term" new-root))
+  (setq haystack--expansion-groups
+        (haystack--groups-rename-root haystack--expansion-groups old-root new-root))
+  (haystack--save-expansion-groups)
+  (message "Haystack: renamed root %S → %S (group now: (%s))"
+           old-root new-root
+           (mapconcat #'identity (haystack--lookup-group new-root) ", ")))
+
+(defun haystack--groups-dissolve (groups term)
+  "Return GROUPS with the group containing TERM removed entirely.
+Matches any member of the group, not just the root."
+  (let ((key (downcase term)))
+    (cl-remove-if (lambda (group)
+                    (cl-some (lambda (m) (string= key (downcase m)))
+                             (cons (car group) (cdr group))))
+                  groups)))
+
+;;;###autoload
+(defun haystack-dissolve-group (term)
+  "Remove the entire expansion group that contains TERM.
+All members lose their expansion; searches for any of them will
+fall back to literal matching.  This cannot be undone except by
+editing `.expansion-groups.el' directly or re-running `haystack-associate'."
+  (interactive
+   (progn
+     (haystack--load-expansion-groups)
+     (list (completing-read "Dissolve group containing: "
+                            (apply #'append
+                                   (mapcar (lambda (g) (cons (car g) (cdr g)))
+                                           haystack--expansion-groups))
+                            nil t))))
+  (haystack--load-expansion-groups)
+  (unless (haystack--lookup-group term)
+    (user-error "Haystack: %S is not in any expansion group" term))
+  (let ((group (haystack--lookup-group term)))
+    (setq haystack--expansion-groups
+          (haystack--groups-dissolve haystack--expansion-groups term))
+    (haystack--save-expansion-groups)
+    (message "Haystack: dissolved group (%s)"
+             (mapconcat #'identity group ", "))))
 
 ;;;; Input processing pipeline
 

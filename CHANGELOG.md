@@ -7,6 +7,10 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] — 2026-03-25
+
 ### Added
 - **MOC structured data format** — `haystack-moc-code-style 'data` now
   produces language-appropriate data structures instead of falling back
@@ -24,6 +28,14 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   double-quoted string literals in custom formatter functions.
 - Filter prompt updated to `[=]literal  [/]filename  [!]negate
   [~]regex` format for improved scannability.
+- `haystack-rename-group-root` — renames the canonical root term of an
+  expansion group. Prompts with completion on existing roots; validates
+  the new name is single-word and not already in any group.
+- `haystack-dissolve-group` — removes an entire expansion group.
+  Prompts with completion on all group members (root or synonym); all
+  members revert to literal matching.
+- `haystack-test--with-groups` test macro now writes initial groups to
+  disk so commands that reload from file see consistent state.
 
 ### Changed
 - `haystack-copy-moc` now also stores the search chain string
@@ -41,8 +53,6 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - `haystack--descriptor-chain-string` — formats the complete search
   chain from a stored descriptor without appending a current term;
   used by `haystack-copy-moc`.
-
----
 
 ## [0.3.0] — 2026-03-25
 

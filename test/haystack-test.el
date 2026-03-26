@@ -528,12 +528,16 @@
 (defmacro haystack-test--with-groups (initial-groups &rest body)
   "Run BODY with `haystack--expansion-groups' bound to INITIAL-GROUPS.
 Saves and restores the global; also creates a temp notes directory so
-`haystack--save-expansion-groups' has a valid place to write."
+`haystack--save-expansion-groups' has a valid place to write.
+Writes INITIAL-GROUPS to disk so functions that call
+`haystack--load-expansion-groups' see the expected state."
   (declare (indent 1))
   `(let ((saved haystack--expansion-groups))
      (unwind-protect
          (haystack-test--with-notes-dir
            (setq haystack--expansion-groups ,initial-groups)
+           (when ,initial-groups
+             (haystack--save-expansion-groups))
            ,@body)
        (setq haystack--expansion-groups saved))))
 
@@ -582,6 +586,112 @@ Saves and restores the global; also creates a temp notes directory so
   (haystack-test--with-groups nil
     (haystack-associate "rust" "rustlang")
     (should (file-exists-p (haystack--expansion-groups-file)))))
+
+;;; haystack--groups-rename-root
+
+(ert-deftest haystack-test/groups-rename-root-updates-root ()
+  "Renames the root of the matching group."
+  (let ((result (haystack--groups-rename-root
+                 '(("rust" . ("rustlang" "rs")))
+                 "rust" "Rust")))
+    (should (equal result '(("Rust" . ("rustlang" "rs")))))))
+
+(ert-deftest haystack-test/groups-rename-root-leaves-other-groups ()
+  "Other groups are not affected."
+  (let ((result (haystack--groups-rename-root
+                 '(("rust" . ("rustlang")) ("python" . ("py")))
+                 "rust" "Rust")))
+    (should (equal (cadr result) '("python" . ("py"))))))
+
+(ert-deftest haystack-test/groups-rename-root-case-insensitive ()
+  "Root matching is case-insensitive."
+  (let ((result (haystack--groups-rename-root
+                 '(("Rust" . ("rustlang")))
+                 "rust" "rs-lang")))
+    (should (equal (caar result) "rs-lang"))))
+
+;;; haystack-rename-group-root
+
+(ert-deftest haystack-test/rename-group-root-updates-group ()
+  "Renames the root and saves."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (haystack-rename-group-root "rust" "rs")
+    (should (equal haystack--expansion-groups '(("rs" . ("rustlang")))))))
+
+(ert-deftest haystack-test/rename-group-root-errors-on-member-term ()
+  "Errors if the given term is a member, not the root."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (should-error (haystack-rename-group-root "rustlang" "newname")
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/rename-group-root-errors-on-unknown-term ()
+  "Errors if the term is not in any group."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (should-error (haystack-rename-group-root "python" "py")
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/rename-group-root-errors-on-multiword ()
+  "Errors if the new name contains whitespace."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (should-error (haystack-rename-group-root "rust" "rust lang")
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/rename-group-root-errors-if-new-name-taken ()
+  "Errors if the new name is already in any group."
+  (haystack-test--with-groups '(("rust" . ("rustlang")) ("python" . ("py")))
+    (should-error (haystack-rename-group-root "rust" "python")
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/rename-group-root-errors-if-same-name ()
+  "Errors if old and new names are the same."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (should-error (haystack-rename-group-root "rust" "rust")
+                  :type 'user-error)))
+
+;;; haystack--groups-dissolve
+
+(ert-deftest haystack-test/groups-dissolve-by-root ()
+  "Dissolving by root removes the entire group."
+  (let ((result (haystack--groups-dissolve
+                 '(("rust" . ("rustlang" "rs"))) "rust")))
+    (should (null result))))
+
+(ert-deftest haystack-test/groups-dissolve-by-member ()
+  "Dissolving by a member term removes the group."
+  (let ((result (haystack--groups-dissolve
+                 '(("rust" . ("rustlang" "rs"))) "rustlang")))
+    (should (null result))))
+
+(ert-deftest haystack-test/groups-dissolve-leaves-other-groups ()
+  "Other groups are not affected."
+  (let ((result (haystack--groups-dissolve
+                 '(("rust" . ("rustlang")) ("python" . ("py"))) "rust")))
+    (should (equal result '(("python" . ("py")))))))
+
+;;; haystack-dissolve-group
+
+(ert-deftest haystack-test/dissolve-group-removes-group ()
+  "Removes the group and saves."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (haystack-dissolve-group "rust")
+    (should (null haystack--expansion-groups))))
+
+(ert-deftest haystack-test/dissolve-group-by-member-term ()
+  "Can dissolve by passing a member term rather than the root."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (haystack-dissolve-group "rustlang")
+    (should (null haystack--expansion-groups))))
+
+(ert-deftest haystack-test/dissolve-group-errors-on-unknown-term ()
+  "Errors if the term is not in any group."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (should-error (haystack-dissolve-group "python") :type 'user-error)))
+
+(ert-deftest haystack-test/dissolve-group-leaves-other-groups ()
+  "Other groups survive dissolution."
+  (haystack-test--with-groups '(("rust" . ("rustlang")) ("python" . ("py")))
+    (haystack-dissolve-group "rust")
+    (should (equal haystack--expansion-groups '(("python" . ("py")))))))
 
 ;;; haystack--build-emacs-pattern
 
