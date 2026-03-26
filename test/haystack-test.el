@@ -40,6 +40,26 @@
   "Timestamp returns a string of exactly 14 digits."
   (should (string-match-p "\\`[0-9]\\{14\\}\\'" (haystack--timestamp))))
 
+;;;; haystack--sanitize-slug
+
+(ert-deftest haystack-test/sanitize-slug-spaces-become-hyphens ()
+  (should (equal (haystack--sanitize-slug "my note about rust") "my-note-about-rust")))
+
+(ert-deftest haystack-test/sanitize-slug-runs-of-spaces-collapse ()
+  (should (equal (haystack--sanitize-slug "foo  bar") "foo-bar")))
+
+(ert-deftest haystack-test/sanitize-slug-trims-whitespace ()
+  (should (equal (haystack--sanitize-slug "  hello world  ") "hello-world")))
+
+(ert-deftest haystack-test/sanitize-slug-strips-unsafe-chars ()
+  (should (equal (haystack--sanitize-slug "foo/bar:baz") "foobarbaz")))
+
+(ert-deftest haystack-test/sanitize-slug-preserves-hyphens-and-underscores ()
+  (should (equal (haystack--sanitize-slug "my-note_v2") "my-note_v2")))
+
+(ert-deftest haystack-test/sanitize-slug-already-clean-passthrough ()
+  (should (equal (haystack--sanitize-slug "rust-ownership") "rust-ownership")))
+
 ;;;; haystack--pretty-title
 
 (ert-deftest haystack-test/pretty-title-timestamped-slug ()
@@ -333,6 +353,321 @@
   "Raw regex terms are returned as-is."
   (should (equal (haystack--build-pattern "rus+t" t)
                  "rus+t")))
+
+;;;; Expansion Groups
+
+;;; haystack--lookup-group
+
+(ert-deftest haystack-test/lookup-group-finds-root-term ()
+  (let ((haystack--expansion-groups '(("programming" . ("coding" "code")))))
+    (should (equal (haystack--lookup-group "programming")
+                   '("programming" "coding" "code")))))
+
+(ert-deftest haystack-test/lookup-group-finds-member-term ()
+  (let ((haystack--expansion-groups '(("programming" . ("coding" "code")))))
+    (should (equal (haystack--lookup-group "coding")
+                   '("programming" "coding" "code")))))
+
+(ert-deftest haystack-test/lookup-group-case-insensitive ()
+  (let ((haystack--expansion-groups '(("Rust" . ("rustlang")))))
+    (should (equal (haystack--lookup-group "rust")   '("Rust" "rustlang")))
+    (should (equal (haystack--lookup-group "RUSTLANG") '("Rust" "rustlang")))))
+
+(ert-deftest haystack-test/lookup-group-returns-nil-for-unknown ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should-not (haystack--lookup-group "python"))))
+
+(ert-deftest haystack-test/lookup-group-empty-groups ()
+  (let ((haystack--expansion-groups nil))
+    (should-not (haystack--lookup-group "rust"))))
+
+;;; haystack--expansion-alternation
+
+(ert-deftest haystack-test/expansion-alternation-single-member ()
+  (should (equal (haystack--expansion-alternation '("rust"))
+                 "(rust)")))
+
+(ert-deftest haystack-test/expansion-alternation-multiple-members ()
+  (should (equal (haystack--expansion-alternation '("programming" "coding" "code"))
+                 "(programming|coding|code)")))
+
+(ert-deftest haystack-test/expansion-alternation-quotes-special-chars ()
+  "Members with regex special characters are escaped."
+  (should (equal (haystack--expansion-alternation '("C++" "C#"))
+                 (concat "(" (regexp-quote "C++") "|" (regexp-quote "C#") ")"))))
+
+;;; haystack--build-pattern (with expansion groups)
+
+(ert-deftest haystack-test/build-pattern-expands-known-term ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--build-pattern "rust" nil)
+                   "(rust|rustlang)"))))
+
+(ert-deftest haystack-test/build-pattern-literal-suppresses-expansion ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--build-pattern "rust" nil t nil)
+                   (regexp-quote "rust")))))
+
+(ert-deftest haystack-test/build-pattern-multi-word-suppresses-expansion ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--build-pattern "rust" nil nil t)
+                   (regexp-quote "rust")))))
+
+(ert-deftest haystack-test/build-pattern-regex-suppresses-expansion ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--build-pattern "rust" t)
+                   "rust"))))
+
+(ert-deftest haystack-test/build-pattern-unknown-term-falls-back-to-quote ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--build-pattern "python" nil)
+                   (regexp-quote "python")))))
+
+;;; haystack--load-expansion-groups
+
+(ert-deftest haystack-test/load-expansion-groups-reads-file ()
+  (let ((saved haystack--expansion-groups))
+    (unwind-protect
+        (haystack-test--with-notes-dir
+          (with-temp-file (expand-file-name ".expansion-groups.el" haystack-notes-directory)
+            (insert "((\"rust\" . (\"rustlang\")) (\"programming\" . (\"coding\")))"))
+          (haystack--load-expansion-groups)
+          (should (equal haystack--expansion-groups
+                         '(("rust" . ("rustlang")) ("programming" . ("coding"))))))
+      (setq haystack--expansion-groups saved))))
+
+(ert-deftest haystack-test/load-expansion-groups-no-file-sets-nil ()
+  (let ((saved haystack--expansion-groups))
+    (unwind-protect
+        (haystack-test--with-notes-dir
+          (haystack--load-expansion-groups)
+          (should (null haystack--expansion-groups)))
+      (setq haystack--expansion-groups saved))))
+
+(ert-deftest haystack-test/load-expansion-groups-parse-error-sets-nil ()
+  "An unterminated sexp causes a read error; groups should be nil."
+  (let ((saved haystack--expansion-groups))
+    (unwind-protect
+        (haystack-test--with-notes-dir
+          (with-temp-file (expand-file-name ".expansion-groups.el" haystack-notes-directory)
+            (insert "((("))           ; unterminated — triggers end-of-file error
+          (haystack--load-expansion-groups)
+          (should (null haystack--expansion-groups)))
+      (setq haystack--expansion-groups saved))))
+
+;;; haystack-validate-groups
+
+(ert-deftest haystack-test/validate-groups-no-conflicts-messages ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang"))
+                                      ("python" . ("py")))))
+    (haystack-validate-groups)
+    ;; No conflict buffer should have been created.
+    (should-not (get-buffer "*haystack-group-conflicts*"))))
+
+(ert-deftest haystack-test/validate-groups-conflicts-pops-buffer ()
+  "A term in two groups triggers the conflict buffer."
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang" "coding"))
+                                      ("programming" . ("coding")))))
+    (unwind-protect
+        (progn
+          (haystack-validate-groups)
+          (should (get-buffer "*haystack-group-conflicts*")))
+      (when (get-buffer "*haystack-group-conflicts*")
+        (kill-buffer "*haystack-group-conflicts*")))))
+
+;;; haystack--groups-remove-term
+
+(ert-deftest haystack-test/groups-remove-member-term ()
+  "Removing a member leaves root and remaining members."
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang" "rs")))))
+    (should (equal (haystack--groups-remove-term haystack--expansion-groups "rustlang")
+                   '(("rust" . ("rs")))))))
+
+(ert-deftest haystack-test/groups-remove-root-promotes-first-member ()
+  "Removing the root promotes the first member."
+  (let ((groups '(("programming" . ("coding" "code")))))
+    (should (equal (haystack--groups-remove-term groups "programming")
+                   '(("coding" . ("code")))))))
+
+(ert-deftest haystack-test/groups-remove-dissolves-two-term-group ()
+  "Removing one term from a two-term group dissolves it."
+  (let ((groups '(("rust" . ("rustlang")) ("python" . ("py")))))
+    (should (equal (haystack--groups-remove-term groups "rustlang")
+                   '(("python" . ("py")))))))
+
+(ert-deftest haystack-test/groups-remove-is-case-insensitive ()
+  (let ((groups '(("Rust" . ("Rustlang")))))
+    (should (equal (haystack--groups-remove-term groups "rust")
+                   nil))))
+
+(ert-deftest haystack-test/groups-remove-unrelated-term-unchanged ()
+  (let ((groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--groups-remove-term groups "python")
+                   groups))))
+
+;;; haystack--groups-add-to-group
+
+(ert-deftest haystack-test/groups-add-to-existing-group-via-root ()
+  (let ((groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--groups-add-to-group groups "rust" "rs")
+                   '(("rust" . ("rustlang" "rs")))))))
+
+(ert-deftest haystack-test/groups-add-to-existing-group-via-member ()
+  "Adding via a member term adds to that member's group."
+  (let ((groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--groups-add-to-group groups "rustlang" "rs")
+                   '(("rust" . ("rustlang" "rs")))))))
+
+(ert-deftest haystack-test/groups-add-creates-new-group-when-anchor-unassigned ()
+  (let ((groups '(("python" . ("py")))))
+    (should (equal (haystack--groups-add-to-group groups "rust" "rustlang")
+                   '(("python" . ("py")) ("rust" . ("rustlang")))))))
+
+;;; haystack-associate
+
+(defmacro haystack-test--with-groups (initial-groups &rest body)
+  "Run BODY with `haystack--expansion-groups' bound to INITIAL-GROUPS.
+Saves and restores the global; also creates a temp notes directory so
+`haystack--save-expansion-groups' has a valid place to write."
+  (declare (indent 1))
+  `(let ((saved haystack--expansion-groups))
+     (unwind-protect
+         (haystack-test--with-notes-dir
+           (setq haystack--expansion-groups ,initial-groups)
+           ,@body)
+       (setq haystack--expansion-groups saved))))
+
+(ert-deftest haystack-test/associate-creates-new-group ()
+  "Both terms unassigned → new group created."
+  (haystack-test--with-groups nil
+    (haystack-associate "rust" "rustlang")
+    (should (equal haystack--expansion-groups
+                   '(("rust" . ("rustlang")))))))
+
+(ert-deftest haystack-test/associate-adds-b-to-a-group ()
+  "B unassigned, A has group → B added to A's group."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (haystack-associate "rust" "rs")
+    (should (equal haystack--expansion-groups
+                   '(("rust" . ("rustlang" "rs")))))))
+
+(ert-deftest haystack-test/associate-adds-a-to-b-group ()
+  "A unassigned, B has group → A added to B's group."
+  (haystack-test--with-groups '(("rust" . ("rustlang")))
+    (haystack-associate "rs" "rust")
+    (should (equal haystack--expansion-groups
+                   '(("rust" . ("rustlang" "rs")))))))
+
+(ert-deftest haystack-test/associate-same-group-is-noop ()
+  "Both already in the same group → no change."
+  (let ((groups '(("rust" . ("rustlang")))))
+    (haystack-test--with-groups groups
+      (haystack-associate "rust" "rustlang")
+      (should (equal haystack--expansion-groups groups)))))
+
+(ert-deftest haystack-test/associate-rejects-multi-word ()
+  (haystack-test--with-groups nil
+    (should-error (haystack-associate "rust ownership" "rustlang")
+                  :type 'user-error)
+    (should-error (haystack-associate "rust" "rust lang")
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/associate-rejects-same-term ()
+  (haystack-test--with-groups nil
+    (should-error (haystack-associate "rust" "rust")
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/associate-saves-to-file ()
+  "After associate, the groups file is written."
+  (haystack-test--with-groups nil
+    (haystack-associate "rust" "rustlang")
+    (should (file-exists-p (haystack--expansion-groups-file)))))
+
+;;; haystack--build-emacs-pattern
+
+(ert-deftest haystack-test/build-emacs-pattern-bare-term-is-quoted ()
+  (should (equal (haystack--build-emacs-pattern "C++" nil)
+                 (regexp-quote "C++"))))
+
+(ert-deftest haystack-test/build-emacs-pattern-regex-passthrough ()
+  (should (equal (haystack--build-emacs-pattern "rus+t" t)
+                 "rus+t")))
+
+(ert-deftest haystack-test/build-emacs-pattern-expansion-uses-emacs-alternation ()
+  "Expansion group produces \\| alternation, not ripgrep | alternation."
+  (let ((haystack--expansion-groups '(("programming" . ("coding")))))
+    (should (equal (haystack--build-emacs-pattern "programming" nil)
+                   "programming\\|coding"))))
+
+(ert-deftest haystack-test/build-emacs-pattern-literal-suppresses-expansion ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (should (equal (haystack--build-emacs-pattern "rust" nil t nil)
+                   (regexp-quote "rust")))))
+
+;;; haystack--parse-input :emacs-pattern
+
+(ert-deftest haystack-test/parse-input-emacs-pattern-bare ()
+  "Bare term without groups: :emacs-pattern equals regexp-quote."
+  (let ((haystack--expansion-groups nil))
+    (should (equal (plist-get (haystack--parse-input "rust") :emacs-pattern)
+                   (regexp-quote "rust")))))
+
+(ert-deftest haystack-test/parse-input-emacs-pattern-uses-emacs-syntax ()
+  "With expansion, :emacs-pattern uses \\| not | so string-match-p works."
+  (let ((haystack--expansion-groups '(("programming" . ("coding")))))
+    (let ((ep (plist-get (haystack--parse-input "programming") :emacs-pattern)))
+      ;; Must match both terms via Emacs string-match-p
+      (should (string-match-p ep "programming"))
+      (should (string-match-p ep "coding"))
+      ;; The ripgrep pattern (programming|coding) would NOT match via Emacs:
+      (should-not (string-match-p (plist-get (haystack--parse-input "programming") :pattern)
+                                  "coding")))))
+
+;;; filename negation with expansion (regression for !filename= bug)
+
+(ert-deftest haystack-test/filter-further-negated-filename-with-expansion ()
+  "!filename= with an expanded term excludes files matching any group member."
+  (let ((haystack--expansion-groups '(("coding" . ("programming")))))
+    (haystack-test--with-notes-dir
+      (let* ((keep   (expand-file-name "unrelated.org" haystack-notes-directory))
+             (exclude (expand-file-name "coding-notes.org" haystack-notes-directory)))
+        (with-temp-file keep    (insert "some content\n"))
+        (with-temp-file exclude (insert "some content\n"))
+        (let* ((root-output (concat keep ":1:some content\n"
+                                    exclude ":1:some content\n"))
+               (buf (haystack--setup-results-buffer
+                     "*haystack:1:coding*"
+                     ";;;; test\n" root-output
+                     (list :root-term "coding" :root-expanded "some content"
+                           :root-literal nil :root-regex nil :root-filename nil
+                           :root-expansion nil :filters nil :composite-filter 'all))))
+          (with-current-buffer buf
+            (setq default-directory (file-name-as-directory haystack-notes-directory))
+            (haystack-filter-further "!/coding")
+            (let ((result (buffer-string)))
+              (should (string-match-p "unrelated" result))
+              (should-not (string-match-p "coding-notes" result))))
+          (kill-buffer buf))))))
+
+;;; haystack--parse-input (with expansion)
+
+(ert-deftest haystack-test/parse-input-expansion-fires-for-known-term ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (let ((result (haystack--parse-input "rust")))
+      (should (equal (plist-get result :expansion) '("rust" "rustlang")))
+      (should (equal (plist-get result :pattern)   "(rust|rustlang)")))))
+
+(ert-deftest haystack-test/parse-input-literal-suppresses-expansion ()
+  (let ((haystack--expansion-groups '(("rust" . ("rustlang")))))
+    (let ((result (haystack--parse-input "=rust")))
+      (should-not (plist-get result :expansion))
+      (should (equal (plist-get result :pattern) (regexp-quote "rust"))))))
+
+(ert-deftest haystack-test/parse-input-no-expansion-for-unknown-term ()
+  (let ((haystack--expansion-groups nil))
+    (let ((result (haystack--parse-input "rust")))
+      (should-not (plist-get result :expansion))
+      (should (equal (plist-get result :pattern) (regexp-quote "rust"))))))
 
 ;;; haystack--parse-input (integration)
 
@@ -806,7 +1141,7 @@
          (kill-buffer root-buf))))))
 
 (ert-deftest haystack-test/filter-further-filename-narrows-by-name ()
-  "A /term filename filter narrows to files whose basename matches."
+  "A /term filename filter narrows to files whose relative path matches."
   (haystack-test--with-notes-dir
    (let ((match-note (expand-file-name "20240101000000-cargo-notes.org"
                                        haystack-notes-directory))
@@ -831,7 +1166,7 @@
          (kill-buffer root-buf))))))
 
 (ert-deftest haystack-test/filter-further-negated-filename ()
-  "A !/term filter excludes files whose basename matches."
+  "A !/term filter excludes files whose relative path matches."
   (haystack-test--with-notes-dir
    (let ((keep-note (expand-file-name "20240101000000-cargo-notes.org"
                                       haystack-notes-directory))
@@ -852,6 +1187,32 @@
                      (should (string-match-p "!filename=async" (buffer-string)))
                      (should (string-match-p "cargo-notes" (buffer-string)))
                      (should-not (string-match-p "async-notes" (buffer-string))))
+                 (when child-buf (kill-buffer child-buf)))))
+         (kill-buffer root-buf))))))
+
+(ert-deftest haystack-test/filter-further-negated-filename-matches-directory-component ()
+  "!/term excludes files where the term appears in a directory component.
+Regression: previously only the basename was checked, so sicp-org/README.org
+would not be excluded by !/sicp even though 'sicp' is in its path."
+  (haystack-test--with-notes-dir
+   (let* ((subdir (expand-file-name "sicp-org" haystack-notes-directory))
+          (subfile (progn (make-directory subdir t)
+                          (expand-file-name "README.org" subdir)))
+          (flat (expand-file-name "unrelated.org" haystack-notes-directory)))
+     (with-temp-file subfile (insert "some content\n"))
+     (with-temp-file flat    (insert "some content\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore))
+     (haystack-run-root-search "some")
+     (let ((root-buf (get-buffer "*haystack:1:some*")))
+       (unwind-protect
+           (with-current-buffer root-buf
+             (haystack-filter-further "!/sicp")
+             (let ((child-buf (get-buffer "*haystack:2:some:!/sicp*")))
+               (unwind-protect
+                   (with-current-buffer child-buf
+                     (should     (string-match-p "unrelated"   (buffer-string)))
+                     (should-not (string-match-p "sicp-org"    (buffer-string))))
                  (when child-buf (kill-buffer child-buf)))))
          (kill-buffer root-buf))))))
 

@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -113,15 +113,18 @@ Structure:
    :root-expanded   STRING   — regex sent to rg (may be alternation)
    :root-literal    BOOL     — = prefix: suppress expansion
    :root-regex      BOOL     — ~ prefix: skip regexp-quote
+   :root-filename   BOOL     — / prefix: root was a filename search
+   :root-expansion  LIST     — group members if expansion fired, nil otherwise
    :filters         LIST     — ordered list of filter plists
    :composite-filter SYMBOL  — \\='exclude | \\='only | \\='all)
 
 Each filter plist:
-  (:term     STRING
-   :negated  BOOL
-   :filename BOOL
-   :literal  BOOL
-   :regex    BOOL)")
+  (:term      STRING
+   :negated   BOOL
+   :filename  BOOL
+   :literal   BOOL
+   :regex     BOOL
+   :expansion LIST — group members if expansion fired, nil otherwise)")
 
 ;;;; Hooks
 
@@ -301,6 +304,16 @@ hyphen.  Always strips the file extension."
   "Return the current time as a YYYYMMDDHHMMSS string."
   (format-time-string "%Y%m%d%H%M%S"))
 
+(defun haystack--sanitize-slug (slug)
+  "Return SLUG safe for use as a filename component.
+Leading and trailing whitespace is trimmed.  Any run of whitespace is
+replaced by a single hyphen.  Characters unsafe in filenames
+(/ \\ : * ? \" < > |) are removed."
+  (let* ((s (string-trim slug))
+         (s (replace-regexp-in-string "[[:space:]]+" "-" s))
+         (s (replace-regexp-in-string "[/\\\\:*?\"<>|]" "" s)))
+    s))
+
 ;;;###autoload
 (defun haystack-new-note ()
   "Create a new timestamped note in `haystack-notes-directory'.
@@ -308,7 +321,7 @@ Prompts for a slug and file extension, writes frontmatter, opens the
 file, and runs `haystack-after-create-hook'."
   (interactive)
   (haystack--ensure-notes-directory)
-  (let* ((slug (read-string "Slug: "))
+  (let* ((slug (haystack--sanitize-slug (read-string "Slug: ")))
          (ext  (read-string (format "Extension (default %s): " haystack-default-extension)
                             nil nil haystack-default-extension))
          (filename (concat (haystack--timestamp) "-" slug "." ext))
@@ -360,6 +373,233 @@ lost, and offers to abort before making any changes."
           (goto-char (point-min))
           (insert fm))))))
 
+;;;; Expansion Groups
+
+(defvar haystack--expansion-groups nil
+  "Alist of expansion groups loaded from `.expansion-groups.el'.
+Each entry is (ROOT . MEMBERS) where ROOT is the canonical group name
+and MEMBERS is a list of synonym strings.  All matching is
+case-insensitive.  Format example:
+  ((\"programming\" . (\"coding\" \"code\" \"scripting\"))
+   (\"rust\" . (\"rustlang\")))")
+
+(defun haystack--expansion-groups-file ()
+  "Return the path to `.expansion-groups.el' in `haystack-notes-directory'."
+  (expand-file-name ".expansion-groups.el" haystack-notes-directory))
+
+(defun haystack--load-expansion-groups ()
+  "Load expansion groups from `.expansion-groups.el' into `haystack--expansion-groups'.
+Silently sets `haystack--expansion-groups' to nil when the file is
+absent.  Emits a message on parse errors rather than signalling."
+  (setq haystack--expansion-groups nil)
+  (when (and haystack-notes-directory
+             (file-readable-p (haystack--expansion-groups-file)))
+    (condition-case err
+        (setq haystack--expansion-groups
+              (with-temp-buffer
+                (insert-file-contents (haystack--expansion-groups-file))
+                (read (current-buffer))))
+      (error
+       (setq haystack--expansion-groups nil)
+       (message "Haystack: failed to load expansion groups: %s"
+                (error-message-string err))))))
+
+;;;###autoload
+(defun haystack-reload-expansion-groups ()
+  "Reload expansion groups from `.expansion-groups.el' and report the count."
+  (interactive)
+  (haystack--load-expansion-groups)
+  (message "Haystack: loaded %d expansion group%s"
+           (length haystack--expansion-groups)
+           (if (= 1 (length haystack--expansion-groups)) "" "s")))
+
+;;;###autoload
+(defun haystack-validate-groups ()
+  "Check loaded expansion groups for terms that appear in more than one group.
+Reports conflicts in a dedicated buffer.  If no conflicts are found, a
+message is shown instead."
+  (interactive)
+  (let ((seen (make-hash-table :test #'equal))
+        (dups nil))
+    (dolist (group haystack--expansion-groups)
+      (dolist (term (cons (car group) (cdr group)))
+        (let ((key (downcase term)))
+          (if (gethash key seen)
+              (push (list term (gethash key seen)) dups)
+            (puthash key term seen)))))
+    (if (null dups)
+        (message "Haystack: expansion groups OK — no duplicate terms")
+      (let ((buf (get-buffer-create "*haystack-group-conflicts*")))
+        (with-current-buffer buf
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert "Haystack — Expansion Group Conflicts\n")
+            (insert (make-string 40 ?=) "\n\n")
+            (dolist (dup (nreverse dups))
+              (insert (format "  %S conflicts with %S\n"
+                              (car dup) (cadr dup))))
+            (special-mode)
+            (goto-char (point-min))))
+        (pop-to-buffer buf)))))
+
+;;;###autoload
+(defun haystack-describe-expansion-groups ()
+  "Display all loaded expansion groups in a dedicated buffer."
+  (interactive)
+  (let ((buf (get-buffer-create "*haystack-expansion-groups*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "Haystack — Expansion Groups\n")
+        (insert (make-string 40 ?=) "\n\n")
+        (if (null haystack--expansion-groups)
+            (insert "(no groups loaded)\n")
+          (dolist (group haystack--expansion-groups)
+            (insert (format "%-20s → %s\n"
+                            (car group)
+                            (mapconcat #'identity (cdr group) ", ")))))
+        (special-mode)
+        (goto-char (point-min))))
+    (pop-to-buffer buf)))
+
+(defun haystack--lookup-group (term)
+  "Return the full member list of TERM's expansion group, or nil.
+Searches all groups in `haystack--expansion-groups' case-insensitively.
+Returns (ROOT MEMBER1 MEMBER2 ...) if TERM matches any entry, nil if
+no group contains TERM."
+  (let ((key (downcase term)))
+    (catch 'found
+      (dolist (group haystack--expansion-groups)
+        (let ((all (cons (car group) (cdr group))))
+          (when (cl-some (lambda (m) (string= key (downcase m))) all)
+            (throw 'found all))))
+      nil)))
+
+(defun haystack--expansion-alternation (members)
+  "Return a ripgrep alternation pattern for MEMBERS.
+Each member is passed through `regexp-quote'.  Returns \"(A|B|C)\"."
+  (concat "("
+          (mapconcat (lambda (m) (regexp-quote m)) members "|")
+          ")"))
+
+(defun haystack--save-expansion-groups ()
+  "Write `haystack--expansion-groups' to `.expansion-groups.el'.
+Creates or overwrites the file.  Signals `user-error' if
+`haystack-notes-directory' is not set."
+  (haystack--assert-notes-directory)
+  (with-temp-file (haystack--expansion-groups-file)
+    (insert ";; Haystack expansion groups — managed with `haystack-associate'\n")
+    (insert ";; Format: ((root . (synonym1 synonym2 ...)) ...)\n\n")
+    (pp haystack--expansion-groups (current-buffer))))
+
+(defun haystack--groups-remove-term (groups term)
+  "Return GROUPS with TERM removed from whichever group contains it.
+If TERM was the root, the first remaining member is promoted to root.
+Groups that fall below two total terms after removal are dissolved."
+  (let ((key (downcase term)))
+    (delq nil
+          (mapcar (lambda (group)
+                    (let* ((all       (cons (car group) (cdr group)))
+                           (remaining (cl-remove-if
+                                       (lambda (m) (string= key (downcase m)))
+                                       all)))
+                      (if (>= (length remaining) 2)
+                          (cons (car remaining) (cdr remaining))
+                        ;; Fewer than 2 terms — dissolve
+                        nil)))
+                  groups))))
+
+(defun haystack--groups-add-to-group (groups anchor term)
+  "Return GROUPS with TERM added to ANCHOR's group.
+If ANCHOR is not in any group, a new group is created with ANCHOR as
+root and TERM as its first member."
+  (let* ((anchor-key (downcase anchor))
+         (found      nil)
+         (result
+          (mapcar (lambda (group)
+                    (let ((all (cons (car group) (cdr group))))
+                      (if (cl-some (lambda (m) (string= anchor-key (downcase m))) all)
+                          (progn (setq found t)
+                                 (cons (car group)
+                                       (append (cdr group) (list term))))
+                        group)))
+                  groups)))
+    (if found
+        result
+      (append groups (list (cons anchor (list term)))))))
+
+;;;###autoload
+(defun haystack-associate (term-a term-b)
+  "Associate TERM-A and TERM-B as synonyms in an expansion group.
+Multi-word terms are rejected.  Three states:
+
+  • Neither assigned or A has a group: TERM-B is added to TERM-A's
+    group (or a new group is created if both are unassigned).
+  • A unassigned, B has a group: TERM-A is added to TERM-B's group.
+  • Both assigned to different groups: offers to move TERM-B into
+    TERM-A's group (or create TERM-A's group if it lacks one).
+  • Both already in the same group: no-op."
+  (interactive
+   (list (read-string "Term A: ")
+         (read-string "Term B: ")))
+  (when (haystack--multi-word-p term-a)
+    (user-error "Haystack: %S is multi-word — groups support single-word terms only"
+                term-a))
+  (when (haystack--multi-word-p term-b)
+    (user-error "Haystack: %S is multi-word — groups support single-word terms only"
+                term-b))
+  (when (string= (downcase term-a) (downcase term-b))
+    (user-error "Haystack: TERM-A and TERM-B must be different"))
+  (let* ((group-a (haystack--lookup-group term-a))
+         (group-b (haystack--lookup-group term-b)))
+    (cond
+     ;; State 3: already in the same group — no-op
+     ((and group-a group-b (equal group-a group-b))
+      (message "Haystack: %S and %S are already in the same group: (%s)"
+               term-a term-b (mapconcat #'identity group-a ", ")))
+
+     ;; State 2: both assigned to different groups — offer move
+     ((and group-a group-b)
+      (let* ((prompt (format (concat "Conflict:\n  %S is in group: (%s)\n"
+                                     "  %S is in group: (%s)\n"
+                                     "Move %S to %S's group? ")
+                             term-a (mapconcat #'identity group-a ", ")
+                             term-b (mapconcat #'identity group-b ", ")
+                             term-b term-a))
+             (response (read-char-choice
+                        (concat prompt "(m)ove / (a)bort: ")
+                        '(?m ?a))))
+        (if (eq response ?a)
+            (message "Haystack: aborted")
+          (setq haystack--expansion-groups
+                (haystack--groups-remove-term haystack--expansion-groups term-b))
+          (setq haystack--expansion-groups
+                (haystack--groups-add-to-group haystack--expansion-groups term-a term-b))
+          (haystack--save-expansion-groups)
+          (message "Haystack: moved %S → group now: (%s)"
+                   term-b
+                   (mapconcat #'identity (haystack--lookup-group term-a) ", ")))))
+
+     ;; State 1a: B unassigned, A has group or both unassigned → add B toward A
+     ((null group-b)
+      (setq haystack--expansion-groups
+            (haystack--groups-add-to-group haystack--expansion-groups term-a term-b))
+      (haystack--save-expansion-groups)
+      (if group-a
+          (message "Haystack: added %S to group: (%s)"
+                   term-b
+                   (mapconcat #'identity (haystack--lookup-group term-a) ", "))
+        (message "Haystack: created new group: %S → %S" term-a term-b)))
+
+     ;; State 1b: A unassigned, B has group → add A to B's group
+     (t
+      (setq haystack--expansion-groups
+            (haystack--groups-add-to-group haystack--expansion-groups term-b term-a))
+      (haystack--save-expansion-groups)
+      (message "Haystack: added %S to group: (%s)"
+               term-a
+               (mapconcat #'identity (haystack--lookup-group term-b) ", "))))))
+
 ;;;; Input processing pipeline
 
 (defun haystack--strip-prefixes (raw)
@@ -389,16 +629,36 @@ if its corresponding prefix was present.  Detection order: ! then / then = then 
   "Return non-nil if TERM contains any whitespace (multi-word query)."
   (string-match-p "[[:space:]]" term))
 
-(defun haystack--build-pattern (term regex)
+(defun haystack--build-pattern (term regex &optional literal multi-word)
   "Return the ripgrep pattern string for TERM.
 If REGEX is non-nil, TERM is used as-is (raw ripgrep regex).
-Otherwise, `regexp-quote' is applied for literal-by-default matching.
+If LITERAL or MULTI-WORD is non-nil, expansion is suppressed and
+`regexp-quote' is applied directly.
+Otherwise: look up an expansion group for TERM (case-insensitive); if
+found, return a ripgrep alternation pattern; if not found, fall back to
+`regexp-quote'."
+  (cond
+   (regex term)
+   ((or literal multi-word) (regexp-quote term))
+   (t (let ((group (haystack--lookup-group term)))
+        (if group
+            (haystack--expansion-alternation group)
+          (regexp-quote term))))))
 
-Phase 2 hook point: for single-word, non-literal terms, expansion
-group lookup will slot in here before the `regexp-quote' fallback."
-  (if regex
-      term
-    (regexp-quote term)))
+(defun haystack--build-emacs-pattern (term regex &optional literal multi-word)
+  "Return an Emacs regexp for TERM, for use with `string-match-p'.
+Same expansion logic as `haystack--build-pattern', but uses Emacs
+alternation syntax (\\|) so the result works with `string-match-p'.
+For raw regex terms the string is passed through as-is — the user is
+responsible for Emacs regexp syntax when using the ~ prefix on a
+filename filter."
+  (cond
+   (regex term)
+   ((or literal multi-word) (regexp-quote term))
+   (t (let ((group (haystack--lookup-group term)))
+        (if group
+            (mapconcat #'regexp-quote group "\\|")
+          (regexp-quote term))))))
 
 (defun haystack--parse-input (raw)
   "Parse RAW user input through the prefix/classification/escaping pipeline.
@@ -406,19 +666,28 @@ Returns a plist:
   :term       — input after prefix stripping
   :negated    — ! prefix: exclude files that match this term
   :filename   — / prefix: match against the file's basename, not content
-  :literal    — = prefix: suppress expansion group lookup (Phase 2)
+  :literal    — = prefix: suppress expansion group lookup
   :regex      — ~ prefix: treat term as raw ripgrep regex, skip escaping
-  :multi-word — non-nil if term contains whitespace after stripping
-  :pattern    — final regex string to pass to ripgrep (or to match basenames)"
+  :multi-word     — non-nil if term contains whitespace after stripping
+  :expansion      — group member list if expansion fired, nil otherwise
+  :pattern        — ripgrep regex string (for rg calls)
+  :emacs-pattern  — Emacs regexp string (for `string-match-p' filename matching)"
   (cl-destructuring-bind (term negated filename literal regex)
       (haystack--strip-prefixes raw)
-    (list :term       term
-          :negated    negated
-          :filename   filename
-          :literal    literal
-          :regex      regex
-          :multi-word (haystack--multi-word-p term)
-          :pattern    (haystack--build-pattern term regex))))
+    (let* ((multi-word (haystack--multi-word-p term))
+           (expansion  (and (not regex) (not literal) (not multi-word)
+                            (haystack--lookup-group term)))
+           (pattern    (haystack--build-pattern       term regex literal multi-word))
+           (emacs-pat  (haystack--build-emacs-pattern term regex literal multi-word)))
+      (list :term          term
+            :negated       negated
+            :filename      filename
+            :literal       literal
+            :regex         regex
+            :multi-word    multi-word
+            :expansion     expansion
+            :pattern       pattern
+            :emacs-pattern emacs-pat))))
 
 ;;;; Search engine
 
@@ -445,15 +714,6 @@ Applies `haystack-file-glob' restrictions and expands ~ in the directory path."
       (dolist (glob haystack-file-glob)
         (setq args (nconc args (list (concat "--glob=" glob))))))
     (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
-
-(defun haystack--build-rg-args-from-filelist (pattern filelist
-                                               &optional composite-filter)
-  "Return rg args to search PATTERN within the files listed in FILELIST.
-Does not apply `haystack-file-glob' — the filelist already reflects the
-file-type restrictions from the root search that produced it."
-  (nconc (list (concat "--files-from=" filelist))
-         (haystack--rg-base-args composite-filter)
-         (list pattern)))
 
 (defun haystack--count-search-stats (output)
   "Return (FILES . MATCHES) from ripgrep OUTPUT string.
@@ -610,25 +870,38 @@ results buffers."
         (t                      "filter")))
 
 (defun haystack--format-search-chain (descriptor current-term current-negated
-                                                 &optional current-filename)
+                                                 &optional current-filename
+                                                 current-expansion)
   "Return a string showing the full search chain for a child buffer header.
 Combines the root term, all existing filters from DESCRIPTOR, and the
 CURRENT-TERM being applied.  CURRENT-NEGATED and CURRENT-FILENAME control
-the label (filter=, exclude=, filename=, or !filename=)."
-  (let* ((root-label (if (plist-get descriptor :root-filename) "filename" "root"))
-         (parts (list (format "%s=%s" root-label
-                              (haystack--display-term (plist-get descriptor :root-term))))))
+the label (filter=, exclude=, filename=, or !filename=).
+When CURRENT-EXPANSION (a member list) is non-nil it is shown as an
+alternation in place of the raw term.  Expansions stored in DESCRIPTOR
+are shown the same way."
+  (let* ((root-label   (if (plist-get descriptor :root-filename) "filename" "root"))
+         (root-exp     (plist-get descriptor :root-expansion))
+         (root-display (if root-exp
+                           (haystack--expansion-alternation root-exp)
+                         (haystack--display-term (plist-get descriptor :root-term))))
+         (parts (list (format "%s=%s" root-label root-display))))
     (dolist (f (plist-get descriptor :filters))
-      (setq parts (nconc parts
-                         (list (format "%s=%s"
-                                       (haystack--filter-label (plist-get f :negated)
-                                                               (plist-get f :filename))
-                                       (haystack--display-term (plist-get f :term)))))))
+      (let* ((f-exp     (plist-get f :expansion))
+             (f-display (if f-exp
+                            (haystack--expansion-alternation f-exp)
+                          (haystack--display-term (plist-get f :term)))))
+        (setq parts (nconc parts
+                           (list (format "%s=%s"
+                                         (haystack--filter-label (plist-get f :negated)
+                                                                 (plist-get f :filename))
+                                         f-display))))))
     (setq parts (nconc parts
                        (list (format "%s=%s"
                                      (haystack--filter-label current-negated
                                                              current-filename)
-                                     (haystack--display-term current-term)))))
+                                     (if current-expansion
+                                         (haystack--expansion-alternation current-expansion)
+                                       (haystack--display-term current-term))))))
     (mapconcat #'identity parts " > ")))
 
 (defun haystack--child-buffer-name (descriptor new-term new-negated
@@ -742,10 +1015,12 @@ Step 2: write the narrowed set to a second temp file and re-run ROOT-PATTERN."
 Extracts files from the current buffer, runs rg scoped to those files,
 and opens the child results buffer in the current window.
 Prefix RAW-INPUT with ! to exclude files containing the term."
-  (interactive "sFilter: ")
+  (interactive
+   (list (read-string "Filter  (! negate  / filename  = literal  ~ regex): ")))
   (unless (and (boundp 'haystack--search-descriptor)
                haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
+  (haystack--load-expansion-groups)
   (let* ((parent-buf   (current-buffer))
          (descriptor   haystack--search-descriptor)
          (cf           (plist-get descriptor :composite-filter))
@@ -753,8 +1028,10 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
          (parsed       (haystack--parse-input raw-input))
          (term         (plist-get parsed :term))
          (pattern      (plist-get parsed :pattern))
+         (emacs-pat    (plist-get parsed :emacs-pattern))
          (negated      (plist-get parsed :negated))
          (filename     (plist-get parsed :filename))
+         (expansion    (plist-get parsed :expansion))
          (filenames    (haystack--extract-filenames (buffer-string))))
     (when (null filenames)
       (user-error "Haystack: no files in current buffer to filter"))
@@ -762,10 +1039,15 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
             (if filename
                 ;; Filename filter: narrow filelist by basename match in elisp,
                 ;; then re-run root-pattern for content.
-                (let* ((narrowed (cl-remove-if-not
+                ;; Use :emacs-pattern (not :pattern) — :pattern is ripgrep syntax.
+                (let* ((notes-root (file-name-as-directory
+                                    (expand-file-name haystack-notes-directory)))
+                       (narrowed (cl-remove-if-not
                                   (lambda (f)
-                                    (let ((match (string-match-p
-                                                  pattern (file-name-nondirectory f))))
+                                    (let* ((rel   (if (string-prefix-p notes-root f)
+                                                      (substring f (length notes-root))
+                                                    (file-name-nondirectory f)))
+                                           (match (string-match-p emacs-pat rel)))
                                       (if negated (not match) match)))
                                   filenames)))
                   (if (null narrowed)
@@ -789,19 +1071,22 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                                                     (plist-get parsed :literal)
                                                     (plist-get parsed :regex)))
            (header      (haystack--format-header
-                         (haystack--format-search-chain descriptor term negated filename)
+                         (haystack--format-search-chain descriptor term negated
+                                                        filename expansion)
                          (car stats) (cdr stats)))
            (new-filters (append (plist-get descriptor :filters)
-                                (list (list :term     term
-                                            :negated  negated
-                                            :filename filename
-                                            :literal  (plist-get parsed :literal)
-                                            :regex    (plist-get parsed :regex)))))
+                                (list (list :term      term
+                                            :negated   negated
+                                            :filename  filename
+                                            :literal   (plist-get parsed :literal)
+                                            :regex     (plist-get parsed :regex)
+                                            :expansion expansion))))
            (new-descriptor (list :root-term        (plist-get descriptor :root-term)
                                  :root-expanded    root-pattern
                                  :root-literal     (plist-get descriptor :root-literal)
                                  :root-regex       (plist-get descriptor :root-regex)
                                  :root-filename    (plist-get descriptor :root-filename)
+                                 :root-expansion   (plist-get descriptor :root-expansion)
                                  :filters          new-filters
                                  :composite-filter cf)))
       (switch-to-buffer
@@ -819,18 +1104,29 @@ COMPOSITE-FILTER is a symbol controlling how @* composite files are
 treated: \\='exclude (default), \\='only, or \\='all."
   (interactive "sHaystack search: ")
   (haystack--assert-notes-directory)
+  (haystack--load-expansion-groups)
   (let* ((cf       (or composite-filter 'exclude))
          (parsed   (haystack--parse-input raw-input))
-         (term     (plist-get parsed :term))
-         (pattern  (plist-get parsed :pattern))
-         (filename (plist-get parsed :filename))
+         (term      (plist-get parsed :term))
+         (pattern   (plist-get parsed :pattern))
+         (emacs-pat (plist-get parsed :emacs-pattern))
+         (filename  (plist-get parsed :filename))
          (output
           (if filename
-              (let* ((all-files (haystack--files-for-root-search cf))
-                     (matching  (cl-remove-if-not
-                                 (lambda (f)
-                                   (string-match-p pattern (file-name-nondirectory f)))
-                                 all-files)))
+              (let* ((all-files  (haystack--files-for-root-search cf))
+                     (notes-root (file-name-as-directory
+                                  (expand-file-name haystack-notes-directory)))
+                     (matching   (cl-remove-if-not
+                                  (lambda (f)
+                                    ;; Match against path relative to notes dir so that
+                                    ;; directory components (e.g. sicp-org/README.org)
+                                    ;; are included.  Use :emacs-pattern — :pattern is
+                                    ;; ripgrep syntax.
+                                    (let ((rel (if (string-prefix-p notes-root f)
+                                                   (substring f (length notes-root))
+                                                 (file-name-nondirectory f))))
+                                      (string-match-p emacs-pat rel)))
+                                  all-files)))
                 (if (null matching)
                     ""
                   (let ((tmp (haystack--write-filelist matching)))
@@ -851,14 +1147,19 @@ treated: \\='exclude (default), \\='only, or \\='all."
                            (haystack--tree-term-label term nil filename
                                                       (plist-get parsed :literal)
                                                       (plist-get parsed :regex))))
-         (chain-label (format "%s=%s" (if filename "filename" "root")
-                              (haystack--display-term term)))
+         (expansion   (plist-get parsed :expansion))
+         (chain-label (format "%s=%s"
+                              (if filename "filename" "root")
+                              (if expansion
+                                  (haystack--expansion-alternation expansion)
+                                (haystack--display-term term))))
          (header   (haystack--format-header chain-label (car stats) (cdr stats)))
          (descriptor (list :root-term        term
                            :root-expanded    (if filename "." pattern)
                            :root-literal     (plist-get parsed :literal)
                            :root-regex       (plist-get parsed :regex)
                            :root-filename    filename
+                           :root-expansion   expansion
                            :filters          nil
                            :composite-filter cf)))
     (pop-to-buffer

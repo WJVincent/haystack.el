@@ -122,10 +122,11 @@ Prefix your search term to change how it is interpreted:
 | `!`  | Negate — exclude files containing this term | `!async` |
 
 Modifiers compose: `!/pattern` negates a filename filter; `!~pattern`
-negates a regex. Note that `/` filters narrow to files whose **basename**
-matches the term, then show content lines matching the root search — you
-see content hits, not filenames, so grep-mode navigation and MOC
-features all continue to work.
+negates a regex. Note that `/` filters narrow to files whose **path relative to the
+notes directory** matches the term (so `sicp` matches both
+`sicp-notes.org` and `sicp-org/README.org`), then show content lines
+matching the root search — you see content hits, not filenames, so
+grep-mode navigation and MOC features all continue to work.
 
 ## Progressive Filtering
 
