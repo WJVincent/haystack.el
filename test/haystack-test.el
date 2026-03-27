@@ -650,6 +650,167 @@ Writes INITIAL-GROUPS to disk so functions that call
     (should-error (haystack-rename-group-root "rust" "rust")
                   :type 'user-error)))
 
+;;; haystack--frecency-rewrite-term
+
+(ert-deftest haystack-test/frecency-rewrite-term-root-position ()
+  "Rewrites the old root term when it appears in the root position."
+  (should (equal (haystack--frecency-rewrite-term '("programming" "rust") "programming" "coding")
+                 '("coding" "rust"))))
+
+(ert-deftest haystack-test/frecency-rewrite-term-filter-position ()
+  "Rewrites the old root term when it appears in a filter position."
+  (should (equal (haystack--frecency-rewrite-term '("rust" "programming") "programming" "coding")
+                 '("rust" "coding"))))
+
+(ert-deftest haystack-test/frecency-rewrite-term-preserves-prefix ()
+  "Prefix characters on a matched term are preserved after rewriting."
+  (should (equal (haystack--frecency-rewrite-term '("rust" "!programming") "programming" "coding")
+                 '("rust" "!coding"))))
+
+(ert-deftest haystack-test/frecency-rewrite-term-compound-prefix ()
+  "Compound prefix (e.g. !=) is preserved after rewriting."
+  (should (equal (haystack--frecency-rewrite-term '("rust" "!=programming") "programming" "coding")
+                 '("rust" "!=coding"))))
+
+(ert-deftest haystack-test/frecency-rewrite-term-non-matching-unchanged ()
+  "Terms that do not match old-root are returned unchanged."
+  (should (equal (haystack--frecency-rewrite-term '("rust" "async") "programming" "coding")
+                 '("rust" "async"))))
+
+(ert-deftest haystack-test/frecency-rewrite-term-case-insensitive ()
+  "Matching is case-insensitive."
+  (should (equal (haystack--frecency-rewrite-term '("Programming" "rust") "programming" "coding")
+                 '("coding" "rust"))))
+
+;;; haystack--frecency-rename-in-data
+
+(ert-deftest haystack-test/frecency-rename-in-data-single-entry ()
+  "Rewrites the matching term in a single frecency entry."
+  (let* ((data '((("programming" "rust") :count 3 :last-access 1000.0)))
+         (result (haystack--frecency-rename-in-data data "programming" "coding")))
+    (should (equal (caar result) '("coding" "rust")))))
+
+(ert-deftest haystack-test/frecency-rename-in-data-multiple-entries ()
+  "Rewrites matching terms across multiple entries."
+  (let* ((data '((("programming") :count 2 :last-access 1000.0)
+                 (("rust" "programming") :count 1 :last-access 900.0)))
+         (result (haystack--frecency-rename-in-data data "programming" "coding")))
+    (should (assoc '("coding") result))
+    (should (assoc '("rust" "coding") result))))
+
+(ert-deftest haystack-test/frecency-rename-in-data-non-matching-unchanged ()
+  "Entries without the old term are returned unchanged."
+  (let* ((data '((("rust" "async") :count 5 :last-access 1000.0)))
+         (result (haystack--frecency-rename-in-data data "programming" "coding")))
+    (should (assoc '("rust" "async") result))))
+
+(ert-deftest haystack-test/frecency-rename-in-data-collision-merges ()
+  "When rename would produce a duplicate key, entries are merged (counts summed, latest timestamp kept)."
+  (let* ((data '((("coding")       :count 4 :last-access 2000.0)
+                 (("programming")  :count 3 :last-access 1000.0)))
+         (result (haystack--frecency-rename-in-data data "programming" "coding")))
+    (should (= (length result) 1))
+    (let ((entry (assoc '("coding") result)))
+      (should (= (plist-get (cdr entry) :count) 7))
+      (should (= (plist-get (cdr entry) :last-access) 2000.0)))))
+
+;;; haystack--composite-rename-pairs
+
+(ert-deftest haystack-test/composite-rename-pairs-root-position ()
+  "Finds composite whose slug starts with the old slug."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org"))
+     (with-temp-file (expand-file-name "@comp__programming.org" haystack-notes-directory)
+       (insert ""))
+     (let ((pairs (haystack--composite-rename-pairs "programming" "coding")))
+       (should (= (length pairs) 1))
+       (should (string-match-p "@comp__coding\\.org" (cdr (car pairs))))))))
+
+(ert-deftest haystack-test/composite-rename-pairs-middle-position ()
+  "Finds composite whose slug contains the old slug as a middle segment."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org"))
+     (with-temp-file (expand-file-name "@comp__rust__programming__async.org" haystack-notes-directory)
+       (insert ""))
+     (let ((pairs (haystack--composite-rename-pairs "programming" "coding")))
+       (should (= (length pairs) 1))
+       (should (string-match-p "@comp__rust__coding__async\\.org" (cdr (car pairs))))))))
+
+(ert-deftest haystack-test/composite-rename-pairs-non-matching-excluded ()
+  "Composites whose slugs do not contain old slug are excluded."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "@comp__rust__async.org" haystack-notes-directory)
+     (insert ""))
+   (should (null (haystack--composite-rename-pairs "programming" "coding")))))
+
+(ert-deftest haystack-test/composite-rename-pairs-no-composites ()
+  "Returns empty list when there are no composite files."
+  (haystack-test--with-notes-dir
+   (should (null (haystack--composite-rename-pairs "programming" "coding")))))
+
+;;; haystack--rename-composites-atomic
+
+(ert-deftest haystack-test/rename-composites-atomic-succeeds ()
+  "Renames all files when all targets are available."
+  (haystack-test--with-notes-dir
+   (let ((old (expand-file-name "@comp__programming.org" haystack-notes-directory))
+         (new (expand-file-name "@comp__coding.org"      haystack-notes-directory)))
+     (with-temp-file old (insert ""))
+     (haystack--rename-composites-atomic (list (cons old new)))
+     (should     (file-exists-p new))
+     (should-not (file-exists-p old)))))
+
+(ert-deftest haystack-test/rename-composites-atomic-empty-list ()
+  "No-op on empty pairs list."
+  (haystack-test--with-notes-dir
+   (should (null (haystack--rename-composites-atomic nil)))))
+
+(ert-deftest haystack-test/rename-composites-atomic-rollback-on-failure ()
+  "A failed rename rolls back already-completed renames."
+  (haystack-test--with-notes-dir
+   (let ((old1 (expand-file-name "@comp__alpha.org" haystack-notes-directory))
+         (new1 (expand-file-name "@comp__beta.org"  haystack-notes-directory))
+         (old2 "/nonexistent/path/@comp__gamma.org")
+         (new2 "/nonexistent/path/@comp__delta.org"))
+     (with-temp-file old1 (insert ""))
+     (should-error (haystack--rename-composites-atomic (list (cons old1 new1)
+                                                             (cons old2 new2))))
+     ;; old1 should have been restored
+     (should     (file-exists-p old1))
+     (should-not (file-exists-p new1)))))
+
+;;; haystack-rename-group-root — full atomic integration
+
+(ert-deftest haystack-test/rename-group-root-updates-frecency ()
+  "rename-group-root rewrites matching frecency chain keys."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (haystack-test--with-frecency
+     '((("programming" "rust") :count 2 :last-access 1000.0)
+       (("rust" "programming") :count 1 :last-access 900.0))
+     (haystack-rename-group-root "programming" "dev")
+     (should (assoc '("dev" "rust") haystack--frecency-data))
+     (should (assoc '("rust" "dev") haystack--frecency-data))
+     (should-not (assoc '("programming" "rust") haystack--frecency-data)))))
+
+(ert-deftest haystack-test/rename-group-root-renames-composites ()
+  "rename-group-root renames composite files containing the old slug."
+  (haystack-test--with-groups '(("programming" . ("coding")))
+    (let ((haystack-composite-extension "org"))
+      (with-temp-file (expand-file-name "@comp__programming.org" haystack-notes-directory)
+        (insert ""))
+      (haystack-test--with-frecency nil
+        (haystack-rename-group-root "programming" "dev"))
+      (should     (file-exists-p (expand-file-name "@comp__dev.org" haystack-notes-directory)))
+      (should-not (file-exists-p (expand-file-name "@comp__programming.org" haystack-notes-directory))))))
+
+(ert-deftest haystack-test/rename-group-root-no-composites-no-error ()
+  "rename-group-root completes without error when no composites exist."
+  (haystack-test--with-groups '(("programming" . ("coding")))
+    (haystack-test--with-frecency nil
+      (should-not (condition-case err
+                      (progn (haystack-rename-group-root "programming" "dev") nil)
+                    (error err))))))
+
 ;;; haystack--groups-dissolve
 
 (ert-deftest haystack-test/groups-dissolve-by-root ()
@@ -1823,6 +1984,83 @@ has async, so the intersection count is 50 (below threshold) — no prompt."
                (should     (string-match-p "both\\.org"  (buffer-string)))
                (should-not (string-match-p "only1\\.org" (buffer-string))))
            (kill-buffer buf)))))))
+
+;;;; haystack-run-root-search composite filter via prefix arg
+
+(ert-deftest haystack-test/run-root-search-prefix-arg-passes-all ()
+  "C-u prefix arg causes composite-filter 'all in the stored descriptor."
+  (haystack-test--with-notes-dir
+   (let ((current-prefix-arg '(4)))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'read-string) (lambda (&rest _) "nomatchzq")))
+       (call-interactively #'haystack-run-root-search)
+       (let ((buf (get-buffer "*haystack:1:nomatchzq*")))
+         (should buf)
+         (unwind-protect
+             (with-current-buffer buf
+               (should (eq (plist-get haystack--search-descriptor :composite-filter)
+                           'all)))
+           (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/run-root-search-no-prefix-arg-excludes ()
+  "No prefix arg leaves composite-filter as 'exclude."
+  (haystack-test--with-notes-dir
+   (let ((current-prefix-arg nil))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+       (haystack-run-root-search "nomatchzz")
+       (let ((buf (get-buffer "*haystack:1:nomatchzz*")))
+         (should buf)
+         (unwind-protect
+             (with-current-buffer buf
+               (should (eq (plist-get haystack--search-descriptor :composite-filter)
+                           'exclude)))
+           (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/run-root-search-all-includes-composites ()
+  "With composite-filter 'all, composite @* files appear in results."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "@comp__rust.org" haystack-notes-directory)
+     (insert "rust is fast\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "rust" 'all)
+     (let ((buf (get-buffer "*haystack:1:rust*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "@comp__rust\\.org" (buffer-string))))
+         (kill-buffer buf))))))
+
+;;;; haystack-search-composites
+
+(ert-deftest haystack-test/search-composites-uses-only-filter ()
+  "haystack-search-composites sets composite-filter to 'only."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-search-composites "rust")
+     (let ((buf (get-buffer "*haystack:1:rust*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (eq (plist-get haystack--search-descriptor :composite-filter)
+                         'only)))
+         (kill-buffer buf))))))
+
+(ert-deftest haystack-test/search-composites-excludes-regular-notes ()
+  "haystack-search-composites returns composites but not regular notes."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "rust is fast\n"))
+   (with-temp-file (expand-file-name "@comp__rust.org" haystack-notes-directory)
+     (insert "rust is fast\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-search-composites "rust")
+     (let ((buf (get-buffer "*haystack:1:rust*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should     (string-match-p "@comp__rust\\.org" (buffer-string)))
+             (should-not (string-match-p "\\bnote\\.org\\b" (buffer-string))))
+         (kill-buffer buf))))))
 
 ;;;; haystack-search-region
 
@@ -3217,6 +3455,60 @@ Saves and restores the global and the dirty flag."
   "haystack-demo-stop signals if demo is not running."
   (should-error (haystack-demo-stop) :type 'user-error))
 
+;;;; Composite surfacing in buffer headers
+
+(ert-deftest haystack-test/format-header-no-composite-line-when-absent ()
+  "format-header without a composite-path has no composite line."
+  (let ((h (haystack--format-header "root=rust" 3 10)))
+    (should-not (string-match-p "composite" h))))
+
+(ert-deftest haystack-test/format-header-shows-composite-line ()
+  "format-header with a composite-path includes a [composite:…] line."
+  (let ((h (haystack--format-header "root=rust" 3 10 "/notes/@comp__rust.org")))
+    (should (string-match-p "composite.*@comp__rust\\.org" h))))
+
+(ert-deftest haystack-test/run-root-search-surfaces-composite ()
+  "Root search header shows composite line when a composite file exists."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org"))
+     (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+       (insert "rust is fast\n"))
+     ;; Pre-create the composite file for this chain.
+     (with-temp-file (expand-file-name "@comp__rust.org" haystack-notes-directory)
+       (insert "#+HAYSTACK-CHAIN: rust\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+       (haystack-run-root-search "rust"))
+     (let ((buf (get-buffer "*haystack:1:rust*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "composite.*@comp__rust\\.org"
+                                     (buffer-string))))
+         (kill-buffer buf))))))
+
+(ert-deftest haystack-test/filter-further-surfaces-composite ()
+  "Filter-further header shows composite line when composite exists."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org"))
+     (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+       (insert "rust async\n"))
+     (with-temp-file (expand-file-name "@comp__rust__async.org" haystack-notes-directory)
+       (insert "#+HAYSTACK-CHAIN: rust__async\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:rust*")))
+         (with-current-buffer root-buf
+           (haystack-filter-further "async"))
+         (let ((child-buf (get-buffer "*haystack:2:rust:async*")))
+           (should child-buf)
+           (unwind-protect
+               (with-current-buffer child-buf
+                 (should (string-match-p "composite.*@comp__rust__async\\.org"
+                                         (buffer-string))))
+             (kill-buffer root-buf)
+             (when (buffer-live-p child-buf) (kill-buffer child-buf)))))))))
+
 (ert-deftest haystack-test/demo-header-shows-warning ()
   "haystack--format-header includes demo warning when demo is active."
   (let ((haystack--demo-active t))
@@ -3228,6 +3520,425 @@ Saves and restores the global and the dirty flag."
   (let ((haystack--demo-active nil))
     (should (not (string-match-p "DEMO MODE"
                                  (haystack--format-header "root=test" 1 1))))))
+
+;;;; haystack-compose-commit / haystack-compose-discard
+
+(defmacro haystack-test--with-compose-committed (&rest body)
+  "Set up notes dir + results buffer + compose buffer, call commit, run BODY."
+  (declare (indent 0))
+  `(haystack-test--with-notes-dir
+    (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+      (insert "hello world\n"))
+    (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+      (haystack-run-root-search "hello"))
+    (let* ((results-buf (get-buffer "*haystack:1:hello*"))
+           (compose-buf (with-current-buffer results-buf (haystack-compose))))
+      (unwind-protect
+          (with-current-buffer compose-buf
+            ,@body)
+        (when (buffer-live-p results-buf) (kill-buffer results-buf))
+        (when (buffer-live-p compose-buf) (kill-buffer compose-buf))))))
+
+(ert-deftest haystack-test/compose-commit-writes-file ()
+  "C-c C-c writes @comp__CHAIN.org to the notes directory."
+  (haystack-test--with-compose-committed
+   (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+     (haystack-compose-commit))
+   (should (file-exists-p
+            (expand-file-name "@comp__hello.org" haystack-notes-directory)))))
+
+(ert-deftest haystack-test/compose-commit-file-has-frontmatter ()
+  "Written composite file contains HAYSTACK-CHAIN org property."
+  (haystack-test--with-compose-committed
+   (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+     (haystack-compose-commit))
+   (let* ((path (expand-file-name "@comp__hello.org" haystack-notes-directory))
+          (content (with-temp-buffer (insert-file-contents path) (buffer-string))))
+     (should (string-match-p "HAYSTACK-CHAIN.*hello" content)))))
+
+(ert-deftest haystack-test/compose-commit-file-has-source-section ()
+  "Written composite file contains the source file heading."
+  (haystack-test--with-compose-committed
+   (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+     (haystack-compose-commit))
+   (let* ((path (expand-file-name "@comp__hello.org" haystack-notes-directory))
+          (content (with-temp-buffer (insert-file-contents path) (buffer-string))))
+     (should (string-match-p "\\* \\[\\[file:" content)))))
+
+(ert-deftest haystack-test/compose-commit-unmodified-no-note-prompt ()
+  "Unmodified buffer does not prompt to save as a new note."
+  (haystack-test--with-compose-committed
+   ;; Buffer is unmodified after setup — the note prompt should never fire.
+   (cl-letf (((symbol-function 'y-or-n-p)
+              (lambda (prompt &rest _)
+                (if (string-match-p "new note" prompt)
+                    (error "Should not have prompted for new note")
+                  t))))  ; answer yes to any overwrite prompt
+     (haystack-compose-commit))
+   (should t)))  ; reaches here ⇒ no note prompt fired
+
+(ert-deftest haystack-test/compose-commit-modified-prompts-for-note ()
+  "Modified buffer prompts to save as a new note after writing composite."
+  (haystack-test--with-compose-committed
+   (goto-char (point-max))
+   (insert "my annotation\n")   ; makes buffer-modified-p t
+   (let ((prompted nil))
+     (cl-letf (((symbol-function 'y-or-n-p)
+                (lambda (prompt &rest _)
+                  (when (string-match-p "new note" prompt)
+                    (setq prompted t))
+                  nil))  ; answer no to avoid actually creating a note
+               ((symbol-function 'haystack-new-note) #'ignore))
+       (haystack-compose-commit))
+     (should prompted))))
+
+(ert-deftest haystack-test/compose-discard-kills-buffer ()
+  "C-c C-k kills the compose buffer without writing."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "hello world\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "hello"))
+   (let* ((results-buf (get-buffer "*haystack:1:hello*"))
+          (compose-buf (with-current-buffer results-buf (haystack-compose))))
+     (unwind-protect
+         (progn
+           (with-current-buffer compose-buf
+             (haystack-compose-discard))
+           (should-not (buffer-live-p compose-buf)))
+       (when (buffer-live-p results-buf) (kill-buffer results-buf))
+       (when (buffer-live-p compose-buf) (kill-buffer compose-buf))))))
+
+(ert-deftest haystack-test/compose-intercept-save-protect-on ()
+  "When `haystack-composite-protect' is t, write-contents-functions intercepts save."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "hello world\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "hello"))
+   (let* ((results-buf (get-buffer "*haystack:1:hello*"))
+          (haystack-composite-protect t)
+          (compose-buf (with-current-buffer results-buf (haystack-compose)))
+          (intercepted nil))
+     (unwind-protect
+         (with-current-buffer compose-buf
+           (cl-letf (((symbol-function 'y-or-n-p)
+                      (lambda (&rest _) (setq intercepted t) nil))
+                     ((symbol-function 'haystack-new-note) #'ignore))
+             (run-hook-with-args-until-success 'write-contents-functions))
+           (should intercepted))
+       (when (buffer-live-p results-buf) (kill-buffer results-buf))
+       (when (buffer-live-p compose-buf) (kill-buffer compose-buf))))))
+
+(ert-deftest haystack-test/compose-intercept-save-protect-off ()
+  "When `haystack-composite-protect' is nil, write-contents-functions does not intercept."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "hello world\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "hello"))
+   (let* ((results-buf (get-buffer "*haystack:1:hello*"))
+          (haystack-composite-protect nil)
+          (compose-buf (with-current-buffer results-buf (haystack-compose))))
+     (unwind-protect
+         (with-current-buffer compose-buf
+           (should-not
+            (run-hook-with-args-until-success 'write-contents-functions)))
+       (when (buffer-live-p results-buf) (kill-buffer results-buf))
+       (when (buffer-live-p compose-buf) (kill-buffer compose-buf))))))
+
+;;;; haystack-compose
+
+(defmacro haystack-test--with-compose-buffer (notes-body &rest body)
+  "Set up a notes dir, a root-search results buffer, run NOTES-BODY to
+populate the notes, then evaluate BODY with the compose buffer active.
+Cleans up both the results buffer and the compose buffer."
+  (declare (indent 1))
+  `(haystack-test--with-notes-dir
+    (progn
+      ,notes-body
+      (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+        (haystack-run-root-search "hello"))
+      (let* ((results-buf (get-buffer "*haystack:1:hello*"))
+             (compose-buf nil))
+        (unwind-protect
+            (progn
+              (with-current-buffer results-buf
+                (setq compose-buf (haystack-compose)))
+              (with-current-buffer compose-buf
+                ,@body))
+          (when (buffer-live-p results-buf)  (kill-buffer results-buf))
+          (when (buffer-live-p compose-buf)  (kill-buffer compose-buf)))))))
+
+(ert-deftest haystack-test/compose-errors-outside-results-buffer ()
+  "Signals user-error when called outside a haystack results buffer."
+  (should-error (haystack-compose) :type 'user-error))
+
+(ert-deftest haystack-test/compose-creates-buffer ()
+  "Creates a *haystack-compose:CHAIN* buffer."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "hello world\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "hello"))
+   (let ((results-buf (get-buffer "*haystack:1:hello*")))
+     (unwind-protect
+         (let ((compose-buf (with-current-buffer results-buf
+                              (haystack-compose))))
+           (unwind-protect
+               (should (buffer-live-p compose-buf))
+             (kill-buffer compose-buf)))
+       (kill-buffer results-buf)))))
+
+(ert-deftest haystack-test/compose-buffer-contains-source-heading ()
+  "Compose buffer has an org heading linking to each source file."
+  (haystack-test--with-compose-buffer
+   (with-temp-file (expand-file-name "20240101000000-my-note.org"
+                                     haystack-notes-directory)
+     (insert "hello world\n"))
+   (should (string-match-p "\\* \\[\\[file:.*my-note" (buffer-string)))
+   (should (string-match-p "hello world" (buffer-string)))))
+
+(ert-deftest haystack-test/compose-buffer-title-in-header ()
+  "Compose buffer header contains the search chain."
+  (haystack-test--with-compose-buffer
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "hello world\n"))
+   (should (string-match-p "hello" (buffer-string)))))
+
+(ert-deftest haystack-test/compose-all-matches-multiple-sections ()
+  "With `haystack-composite-all-matches' t, one section per match line."
+  (haystack-test--with-notes-dir
+   (with-temp-file (expand-file-name "note.org" haystack-notes-directory)
+     (insert "hello one\nhello two\nhello three\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "hello"))
+   (let* ((results-buf (get-buffer "*haystack:1:hello*"))
+          (haystack-composite-all-matches t)
+          (compose-buf (with-current-buffer results-buf (haystack-compose))))
+     (unwind-protect
+         ;; Three matches → three headings
+         (with-current-buffer compose-buf
+           (should (= (cl-count-if (lambda (l) (string-prefix-p "* " l))
+                                   (split-string (buffer-string) "\n"))
+                      3)))
+       (kill-buffer results-buf)
+       (kill-buffer compose-buf)))))
+
+;;;; haystack--compose-file-section
+
+(ert-deftest haystack-test/compose-file-section-heading ()
+  "Section starts with an org heading containing a file link."
+  (haystack-test--with-notes-dir
+   (let* ((path (expand-file-name "20240101000000-my-note.org"
+                                  haystack-notes-directory))
+          (_ (with-temp-file path (insert "hello world\n")))
+          (section (haystack--compose-file-section path 1)))
+     (should (string-match-p "^\\* \\[\\[file:" section))
+     (should (string-match-p "my note" section)))))
+
+(ert-deftest haystack-test/compose-file-section-contains-content ()
+  "Section body contains the file content."
+  (haystack-test--with-notes-dir
+   (let* ((path (expand-file-name "note.org" haystack-notes-directory))
+          (_ (with-temp-file path (insert "hello world\n")))
+          (section (haystack--compose-file-section path 1)))
+     (should (string-match-p "hello world" section)))))
+
+(ert-deftest haystack-test/compose-file-section-line-number-in-link ()
+  "The org link includes the match line number."
+  (haystack-test--with-notes-dir
+   (let* ((path (expand-file-name "note.org" haystack-notes-directory))
+          (_ (with-temp-file path (insert "line1\nline2\nline3\n")))
+          (section (haystack--compose-file-section path 2)))
+     (should (string-match-p "::2\\]" section)))))
+
+;;;; haystack--composite-file-content
+
+(ert-deftest haystack-test/composite-file-content-short-file ()
+  "Files within the line limit are returned unchanged."
+  (let ((lines (mapconcat #'identity (make-list 10 "line") "\n")))
+    (should (equal (haystack--composite-file-content lines 1 300)
+                   lines))))
+
+(ert-deftest haystack-test/composite-file-content-nil-max ()
+  "nil max-lines returns the full content regardless of size."
+  (let ((lines (mapconcat (lambda (i) (format "line%d" i))
+                          (number-sequence 1 500) "\n")))
+    (should (equal (haystack--composite-file-content lines 250 nil)
+                   lines))))
+
+(ert-deftest haystack-test/composite-file-content-truncates-long-file ()
+  "Files over the limit are windowed around the match line."
+  ;; 100 lines, limit 10 → window of 10 lines centred on match
+  (let* ((all-lines (mapcar (lambda (i) (format "line%d" i))
+                            (number-sequence 1 100)))
+         (text      (mapconcat #'identity all-lines "\n"))
+         (result    (haystack--composite-file-content text 50 10))
+         (result-lines (split-string result "\n" t)))
+    ;; Should be capped at 10 lines of content (plus possible ellipsis markers)
+    (should (<= (length (cl-remove-if (lambda (l) (string-prefix-p "..." l))
+                                      result-lines))
+                10))
+    ;; Match line content should be present
+    (should (string-match-p "line50" result))))
+
+(ert-deftest haystack-test/composite-file-content-ellipsis-markers ()
+  "Truncated content gets ellipsis markers at truncated ends."
+  (let* ((all-lines (mapcar (lambda (i) (format "line%d" i))
+                            (number-sequence 1 100)))
+         (text   (mapconcat #'identity all-lines "\n"))
+         (result (haystack--composite-file-content text 50 10)))
+    (should (string-prefix-p "..." result))
+    (should (string-suffix-p "..." result))))
+
+(ert-deftest haystack-test/composite-file-content-no-leading-ellipsis-at-start ()
+  "No leading ellipsis when the window starts at line 1."
+  (let* ((all-lines (mapcar (lambda (i) (format "line%d" i))
+                            (number-sequence 1 100)))
+         (text   (mapconcat #'identity all-lines "\n"))
+         ;; match at line 2, window of 10 → starts at line 1
+         (result (haystack--composite-file-content text 2 10)))
+    (should-not (string-prefix-p "..." result))
+    (should     (string-suffix-p "..." result))))
+
+;;;; haystack--find-composite
+
+(ert-deftest haystack-test/find-composite-returns-nil-when-absent ()
+  "Returns nil when no composite file exists for the descriptor."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org")
+         (desc (list :root-term "rust" :root-literal nil :root-regex nil
+                     :root-filename nil :filters nil)))
+     (should-not (haystack--find-composite desc)))))
+
+(ert-deftest haystack-test/find-composite-returns-path-when-present ()
+  "Returns the absolute path when the composite file exists."
+  (haystack-test--with-notes-dir
+   (let* ((haystack-composite-extension "org")
+          (desc (list :root-term "rust" :root-literal nil :root-regex nil
+                      :root-filename nil :filters nil))
+          (path (haystack--composite-filename desc)))
+     (with-temp-file path (insert "placeholder"))
+     (should (equal (haystack--find-composite desc) path)))))
+
+(ert-deftest haystack-test/find-composite-nil-for-different-chain ()
+  "Returns nil when a composite exists for a different chain."
+  (haystack-test--with-notes-dir
+   (let* ((haystack-composite-extension "org")
+          (desc-rust  (list :root-term "rust"   :root-literal nil :root-regex nil
+                            :root-filename nil :filters nil))
+          (desc-async (list :root-term "async"  :root-literal nil :root-regex nil
+                            :root-filename nil :filters nil)))
+     (with-temp-file (haystack--composite-filename desc-rust) (insert "placeholder"))
+     (should-not (haystack--find-composite desc-async)))))
+
+;;;; haystack--composite-filename
+
+(ert-deftest haystack-test/composite-filename-basic ()
+  "Returns absolute path @comp__SLUG.EXT in the notes directory."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org")
+         (desc (list :root-term "rust" :root-literal nil :root-regex nil
+                     :root-filename nil :filters nil)))
+     (should (equal (haystack--composite-filename desc)
+                    (expand-file-name "@comp__rust.org" haystack-notes-directory))))))
+
+(ert-deftest haystack-test/composite-filename-respects-extension ()
+  "Uses `haystack-composite-extension' for the file suffix."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "md")
+         (desc (list :root-term "rust" :root-literal nil :root-regex nil
+                     :root-filename nil :filters nil)))
+     (should (string-suffix-p ".md" (haystack--composite-filename desc))))))
+
+(ert-deftest haystack-test/composite-filename-chain-in-name ()
+  "Filter terms appear in the filename joined by __."
+  (haystack-test--with-notes-dir
+   (let ((haystack-composite-extension "org")
+         (desc (list :root-term "rust" :root-literal nil :root-regex nil
+                     :root-filename nil
+                     :filters (list (list :term "async" :negated nil
+                                          :filename nil :literal nil :regex nil)))))
+     (should (equal (haystack--composite-filename desc)
+                    (expand-file-name "@comp__rust__async.org"
+                                      haystack-notes-directory))))))
+
+;;;; haystack--canonical-chain-slug
+
+(ert-deftest haystack-test/canonical-chain-slug-single-bare-term ()
+  "A single bare term is lowercased and slugified."
+  (let ((desc (list :root-term "Rust" :root-literal nil :root-regex nil
+                    :root-filename nil :filters nil)))
+    (should (equal (haystack--canonical-chain-slug desc) "rust"))))
+
+(ert-deftest haystack-test/canonical-chain-slug-resolves-group-root ()
+  "A synonym resolves to its expansion group root."
+  (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
+    (let ((desc (list :root-term "coding" :root-literal nil :root-regex nil
+                      :root-filename nil :filters nil)))
+      (should (equal (haystack--canonical-chain-slug desc) "programming")))))
+
+(ert-deftest haystack-test/canonical-chain-slug-with-filters ()
+  "Filter terms are appended after the root, joined with __."
+  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+                    :root-filename nil
+                    :filters (list (list :term "async" :negated nil
+                                         :filename nil :literal nil :regex nil)
+                                   (list :term "tokio" :negated nil
+                                         :filename nil :literal nil :regex nil)))))
+    (should (equal (haystack--canonical-chain-slug desc) "rust__async__tokio"))))
+
+(ert-deftest haystack-test/canonical-chain-slug-negated-filter ()
+  "Negated filter terms are prefixed with not-."
+  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+                    :root-filename nil
+                    :filters (list (list :term "async" :negated t
+                                         :filename nil :literal nil :regex nil)))))
+    (should (equal (haystack--canonical-chain-slug desc) "rust__not-async"))))
+
+(ert-deftest haystack-test/canonical-chain-slug-filename-filter ()
+  "Filename filter terms are prefixed with fn-."
+  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+                    :root-filename nil
+                    :filters (list (list :term "cargo" :negated nil
+                                         :filename t :literal nil :regex nil)))))
+    (should (equal (haystack--canonical-chain-slug desc) "rust__fn-cargo"))))
+
+(ert-deftest haystack-test/canonical-chain-slug-and-root ()
+  "AND root terms are flattened into the slug with __ between them."
+  (let ((desc (list :root-term "rust & async" :root-literal nil :root-regex nil
+                    :root-filename nil :filters nil)))
+    (should (equal (haystack--canonical-chain-slug desc) "rust__async"))))
+
+(ert-deftest haystack-test/canonical-chain-slug-and-root-with-filter ()
+  "AND root + filter produces same slug as equivalent sequential filter chain."
+  (let ((desc-and (list :root-term "rust & async" :root-literal nil :root-regex nil
+                         :root-filename nil
+                         :filters (list (list :term "tokio" :negated nil
+                                              :filename nil :literal nil :regex nil))))
+        (desc-seq (list :root-term "rust" :root-literal nil :root-regex nil
+                         :root-filename nil
+                         :filters (list (list :term "async" :negated nil
+                                              :filename nil :literal nil :regex nil)
+                                        (list :term "tokio" :negated nil
+                                              :filename nil :literal nil :regex nil)))))
+    (should (equal (haystack--canonical-chain-slug desc-and)
+                   (haystack--canonical-chain-slug desc-seq)))))
+
+(ert-deftest haystack-test/canonical-chain-slug-multi-word-term ()
+  "Multi-word terms have spaces replaced with hyphens."
+  (let ((desc (list :root-term "emacs lisp" :root-literal nil :root-regex nil
+                    :root-filename nil :filters nil)))
+    (should (equal (haystack--canonical-chain-slug desc) "emacs-lisp"))))
+
+(ert-deftest haystack-test/canonical-chain-slug-literal-prefix-stripped ()
+  "The = literal prefix on a filter term does not appear in the slug."
+  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+                    :root-filename nil
+                    :filters (list (list :term "async" :negated nil
+                                         :filename nil :literal t :regex nil)))))
+    (should (equal (haystack--canonical-chain-slug desc) "rust__async"))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

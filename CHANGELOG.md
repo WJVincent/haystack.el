@@ -3,9 +3,100 @@
 All notable changes to Haystack are documented here.  Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
 ---
 
-## [Unreleased]
+## [0.9.0] — 2026-03-26
+
+### Added
+- `haystack-rename-group-root` now performs a fully atomic update across
+  three subsystems when a root term is renamed:
+  1. **Expansion groups** — root key updated in `.expansion-groups.el`
+  2. **Frecency data** — all chain keys containing the old root term are
+     rewritten in memory; data is flushed to `.haystack-frecency.el`.
+     When the rename would produce a duplicate key, entries are merged
+     (counts summed, latest timestamp kept).
+  3. **Composite files** — `@comp__*.ext` files whose slug contains the
+     old canonical slug segment are renamed atomically; on failure any
+     already-completed renames are rolled back.
+  The success message reports how many composites were renamed.
+- `haystack-search-composites` — search only composite (`@*`) files;
+  bound to `C` in the global prefix map.
+- `haystack-run-root-search` now accepts a `C-u` prefix argument to
+  include composite files in the search (`composite-filter` = `'all`).
+  Without a prefix, composite files are excluded as before.
+- `haystack-composite-max-lines` defcustom — per-file line cap in
+  composites (default 300, `nil` = no limit).  Truncated files are
+  windowed around the first match with `...` ellipsis markers.
+- `haystack-composite-all-matches` defcustom — when non-nil, one
+  section per match line rather than per file (default `nil`).
+- `haystack-composite-protect` defcustom — when non-nil (default),
+  manual saves in composite buffers redirect to the new-note flow.
+- `haystack-composite-extension` defcustom — file extension for
+  composite notes (default `"org"`).
+- `haystack-compose-mode` — org-derived major mode for composite
+  staging buffers.  `C-c C-c` → `haystack-compose-commit`;
+  `C-c C-k` → `haystack-compose-discard`.  When
+  `haystack-composite-protect` is non-nil, `write-contents-functions`
+  intercepts manual saves and redirects to the new-note flow.
+- `haystack-compose-commit` — always regenerates the composite cleanly
+  from the stored loci and writes it to `@comp__CHAIN.ext`.  If the
+  staging buffer was modified, prompts to save the full buffer as a new
+  note via `haystack-new-note`.
+- `haystack-compose-discard` — kills the staging buffer without writing.
+- `haystack-compose` — interactive command; builds a
+  `*haystack-compose:CHAIN*` staging buffer in `haystack-compose-mode`
+  from the current results buffer.  Each source file becomes an org
+  heading with a link; content is windowed per
+  `haystack-composite-max-lines`.  Bound to `C-c C-c` in results buffers
+  and `w` in the global prefix map.
+- Composite surfacing in results buffer headers — when a composite file
+  exists for the current search chain, a `[composite: @comp__CHAIN.ext]`
+  link line is shown in the header.  The link is a clickable button
+  that visits the composite file via `find-file`.
+
+### Internal
+- `haystack--frecency-rewrite-term` — rewrites one frecency chain key list,
+  replacing OLD-ROOT with NEW-ROOT while preserving any prefix characters.
+- `haystack--frecency-rename-in-data` — applies the rewrite across a full
+  frecency alist; merges colliding entries on duplicate keys.
+- `haystack--composite-rename-pairs` — scans `haystack-notes-directory`
+  for `@comp__*.ext` files and returns `(old-path . new-path)` pairs for
+  those whose `__`-delimited slug contains the old canonical slug segment.
+- `haystack--rename-composites-atomic` — executes a list of rename pairs;
+  rolls back completed renames if any step fails.
+- `haystack--extract-all-file-loci` — like `haystack--extract-file-loci`
+  but returns all `(PATH . LINE)` pairs without deduplication, for use
+  with `haystack-composite-all-matches`.
+- `haystack--composite-file-content` — applies the line-cap window
+  around a match line, with `...` ellipsis at truncated ends.
+- `haystack--compose-file-section` — formats one org section
+  (heading + windowed content) for a single source file locus.
+- `haystack-compose-mode` — derived org-mode for composite staging
+  buffers; keybindings and write path added in the next step.
+- `haystack--find-composite` — returns the path of an existing
+  composite for a descriptor (via `file-exists-p` on the deterministic
+  filename), or nil when none has been written yet.
+- `haystack--composite-filename` — returns the absolute path
+  `@comp__CANONICAL-CHAIN.EXT` in the notes directory for a given
+  search descriptor.
+- `haystack--canonical-term-slug` — resolves a single term to its
+  expansion group root, lowercases, and slugifies (non-alphanumeric
+  runs → hyphens).  Negated terms gain a `not-` prefix; filename
+  terms gain `fn-`.
+- `haystack--canonical-chain-slug` — builds the full canonical slug
+  for a search descriptor by flattening root (expanding AND sub-terms),
+  then filter terms, joined with `__`.  Equivalent AND and sequential
+  filter chains produce the same slug.
+- `haystack--format-header` — gained optional `composite-path` argument;
+  when non-nil, a `[composite: FILENAME]` line is inserted before the
+  closing rule.
+- `haystack--apply-header-buttons` — gained optional `composite-path`
+  argument; when non-nil, wires the composite filename as a `find-file`
+  button.
+- `haystack--setup-results-buffer` — gained optional `composite-path`
+  argument; threads it through to `haystack--apply-header-buttons`.
 
 ---
 

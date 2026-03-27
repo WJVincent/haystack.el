@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.8.0
+;; Version: 0.9.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -88,6 +88,38 @@ truncated end.  Increase for more context; decrease for tighter lines."
                  (const :tag "Commented lines" comment))
   :group 'haystack)
 
+(defcustom haystack-composite-max-lines 300
+  "Maximum number of lines included per source file in a composite.
+When a file exceeds this limit, a window of this many lines centred on
+the first search match is used instead, with ellipsis markers at the
+truncated ends.  Set to nil for no limit (entire file always included)."
+  :type '(choice integer (const :tag "No limit" nil))
+  :group 'haystack)
+
+(defcustom haystack-composite-all-matches nil
+  "When non-nil, include one section per match line rather than per file.
+The default (nil) includes each source file once, centred on its first
+match.  When t, files that appear multiple times in the results buffer
+get a separate section for each match line."
+  :type 'boolean
+  :group 'haystack)
+
+(defcustom haystack-composite-protect t
+  "When non-nil, intercept manual saves in composite buffers.
+Saving a composite buffer directly (\\[save-buffer]) will prompt the
+user to create a new note with the buffer contents instead, keeping the
+composite file machine-generated.  Set to nil to allow direct saves."
+  :type 'boolean
+  :group 'haystack)
+
+(defcustom haystack-composite-extension "org"
+  "File extension for composite notes created with `haystack-compose'.
+Must be a string without a leading dot (e.g. \"org\", \"md\").
+Composite files are always named @comp__CHAIN.EXT and stored in
+`haystack-notes-directory'."
+  :type 'string
+  :group 'haystack)
+
 (defcustom haystack-file-glob nil
   "Restrict searches to files matching these glob patterns.
 Each entry is passed as a separate --glob argument to ripgrep, limiting
@@ -129,6 +161,12 @@ Each filter plist:
    :literal   BOOL
    :regex     BOOL
    :expansion LIST — group members if expansion fired, nil otherwise)")
+
+(defvar-local haystack--compose-descriptor nil
+  "Search descriptor for the current composite staging buffer.")
+
+(defvar-local haystack--compose-loci nil
+  "List of (PATH . LINE) pairs used to generate the current composite buffer.")
 
 ;;;; Hooks
 
@@ -610,6 +648,40 @@ Only the root (car) of each group is matched; members are not affected."
                 group))
             groups)))
 
+(defun haystack--frecency-rewrite-term (chain old-root new-root)
+  "Return CHAIN with OLD-ROOT replaced by NEW-ROOT, preserving prefix characters.
+CHAIN is a list of prefixed term strings such as (\"rust\" \"!programming\").
+Matching is case-insensitive.  Prefix characters (`!' `=' `~' `/') are
+stripped before comparison and re-applied to the replacement."
+  (let ((old-down (downcase old-root)))
+    (mapcar (lambda (key-str)
+              (string-match "\\`[!/=~]*" key-str)
+              (let* ((pfx  (match-string 0 key-str))
+                     (term (substring key-str (match-end 0))))
+                (if (string= (downcase term) old-down)
+                    (concat pfx new-root)
+                  key-str)))
+            chain)))
+
+(defun haystack--frecency-rename-in-data (data old-root new-root)
+  "Return DATA with every occurrence of OLD-ROOT replaced by NEW-ROOT.
+DATA is a frecency alist of (CHAIN . PROPS) pairs.  When the rename
+produces a key already present in DATA, the entries are merged: counts
+are summed and the later timestamp is kept."
+  (let ((result nil))
+    (dolist (entry data)
+      (let* ((new-chain (haystack--frecency-rewrite-term (car entry) old-root new-root))
+             (props      (cdr entry))
+             (existing   (assoc new-chain result)))
+        (if existing
+            (let* ((ep    (cdr existing))
+                   (count (+ (plist-get props :count) (plist-get ep :count)))
+                   (ts    (max (plist-get props :last-access)
+                               (plist-get ep :last-access))))
+              (setcdr existing (list :count count :last-access ts)))
+          (push (cons new-chain props) result))))
+    (nreverse result)))
+
 ;;;###autoload
 (defun haystack-rename-group-root (old-root new-root)
   "Rename the canonical root term OLD-ROOT to NEW-ROOT in the expansion groups.
@@ -634,12 +706,27 @@ will also be updated here.  For now only the groups file is changed."
     (user-error "Haystack: %S is not the root of any group" old-root))
   (when (haystack--lookup-group new-root)
     (user-error "Haystack: %S is already in a group — choose a fresh term" new-root))
-  (setq haystack--expansion-groups
-        (haystack--groups-rename-root haystack--expansion-groups old-root new-root))
-  (haystack--save-expansion-groups)
-  (message "Haystack: renamed root %S → %S (group now: (%s))"
-           old-root new-root
-           (mapconcat #'identity (haystack--lookup-group new-root) ", ")))
+  ;; Compute composite rename pairs before updating groups, so the old slug
+  ;; is still the canonical one when scanning filenames.
+  (let ((composite-pairs (haystack--composite-rename-pairs old-root new-root)))
+    (setq haystack--expansion-groups
+          (haystack--groups-rename-root haystack--expansion-groups old-root new-root))
+    (haystack--save-expansion-groups)
+    ;; Update frecency chain keys in memory and mark dirty.
+    (when haystack--frecency-data
+      (setq haystack--frecency-data
+            (haystack--frecency-rename-in-data haystack--frecency-data old-root new-root))
+      (setq haystack--frecency-dirty t)
+      (haystack--frecency-flush))
+    ;; Rename composite files atomically (rolls back on failure).
+    (when composite-pairs
+      (haystack--rename-composites-atomic composite-pairs))
+    (message "Haystack: renamed root %S → %S (group: (%s)%s)"
+             old-root new-root
+             (mapconcat #'identity (haystack--lookup-group new-root) ", ")
+             (if composite-pairs
+                 (format "; %d composite(s) renamed" (length composite-pairs))
+               ""))))
 
 (defun haystack--groups-dissolve (groups term)
   "Return GROUPS with the group containing TERM removed entirely.
@@ -881,10 +968,11 @@ continues to work."
    (split-string output "\n")
    "\n"))
 
-(defun haystack--format-header (chain-string files matches)
+(defun haystack--format-header (chain-string files matches &optional composite-path)
   "Return a formatted multi-line header string for a results buffer.
 CHAIN-STRING describes the full search path (e.g. \"root=rust > filter=async\").
-FILES and MATCHES are the result counts."
+FILES and MATCHES are the result counts.
+When COMPOSITE-PATH is non-nil, a composite link line is included."
   (let ((rule (concat ";;;;" (make-string 60 ?-))))
     (concat rule "\n"
             ";;;;  Haystack\n"
@@ -893,6 +981,8 @@ FILES and MATCHES are the result counts."
             (format ";;;;  %s\n" chain-string)
             (format ";;;;  %d files  ·  %d matches\n" files matches)
             ";;;;  [root]  [up]  [down]  [tree]\n"
+            (when composite-path
+              (format ";;;;  [composite: %s]\n" (file-name-nondirectory composite-path)))
             rule "\n")))
 
 (defun haystack-go-root ()
@@ -912,9 +1002,10 @@ FILES and MATCHES are the result counts."
       (push-button)
     (compile-goto-error)))
 
-(defun haystack--apply-header-buttons ()
+(defun haystack--apply-header-buttons (&optional composite-path)
   "Wire up navigation buttons in the header of the current results buffer.
-Must be called inside `inhibit-read-only' with point anywhere in the buffer."
+Must be called inside `inhibit-read-only' with point anywhere in the buffer.
+When COMPOSITE-PATH is non-nil, also wire the composite filename as a button."
   (save-excursion
     (goto-char (point-min))
     (let ((actions `(("[root]"  . haystack-go-root)
@@ -926,13 +1017,23 @@ Must be called inside `inhibit-read-only' with point anywhere in the buffer."
           (make-text-button (match-beginning 0) (match-end 0)
                             'action (lambda (_) (call-interactively (cdr pair)))
                             'follow-link t
-                            'help-echo (symbol-name (cdr pair))))))))
+                            'help-echo (symbol-name (cdr pair))))))
+    (when composite-path
+      (goto-char (point-min))
+      (let ((fname (file-name-nondirectory composite-path)))
+        (when (search-forward (concat "[composite: " fname "]") nil t)
+          (make-text-button (match-beginning 0) (match-end 0)
+                            'action (let ((p composite-path))
+                                      (lambda (_) (find-file p)))
+                            'follow-link t
+                            'help-echo composite-path))))))
 
 (defun haystack--setup-results-buffer (buf-name header output descriptor
-                                               &optional parent-buf)
+                                               &optional parent-buf composite-path)
   "Prepare a grep-mode results buffer named BUF-NAME.
 Inserts HEADER (marked read-only) then OUTPUT, enables `grep-mode',
-and stores DESCRIPTOR and PARENT-BUF as buffer-locals."
+and stores DESCRIPTOR and PARENT-BUF as buffer-locals.
+When COMPOSITE-PATH is non-nil, a composite button is wired in the header."
   (let ((buf (get-buffer-create buf-name)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
@@ -943,7 +1044,7 @@ and stores DESCRIPTOR and PARENT-BUF as buffer-locals."
           (grep-mode)
           (haystack-results-mode 1)
           ;; Wire up navigation buttons before locking the header.
-          (haystack--apply-header-buttons)
+          (haystack--apply-header-buttons composite-path)
           ;; Keep header lines read-only even when wgrep is active.
           (let ((inhibit-read-only t))
             (put-text-property (point-min) header-end 'read-only t))
@@ -1236,10 +1337,8 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
            (buf-name    (haystack--child-buffer-name descriptor term negated filename
                                                     (plist-get parsed :literal)
                                                     (plist-get parsed :regex)))
-           (header      (haystack--format-header
-                         (haystack--format-search-chain descriptor term negated
-                                                        filename expansion)
-                         (car stats) (cdr stats)))
+           (chain-str   (haystack--format-search-chain descriptor term negated
+                                                       filename expansion))
            (new-filters (append (plist-get descriptor :filters)
                                 (list (list :term      term
                                             :negated   negated
@@ -1254,11 +1353,14 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                                  :root-filename    (plist-get descriptor :root-filename)
                                  :root-expansion   (plist-get descriptor :root-expansion)
                                  :filters          new-filters
-                                 :composite-filter cf)))
+                                 :composite-filter cf))
+           (composite-path (haystack--find-composite new-descriptor))
+           (header         (haystack--format-header chain-str (car stats) (cdr stats)
+                                                    composite-path)))
       (haystack--frecency-record new-descriptor)
       (switch-to-buffer
        (haystack--setup-results-buffer
-        buf-name header output new-descriptor parent-buf)))))
+        buf-name header output new-descriptor parent-buf composite-path)))))
 
 (defun haystack--run-and-query (tokens cf)
   "Execute a file-level AND query for TOKENS with composite filter CF.
@@ -1341,8 +1443,11 @@ results buffer named *haystack:1:TERM* with a statistics header.
 
 Prefix RAW-INPUT with / to match against filenames instead of content.
 COMPOSITE-FILTER is a symbol controlling how @* composite files are
-treated: \\='exclude (default), \\='only, or \\='all."
-  (interactive "sHaystack search: ")
+treated: \\='exclude (default), \\='only, or \\='all.
+Interactively, a \\[universal-argument] prefix sets COMPOSITE-FILTER to \\='all,
+including composite files in the search."
+  (interactive (list (read-string "Haystack search: ")
+                     (when current-prefix-arg 'all)))
   (haystack--assert-notes-directory)
   (haystack--load-expansion-groups)
   (let ((cf (or composite-filter 'exclude)))
@@ -1376,7 +1481,6 @@ treated: \\='exclude (default), \\='only, or \\='all."
                                       parsed-list))
                (chain-label   (format "root=%s"
                                       (mapconcat #'identity display-parts " & ")))
-               (header        (haystack--format-header chain-label (car stats) (cdr stats)))
                ;; :root-term stores stripped first token + raw subsequent tokens so
                ;; that the frecency chain key reconstructs the exact replay input:
                ;;   chain-key = (concat root-pfx root-term)
@@ -1394,9 +1498,13 @@ treated: \\='exclude (default), \\='only, or \\='all."
                                     :root-expansion   first-exp
                                     :filters          nil
                                     :composite-filter cf)))
-          (haystack--frecency-record descriptor)
-          (pop-to-buffer
-           (haystack--setup-results-buffer buf-name header output descriptor)))
+          (let* ((composite-path (haystack--find-composite descriptor))
+                 (header          (haystack--format-header chain-label (car stats) (cdr stats)
+                                                          composite-path)))
+            (haystack--frecency-record descriptor)
+            (pop-to-buffer
+             (haystack--setup-results-buffer buf-name header output descriptor nil
+                                             composite-path))))
       ;; Single-term query: existing path.
       (let* ((parsed   (haystack--parse-input raw-input))
              (term      (plist-get parsed :term))
@@ -1451,7 +1559,6 @@ treated: \\='exclude (default), \\='only, or \\='all."
                                   (if expansion
                                       (haystack--expansion-alternation expansion)
                                     (haystack--display-term term))))
-             (header   (haystack--format-header chain-label (car stats) (cdr stats)))
              (descriptor (list :root-term        term
                                :root-expanded    (if filename "." pattern)
                                :root-literal     (plist-get parsed :literal)
@@ -1460,9 +1567,13 @@ treated: \\='exclude (default), \\='only, or \\='all."
                                :root-expansion   expansion
                                :filters          nil
                                :composite-filter cf)))
-        (haystack--frecency-record descriptor)
-        (pop-to-buffer
-         (haystack--setup-results-buffer buf-name header output descriptor))))))
+        (let* ((composite-path (haystack--find-composite descriptor))
+               (header         (haystack--format-header chain-label (car stats) (cdr stats)
+                                                        composite-path)))
+          (haystack--frecency-record descriptor)
+          (pop-to-buffer
+           (haystack--setup-results-buffer buf-name header output descriptor nil
+                                           composite-path)))))))
 
 ;;;###autoload
 (defun haystack-search-region ()
@@ -1472,6 +1583,13 @@ treated: \\='exclude (default), \\='only, or \\='all."
     (user-error "Haystack: no active region"))
   (haystack-run-root-search
    (buffer-substring-no-properties (region-beginning) (region-end))))
+
+;;;###autoload
+(defun haystack-search-composites (raw-input)
+  "Search only composite (@*) files for RAW-INPUT.
+Like `haystack-run-root-search' with composite-filter set to \\='only."
+  (interactive "sHaystack search composites: ")
+  (haystack-run-root-search raw-input 'only))
 
 ;;;; Results minor mode
 
@@ -1487,6 +1605,7 @@ treated: \\='exclude (default), \\='only, or \\='all."
 (define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
 (define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
 (define-key haystack-results-mode-map "c" #'haystack-copy-moc)
+(define-key haystack-results-mode-map (kbd "C-c C-c") #'haystack-compose)
 (define-key haystack-results-mode-map "t" #'haystack-show-tree)
 (define-key haystack-results-mode-map "?" #'haystack-help)
 
@@ -2673,6 +2792,287 @@ previous `haystack-notes-directory'."
       (delete-directory temp-dir t)))
   (message "Haystack demo stopped.  Your notes directory has been restored."))
 
+;;;; Composite notes
+
+(defun haystack--compose-file-section (path match-line)
+  "Return an org section string for the source file at PATH.
+MATCH-LINE (1-based) is used both in the heading link and as the centre
+of the content window when `haystack-composite-max-lines' applies.
+The section is a top-level org heading with a file link, followed by
+the (possibly windowed) file contents."
+  (let* ((basename (file-name-nondirectory path))
+         (title    (haystack--pretty-title basename))
+         (heading  (format "* [[file:%s::%d][%s]]\n" path match-line title))
+         (raw-text (with-temp-buffer
+                     (insert-file-contents path)
+                     (buffer-string)))
+         (content  (haystack--composite-file-content
+                    raw-text match-line haystack-composite-max-lines)))
+    (concat heading "\n" content "\n")))
+
+(defun haystack--composite-file-content (text match-line max-lines)
+  "Return TEXT windowed around MATCH-LINE, respecting MAX-LINES.
+TEXT is the full file contents as a string.  MATCH-LINE is 1-based.
+MAX-LINES is the ceiling from `haystack-composite-max-lines'; nil means
+no limit (return TEXT unchanged).  When truncation is needed a window of
+MAX-LINES lines centred on MATCH-LINE is used, with \"...\" prepended
+and/or appended at the cut points."
+  (let* ((lines   (split-string text "\n"))
+         (n-lines (length lines)))
+    (if (or (null max-lines) (<= n-lines max-lines))
+        text
+      (let* ((half      (/ max-lines 2))
+             (win-start (max 0 (- match-line 1 half)))
+             (win-end   (min n-lines (+ win-start max-lines)))
+             ;; Shift window back if it ran off the end
+             (win-start (max 0 (- win-end max-lines)))
+             (window    (cl-subseq lines win-start win-end))
+             (prefix    (when (> win-start 0) "..."))
+             (suffix    (when (< win-end n-lines) "...")))
+        (mapconcat #'identity
+                   (cl-remove nil (list prefix
+                                        (mapconcat #'identity window "\n")
+                                        suffix))
+                   "\n")))))
+
+(defun haystack--find-composite (descriptor)
+  "Return the path of the existing composite for DESCRIPTOR, or nil.
+Checks whether the file returned by `haystack--composite-filename'
+exists.  Returns nil if no composite has been written for this chain."
+  (let ((path (haystack--composite-filename descriptor)))
+    (when (file-exists-p path) path)))
+
+(defun haystack--composite-filename (descriptor)
+  "Return the absolute path of the composite file for DESCRIPTOR.
+The filename is @comp__CANONICAL-CHAIN.EXT where EXT is
+`haystack-composite-extension' and CANONICAL-CHAIN is derived from
+`haystack--canonical-chain-slug'."
+  (expand-file-name
+   (format "@comp__%s.%s"
+           (haystack--canonical-chain-slug descriptor)
+           haystack-composite-extension)
+   haystack-notes-directory))
+
+(defun haystack--canonical-term-slug (term negated filename)
+  "Return the canonical slug component for TERM.
+If NEGATED is non-nil, prefix with \"not-\".
+If FILENAME is non-nil, prefix with \"fn-\".
+The term is resolved to its expansion group root when one exists,
+then lowercased and slugified (non-alphanumeric runs → hyphens)."
+  (let* ((group    (haystack--lookup-group term))
+         (resolved (if group (car group) term))
+         (lower    (downcase resolved))
+         (slug     (replace-regexp-in-string
+                    "-+" "-"
+                    (replace-regexp-in-string "[^a-z0-9]+" "-" lower)))
+         (slug     (string-trim slug "-")))
+    (concat (cond (negated "not-") (filename "fn-")) slug)))
+
+(defun haystack--canonical-chain-slug (descriptor)
+  "Return the canonical chain slug string for DESCRIPTOR.
+Each term (root, AND sub-terms, filter terms) is resolved to its
+expansion group root, lowercased, and slugified.  Terms are joined
+with \"__\".  Negated filters are prefixed \"not-\"; filename filters
+with \"fn-\".  AND queries at the root are flattened inline, so
+\"rust & async\" with filter \"tokio\" produces the same slug as
+\"rust\" filtered by \"async\" then \"tokio\"."
+  (let* ((root-term (plist-get descriptor :root-term))
+         (filters   (plist-get descriptor :filters))
+         ;; Expand AND root into individual tokens; fall back to list of one.
+         (root-tokens (or (haystack--parse-and-tokens root-term)
+                          (list root-term)))
+         (root-slugs  (mapcar (lambda (tok)
+                                (haystack--canonical-term-slug tok nil nil))
+                              root-tokens))
+         (filter-slugs (mapcar (lambda (f)
+                                 (haystack--canonical-term-slug
+                                  (plist-get f :term)
+                                  (plist-get f :negated)
+                                  (plist-get f :filename)))
+                               filters)))
+    (mapconcat #'identity (append root-slugs filter-slugs) "__")))
+
+(defun haystack--composite-rename-pairs (old-root new-root)
+  "Return (OLD-PATH . NEW-PATH) pairs for composites affected by renaming OLD-ROOT to NEW-ROOT.
+Scans `haystack-notes-directory' for `@comp__*.ext' files.  For each,
+splits the slug portion on `__', replaces any segment equal to
+OLD-ROOT's canonical slug with NEW-ROOT's canonical slug, and returns
+the pair only when at least one segment actually changed."
+  (let* ((old-slug (haystack--canonical-term-slug old-root nil nil))
+         (new-slug (haystack--canonical-term-slug new-root nil nil))
+         (dir      (file-name-as-directory (expand-file-name haystack-notes-directory)))
+         (files    (file-expand-wildcards (concat dir "@comp__*"))))
+    (delq nil
+          (mapcar (lambda (path)
+                    (let* ((base     (file-name-nondirectory path))
+                           (ext      (file-name-extension base))
+                           ;; Slug portion sits between the "@comp__" prefix (7 chars)
+                           ;; and the ".EXT" suffix.
+                           (slug-part (substring base 7
+                                                 (- (length base) (1+ (length ext)))))
+                           (segments  (split-string slug-part "__"))
+                           (new-segs  (mapcar (lambda (s)
+                                               (if (string= s old-slug) new-slug s))
+                                             segments)))
+                      (when (cl-some (lambda (s) (string= s old-slug)) segments)
+                        (cons path
+                              (expand-file-name
+                               (format "@comp__%s.%s"
+                                       (mapconcat #'identity new-segs "__")
+                                       ext)
+                               dir)))))
+                  files))))
+
+(defun haystack--rename-composites-atomic (pairs)
+  "Rename composite files according to PAIRS, rolling back on any failure.
+PAIRS is a list of (OLD-PATH . NEW-PATH) cons cells.  If any rename
+fails, all already-completed renames are reversed before signalling an
+error.  Returns nil on success."
+  (let ((done nil))
+    (condition-case err
+        (dolist (pair pairs)
+          (rename-file (car pair) (cdr pair))
+          (push pair done))
+      (error
+       ;; Roll back completed renames in reverse order.
+       (dolist (pair (nreverse done))
+         (condition-case _
+             (rename-file (cdr pair) (car pair))
+           (error nil)))
+       (signal (car err) (cdr err))))
+    nil))
+
+(defun haystack--extract-all-file-loci (text)
+  "Return all (PATH . LINE) pairs from grep-format TEXT, including duplicates.
+Unlike `haystack--extract-file-loci', the same file may appear multiple
+times when it has multiple match lines.  Used when
+`haystack-composite-all-matches' is non-nil."
+  (let ((loci nil))
+    (dolist (line (split-string text "\n" t))
+      (when (string-match "\\`\\([^:]+\\):\\([0-9]+\\):" line)
+        (push (cons (expand-file-name (match-string 1 line))
+                    (string-to-number (match-string 2 line)))
+              loci)))
+    (nreverse loci)))
+
+;;;###autoload
+(defun haystack-compose ()
+  "Build a composite staging buffer from the current haystack results buffer.
+Each source file is included as an org heading with a link; content is
+windowed per `haystack-composite-max-lines'.  When
+`haystack-composite-all-matches' is non-nil, files with multiple match
+lines get one section per match.  Returns the compose buffer."
+  (interactive)
+  (unless (and (boundp 'haystack--search-descriptor) haystack--search-descriptor)
+    (user-error "Haystack: not in a haystack results buffer"))
+  (let* ((descriptor  haystack--search-descriptor)
+         (buf-text    (buffer-string))
+         (loci        (if haystack-composite-all-matches
+                          (haystack--extract-all-file-loci buf-text)
+                        (haystack--extract-file-loci buf-text)))
+         (slug        (haystack--canonical-chain-slug descriptor))
+         (existing    (haystack--find-composite descriptor))
+         (buf-name    (format "*haystack-compose:%s*" slug))
+         (sections    (mapconcat (lambda (locus)
+                                   (haystack--compose-file-section
+                                    (car locus) (cdr locus)))
+                                 loci "\n"))
+         (header      (concat "#+TITLE: Haystack Composite: " slug "\n"
+                              "#+HAYSTACK-CHAIN: " slug "\n"
+                              (when existing
+                                (format "# Existing composite: %s\n"
+                                        (file-name-nondirectory existing)))
+                              "# C-c C-c to write composite  |  C-c C-k to discard\n"
+                              "\n"))
+         (compose-buf (get-buffer-create buf-name)))
+    (with-current-buffer compose-buf
+      (erase-buffer)
+      (insert header sections)
+      (goto-char (point-min))
+      (haystack-compose-mode)
+      (setq-local haystack--compose-descriptor descriptor)
+      (setq-local haystack--compose-loci       loci)
+      (set-buffer-modified-p nil))
+    (pop-to-buffer compose-buf)
+    compose-buf))
+
+;;;; Composite mode
+
+(defvar haystack-compose-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") #'haystack-compose-commit)
+    (define-key map (kbd "C-c C-k") #'haystack-compose-discard)
+    map)
+  "Keymap for `haystack-compose-mode'.")
+
+(define-derived-mode haystack-compose-mode org-mode "Haystack-Compose"
+  "Major mode for Haystack composite staging buffers.
+\\{haystack-compose-mode-map}"
+  (add-hook 'write-contents-functions #'haystack--compose-intercept-save nil t))
+
+(defun haystack--compose-intercept-save ()
+  "Intercept manual saves in composite buffers when `haystack-composite-protect' is t.
+Added to `write-contents-functions' in `haystack-compose-mode'.  Returns
+non-nil to signal the save was handled, preventing Emacs from writing the
+file directly."
+  (when haystack-composite-protect
+    (if (y-or-n-p
+         "Composite buffers are machine-generated.  Save as a new note instead? ")
+        (let ((content (buffer-string)))
+          (haystack-new-note)
+          (insert content)
+          (save-buffer))
+      (message "Haystack: save cancelled"))
+    t))
+
+(defun haystack--composite-write-content (descriptor loci)
+  "Return the string to write to a composite file for DESCRIPTOR and LOCI.
+Produces clean org frontmatter followed by one section per locus."
+  (let* ((slug    (haystack--canonical-chain-slug descriptor))
+         (now     (format-time-string "%Y-%m-%dT%H:%M:%S"))
+         (count   (length loci))
+         (header  (concat "#+TITLE: Haystack Composite: " slug "\n"
+                          "#+HAYSTACK-CHAIN: " slug "\n"
+                          "#+HAYSTACK-LAST-GENERATED: " now "\n"
+                          "#+HAYSTACK-SOURCE-COUNT: "
+                          (number-to-string count) "\n\n"))
+         (sections (mapconcat (lambda (locus)
+                                (haystack--compose-file-section
+                                 (car locus) (cdr locus)))
+                              loci "\n")))
+    (concat header sections)))
+
+(defun haystack-compose-commit ()
+  "Write the composite file and optionally save annotations as a new note.
+Always regenerates the composite cleanly from the stored loci.  If the
+staging buffer has been modified since generation, prompts to save the
+full buffer contents as a new note via `haystack-new-note'."
+  (interactive)
+  (let* ((descriptor  haystack--compose-descriptor)
+         (loci        haystack--compose-loci)
+         (path        (haystack--composite-filename descriptor))
+         (was-modified (buffer-modified-p)))
+    (when (and (file-exists-p path)
+               (not (y-or-n-p (format "Overwrite existing %s? "
+                                      (file-name-nondirectory path)))))
+      (user-error "Haystack: composite write cancelled"))
+    (with-temp-file path
+      (insert (haystack--composite-write-content descriptor loci)))
+    (message "Haystack: wrote %s" (file-name-nondirectory path))
+    (when (and was-modified
+               (y-or-n-p "Buffer has been modified.  Save as a new note? "))
+      (let ((content (buffer-string)))
+        (haystack-new-note)
+        (insert content)
+        (save-buffer)))))
+
+(defun haystack-compose-discard ()
+  "Kill the composite staging buffer without writing."
+  (interactive)
+  (when (or (not (buffer-modified-p))
+            (y-or-n-p "Discard changes to composite buffer? "))
+    (kill-buffer)))
+
 ;;;; Global prefix map
 
 (defvar haystack-prefix-map (make-sparse-keymap)
@@ -2685,6 +3085,8 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "y" #'haystack-yank-moc)
 (define-key haystack-prefix-map "t" #'haystack-show-tree)
 (define-key haystack-prefix-map "f" #'haystack-frecent)
+(define-key haystack-prefix-map "w" #'haystack-compose)
+(define-key haystack-prefix-map "C" #'haystack-search-composites)
 (define-key haystack-prefix-map "D" #'haystack-demo)
 
 (haystack--frecency-setup-timer)
