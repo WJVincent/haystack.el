@@ -88,6 +88,8 @@ See `demo/README.org` for a guided walkthrough.
 | `C-c h f` | Jump to a frecent search |
 | `C-c h y` | Yank a MOC at point |
 | `C-c h t` | Show the buffer tree |
+| `C-c h w` | Compose a composite note from results |
+| `C-c h C` | Search composite notes only |
 | `C-c h D` | Start demo mode |
 
 ## Creating Notes
@@ -137,6 +139,21 @@ navigation buttons:
 ;;;;  [root]  [up]  [down]  [tree]
 ;;;;------------------------------------------------------------
 ```
+
+### AND Queries
+
+Separate terms with ` & ` (spaces required) to find files containing
+all of them:
+
+```
+rust & async
+rust & async & tokio
+```
+
+Haystack runs a file-level intersection — only files matching every
+token survive — then shows content matches for the first term. Prefix
+modifiers (`=`, `~`) work per token. The `!` prefix is not supported
+inside `&` queries; use `filter-further` for negation after the root.
 
 ### Search Region
 
@@ -222,7 +239,7 @@ instead. This prevents pointless redundant filters.
 | Command | Description |
 |---------|-------------|
 | `haystack-associate` | Link two terms into a group |
-| `haystack-rename-group-root` | Rename the canonical root term of a group |
+| `haystack-rename-group-root` | Rename the canonical root term of a group — atomically updates frecency chain keys and renames any affected composite files |
 | `haystack-dissolve-group` | Remove an entire group; all members revert to literal matching |
 | `haystack-describe-expansion-groups` | Display all groups in a readable buffer |
 | `haystack-validate-groups` | Check for duplicate terms across groups |
@@ -243,6 +260,7 @@ instead. This prevents pointless redundant filters.
 | `K` | Kill this buffer and all descendants |
 | `M-k` | Kill the whole tree (walk to root, then kill) |
 | `c` | Copy MOC to kill ring |
+| `C-c C-c` | Compose a composite note from this buffer's results |
 | `?`  | Show help |
 
 Results buffers are `grep-mode` compatible. `compile-goto-error`,
@@ -352,6 +370,65 @@ chain)` and returns a string, then registering it:
 with internal quotes escaped — useful whenever the output language uses
 `"string"` syntax.
 
+## Composite Notes
+
+A composite note is a machine-generated document that concatenates
+excerpts from a set of search results into a single file. It is a
+named, replayable snapshot of a search chain — think of it as
+committing a retrieval session to disk so you can read, annotate, or
+share it later.
+
+### Creating a Composite
+
+From any results buffer, press `C-c C-c` (or `M-x haystack-compose`)
+to open a staging buffer. Each source file appears as an org heading
+with a link and up to `haystack-composite-max-lines` lines of content
+windowed around the first match.
+
+From the staging buffer:
+
+- `C-c C-c` — write the composite to `@comp__CHAIN.org` in your notes
+  directory. If the staging buffer has been modified, Haystack also
+  prompts you to save the full buffer as a new note.
+- `C-c C-k` — discard without saving.
+
+### Composite Files
+
+Composites are named by a canonical slug derived from the search chain:
+
+```
+@comp__rust__async.org
+@comp__programming__bevy__ecs.org
+```
+
+The `@` prefix keeps them out of normal searches by default. They are
+plain text files in your notes directory — no special treatment
+required.
+
+When a composite exists for the current search chain, a
+`[composite: @comp__CHAIN.org]` link appears in the results buffer
+header. Clicking it (or pressing `RET` on it) opens the file.
+
+### Composite Filter
+
+By default composites are excluded from all searches. To change this:
+
+| Command | Effect |
+|---------|--------|
+| `C-u haystack-run-root-search` | Include composites in results |
+| `haystack-search-composites` (`C-c h C`) | Search only composite files |
+
+Child buffers inherit the composite filter from their parent.
+
+### Customization
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `haystack-composite-extension` | `"org"` | File extension for composite notes. |
+| `haystack-composite-max-lines` | `300` | Max lines of content per source file. `nil` = no limit. |
+| `haystack-composite-all-matches` | `nil` | When non-nil, one section per match line rather than per file. |
+| `haystack-composite-protect` | `t` | Intercept manual saves and redirect to `haystack-new-note`. |
+
 ## Frecency
 
 Haystack records every root search and filter step and scores them by
@@ -419,6 +496,10 @@ to write immediately on every buffer visit instead.
 | `haystack-moc-code-style` | `'comment` | MOC output style for code files: `'comment` for per-line links, `'data` for a language-appropriate data structure. |
 | `haystack-moc-data-formatters` | _(built-ins)_ | Alist of extension → `(loci chain) → string` formatter. Extend to add new languages. |
 | `haystack-frecency-save-interval` | `60` | Idle seconds before flushing frecency data to disk. `nil` writes immediately on every visit. |
+| `haystack-composite-extension` | `"org"` | File extension for composite notes. |
+| `haystack-composite-max-lines` | `300` | Max lines of content per source file in a composite. `nil` = no limit. |
+| `haystack-composite-all-matches` | `nil` | One section per match line rather than per file in composites. |
+| `haystack-composite-protect` | `t` | Intercept manual saves in composite buffers and redirect to `haystack-new-note`. |
 
 ### Regenerating Frontmatter
 

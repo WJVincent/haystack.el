@@ -64,10 +64,10 @@ That's it. There is no special mode to learn, no custom keybindings to
 memorize for basic use. The results are standard grep-mode buffers —
 if you know how to use `*grep*`, you know how to use Haystack.
 
-## The Three Things Haystack Adds Beyond Grep
+## The Four Things Haystack Adds Beyond Grep
 
 Raw `rg` in a shell could do step 1 above. Haystack earns its
-existence with three additions:
+existence with four additions:
 
 **Progressive state.** Each filter remembers its parent. You can
 narrow in any direction, backtrack, branch, and explore — all without
@@ -83,6 +83,14 @@ surface together.
 most. The chain `rust → bevy → ecs` rises to the top of your
 completion list if you run it often. You can replay common paths in a
 few keystrokes instead of typing them out each time.
+
+**Composite notes.** When a search chain consistently surfaces the
+same cluster of notes, you can commit that cluster to a named file —
+a composite. Think of it as "git commit for retrieval": the chain
+`rust → bevy → ecs` becomes `@comp__rust__bevy__ecs.org`, a
+machine-generated document that concatenates excerpts from every note
+in the results. Structure emerges from what you actually look for,
+not from a filing system you planned upfront.
 
 ## Who This Is For
 

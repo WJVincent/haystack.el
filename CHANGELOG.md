@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Docs
+- `README.md`: added AND queries section, Composite Notes section,
+  updated quick-start table (`C-c h w`, `C-c h C`), results buffer keys
+  (`C-c C-c`), customization table (composite defcustoms), and noted
+  atomic behaviour of `haystack-rename-group-root`.
+- `docs/how-to-think-about-haystack.md`: "The Three Things" expanded to
+  four — composite notes added.
+- `CLAUDE.md`: renamed from `claude.md`; updated composite filter
+  section (prefix arg / dedicated command, no transient), composite
+  lookup (file-exists-p, not rg -l), `haystack-composite-extension`
+  defcustom name, `:composite-filter` quoting, canonical chain slug
+  description.
+
 ---
 
 ## [0.9.0] — 2026-03-26
