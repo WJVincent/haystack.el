@@ -84,6 +84,7 @@ See `demo/README.org` for a guided walkthrough.
 |-----------|----------------------------|
 | `C-c h s` | Search your notes |
 | `C-c h n` | Create a new note |
+| `C-c h N` | Create a new note and insert the current results MOC |
 | `C-c h r` | Search the active region |
 | `C-c h f` | Jump to a frecent search |
 | `C-c h y` | Yank a MOC at point |
@@ -113,6 +114,14 @@ written in the file's native comment syntax.
 
 If the notes directory does not exist yet, Haystack will offer to
 create it.
+
+`haystack-new-note-with-moc` (`N` in a results buffer, or `C-c h N`)
+combines note creation with MOC insertion in a single step. It prompts
+for a slug and extension, creates the note, opens it, and immediately
+inserts the current results as formatted links at point — equivalent to
+`haystack-new-note` followed by `haystack-yank-moc`, but without leaving
+the results buffer in between. The MOC text is also pushed to the kill
+ring.
 
 ### Supported File Types
 
@@ -260,12 +269,18 @@ instead. This prevents pointless redundant filters.
 | `K` | Kill this buffer and all descendants |
 | `M-k` | Kill the whole tree (walk to root, then kill) |
 | `c` | Copy MOC to kill ring |
+| `N` | Create a new note and insert the current results MOC into it |
 | `C-c C-c` | Compose a composite note from this buffer's results |
 | `?`  | Show help |
 
 Results buffers are `grep-mode` compatible. `compile-goto-error`,
 `next-error`, and any other tool that speaks grep format work out of
 the box.
+
+> **Note:** `f` is bound to `haystack-filter-further` in results buffers.
+> This shadows `follow-mode` (`follow-mode` is a minor mode normally bound to
+> `f` in some configurations).  If you rely on `follow-mode`, rebind
+> `haystack-filter-further` in `haystack-results-mode-map`.
 
 ## Buffer Tree
 
@@ -424,7 +439,6 @@ Child buffers inherit the composite filter from their parent.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `haystack-composite-extension` | `"org"` | File extension for composite notes. |
 | `haystack-composite-max-lines` | `300` | Max lines of content per source file. `nil` = no limit. |
 | `haystack-composite-all-matches` | `nil` | When non-nil, one section per match line rather than per file. |
 | `haystack-composite-protect` | `t` | Intercept manual saves and redirect to `haystack-new-note`. |
@@ -496,7 +510,6 @@ to write immediately on every buffer visit instead.
 | `haystack-moc-code-style` | `'comment` | MOC output style for code files: `'comment` for per-line links, `'data` for a language-appropriate data structure. |
 | `haystack-moc-data-formatters` | _(built-ins)_ | Alist of extension → `(loci chain) → string` formatter. Extend to add new languages. |
 | `haystack-frecency-save-interval` | `60` | Idle seconds before flushing frecency data to disk. `nil` writes immediately on every visit. |
-| `haystack-composite-extension` | `"org"` | File extension for composite notes. |
 | `haystack-composite-max-lines` | `300` | Max lines of content per source file in a composite. `nil` = no limit. |
 | `haystack-composite-all-matches` | `nil` | One section per match line rather than per file in composites. |
 | `haystack-composite-protect` | `t` | Intercept manual saves in composite buffers and redirect to `haystack-new-note`. |

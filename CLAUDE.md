@@ -12,6 +12,41 @@ The full specification lives in `pkm.md` (the canonical design
 doc). The phased delivery plan lives in `ROADMAP.org`. This file is a
 quick-reference for coding — not a restated spec.
 
+## Documentation Hygiene
+
+After completing any feature, update all of the following that apply:
+
+- **`docs/ROADMAP.org`** — flip `TODO → DONE` on the task heading; tick
+  any unchecked Definition-of-Done checkboxes; verify the phase DoD is
+  fully checked before declaring the phase complete.
+- **Docstrings in `haystack.el`** — remove any "not yet implemented"
+  or "future work" language from the relevant function's docstring.
+- **`CLAUDE.md`** — update quick-reference snippets or notes if the
+  implementation changed the calling convention or defaults.
+- **`CHANGELOG.md`** — add an entry under the appropriate version.
+- **`README.md`** — update the Quick Start table, results-buffer keys
+  table, and any relevant prose section for new user-facing commands or
+  keybindings.
+- **`docs/how-to-think-about-haystack.md`** — update only if the feature
+  introduces a new *concept or mental model*, not just a new command.
+  Ask the question explicitly before moving on.
+
+Run a quick pass over all six before closing a feature.
+
+---
+
+## Tests
+
+```sh
+emacs --batch -l haystack.el -l test/haystack-test.el --eval '(ert-run-tests-batch-and-exit t)'
+```
+
+Run the **full suite after every source edit**. Current count: ~412 tests.
+
+Performance ceiling (asserted by `test/haystack-bench.el`):
+- 500 ms per operation at 10k lines
+- 2 s per operation at 100k lines
+
 ### Non-Negotiable Principles
 
 - **grep-mode compatibility**: Every results buffer must produce
@@ -159,10 +194,6 @@ Haystack notes. Must be set before use."  :type 'directory :group
   :type '(repeat string)
   :group 'haystack)
 
-(defcustom haystack-composite-extension "org"
-  "File extension for composite notes (e.g. \"org\", \"md\")."
-  :type 'string
-  :group 'haystack)
 ```
 
 ### Data File I/O

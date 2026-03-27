@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.9.0
+;; Version: 0.10.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -61,7 +61,7 @@
 
 (defcustom haystack-notes-directory nil
   "Root directory for Haystack notes.  Must be set before use."
-  :type 'directory
+  :type '(choice (const :tag "Not set" nil) directory)
   :group 'haystack)
 
 (defcustom haystack-default-extension "org"
@@ -112,13 +112,6 @@ composite file machine-generated.  Set to nil to allow direct saves."
   :type 'boolean
   :group 'haystack)
 
-(defcustom haystack-composite-extension "org"
-  "File extension for composite notes created with `haystack-compose'.
-Must be a string without a leading dot (e.g. \"org\", \"md\").
-Composite files are always named @comp__CHAIN.EXT and stored in
-`haystack-notes-directory'."
-  :type 'string
-  :group 'haystack)
 
 (defcustom haystack-file-glob nil
   "Restrict searches to files matching these glob patterns.
@@ -379,6 +372,44 @@ file, and runs `haystack-after-create-hook'."
     (find-file path)
     (goto-char (point-max))
     (run-hooks 'haystack-after-create-hook)))
+
+;;;###autoload
+(defun haystack-new-note-with-moc ()
+  "Create a new note and insert the current results MOC into it.
+Must be called from a haystack results buffer.  Prompts for a slug and
+extension, creates the note with frontmatter, opens it, inserts the MOC
+formatted for the note's extension, and runs `haystack-after-create-hook'.
+Also updates `haystack--last-moc' and pushes the MOC text to the kill ring."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (let* ((loci (haystack--extract-file-loci (buffer-string))))
+    (when (zerop (length loci))
+      (user-error "Haystack: no results to yank"))
+    (let* ((descriptor haystack--search-descriptor)
+           (chain      (haystack--descriptor-chain-string descriptor)))
+      (setq haystack--last-moc       loci)
+      (setq haystack--last-moc-chain chain)
+      (haystack--ensure-notes-directory)
+      (let* ((slug     (haystack--sanitize-slug (read-string "Slug: ")))
+             (ext      (read-string (format "Extension (default %s): "
+                                            haystack-default-extension)
+                                    nil nil haystack-default-extension))
+             (filename (concat (haystack--timestamp) "-" slug "." ext))
+             (path     (expand-file-name filename haystack-notes-directory))
+             (title    (haystack--pretty-title filename))
+             (fm       (haystack--frontmatter title ext))
+             (moc-text (haystack--format-moc-text loci chain ext)))
+        (when (file-exists-p path)
+          (user-error "Haystack: file already exists: %s" path))
+        (with-temp-file path
+          (when fm (insert fm))
+          (when haystack--demo-active
+            (insert "HAYSTACK DEMO NOTE — this file will be deleted when haystack-demo-stop is called.\n\n")))
+        (kill-new moc-text)
+        (find-file path)
+        (goto-char (point-max))
+        (insert moc-text "\n")
+        (run-hooks 'haystack-after-create-hook)))))
 
 ;;;###autoload
 (defun haystack-regenerate-frontmatter ()
@@ -688,8 +719,9 @@ are summed and the later timestamp is kept."
 OLD-ROOT must be the root (not just a member) of an existing group.
 NEW-ROOT must not already be present in any group.
 
-Note: when frecency and composite notes are implemented, those records
-will also be updated here.  For now only the groups file is changed."
+Renames atomically: updates the expansion groups file, rewrites
+frecency chain keys (flushing immediately), and renames any composite
+files whose slugs contain OLD-ROOT (rolling back on failure)."
   (interactive
    (progn
      (haystack--load-expansion-groups)
@@ -864,8 +896,8 @@ COMPOSITE-FILTER controls how @* composite files are handled:
                     "--color=never" "--no-heading" "--with-filename"
                     "--max-count=50" "--max-columns=500")))
     (pcase (or composite-filter 'exclude)
-      ('exclude (setq args (nconc args (list "--glob=!@*"))))
-      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('exclude (setq args (append args (list "--glob=!@*"))))
+      ('only    (setq args (append args (list "--glob=@*"))))
       ('all     nil))
     args))
 
@@ -875,31 +907,31 @@ Applies `haystack-file-glob' restrictions and expands ~ in the directory path."
   (let ((args (haystack--rg-base-args composite-filter)))
     (when haystack-file-glob
       (dolist (glob haystack-file-glob)
-        (setq args (nconc args (list (concat "--glob=" glob))))))
-    (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
+        (setq args (append args (list (concat "--glob=" glob))))))
+    (append args (list pattern (expand-file-name haystack-notes-directory)))))
 
 (defun haystack--build-rg-count-args (pattern &optional composite-filter)
   "Return rg --count args for PATTERN in `haystack-notes-directory'.
 Like `haystack--build-rg-args' but uses --count for the two-phase gate."
   (let ((args (list "--count" "--with-filename" "--ignore-case" "--color=never")))
     (pcase (or composite-filter 'exclude)
-      ('exclude (setq args (nconc args (list "--glob=!@*"))))
-      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('exclude (setq args (append args (list "--glob=!@*"))))
+      ('only    (setq args (append args (list "--glob=@*"))))
       ('all     nil))
     (when haystack-file-glob
       (dolist (glob haystack-file-glob)
-        (setq args (nconc args (list (concat "--glob=" glob))))))
-    (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
+        (setq args (append args (list (concat "--glob=" glob))))))
+    (append args (list pattern (expand-file-name haystack-notes-directory)))))
 
 (defun haystack--rg-count-xargs-args (pattern &optional composite-filter)
   "Return rg --count args for use with xargs (no directory).
 Like the xargs variant of `haystack--build-rg-count-args'."
   (let ((args (list "--count" "--with-filename" "--ignore-case" "--color=never")))
     (pcase (or composite-filter 'exclude)
-      ('exclude (setq args (nconc args (list "--glob=!@*"))))
-      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('exclude (setq args (append args (list "--glob=!@*"))))
+      ('only    (setq args (append args (list "--glob=@*"))))
       ('all     nil))
-    (nconc args (list pattern))))
+    (append args (list pattern))))
 
 (defun haystack--count-output-stats (output)
   "Return (FILES . LINES) from rg --count OUTPUT.
@@ -1116,12 +1148,12 @@ are shown the same way."
              (f-display (if f-exp
                             (haystack--expansion-alternation f-exp)
                           (haystack--display-term (plist-get f :term)))))
-        (setq parts (nconc parts
+        (setq parts (append parts
                            (list (format "%s=%s"
                                          (haystack--filter-label (plist-get f :negated)
                                                                  (plist-get f :filename))
                                          f-display))))))
-    (setq parts (nconc parts
+    (setq parts (append parts
                        (list (format "%s=%s"
                                      (haystack--filter-label current-negated
                                                              current-filename)
@@ -1145,7 +1177,7 @@ Used to produce the header comment in data-style MOC output."
              (f-display (if f-exp
                             (haystack--expansion-alternation f-exp)
                           (haystack--display-term (plist-get f :term)))))
-        (setq parts (nconc parts
+        (setq parts (append parts
                            (list (format "%s=%s"
                                          (haystack--filter-label (plist-get f :negated)
                                                                  (plist-get f :filename))
@@ -1219,7 +1251,7 @@ propagates exit codes in a version-dependent way."
   "Search for PATTERN in files listed in FILELIST with composite filter CF.
 Uses xargs to pass file paths to rg, avoiding argument length limits."
   (haystack--xargs-rg filelist
-                      (nconc (haystack--rg-base-args cf) (list pattern))))
+                      (append (haystack--rg-base-args cf) (list pattern))))
 
 (defun haystack--files-for-root-search (&optional cf)
   "Return a list of all files in `haystack-notes-directory' for a filename search.
@@ -1227,12 +1259,12 @@ Applies `haystack-file-glob' and the composite filter CF (default \\='exclude)."
   (let ((args (list "--files")))
     (when haystack-file-glob
       (dolist (g haystack-file-glob)
-        (setq args (nconc args (list (concat "--glob=" g))))))
+        (setq args (append args (list (concat "--glob=" g))))))
     (pcase (or cf 'exclude)
-      ('exclude (setq args (nconc args (list "--glob=!@*"))))
-      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('exclude (setq args (append args (list "--glob=!@*"))))
+      ('only    (setq args (append args (list "--glob=@*"))))
       ('all     nil))
-    (setq args (nconc args (list (expand-file-name haystack-notes-directory))))
+    (setq args (append args (list (expand-file-name haystack-notes-directory))))
     (split-string
      (with-temp-buffer
        (apply #'call-process "rg" nil t nil args)
@@ -1265,6 +1297,7 @@ and opens the child results buffer in the current window.
 Prefix RAW-INPUT with ! to exclude files containing the term."
   (interactive
    (list (read-string "[=]literal  [/]filename  [!]negate  [~]regex\nFilter: ")))
+  (haystack--frecency-ensure)
   (unless (and (boundp 'haystack--search-descriptor)
                haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
@@ -1358,9 +1391,11 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
            (header         (haystack--format-header chain-str (car stats) (cdr stats)
                                                     composite-path)))
       (haystack--frecency-record new-descriptor)
-      (switch-to-buffer
-       (haystack--setup-results-buffer
-        buf-name header output new-descriptor parent-buf composite-path)))))
+      (let ((buf (haystack--setup-results-buffer
+                  buf-name header output new-descriptor parent-buf composite-path)))
+        (unless haystack--suppress-display
+          (switch-to-buffer buf))
+        buf))))
 
 (defun haystack--run-and-query (tokens cf)
   "Execute a file-level AND query for TOKENS with composite filter CF.
@@ -1382,13 +1417,13 @@ Signals `user-error' if any token carries the ! negation prefix."
     (let* ((fwm-args
             (let ((args (list "--files-with-matches" "--ignore-case" "--color=never")))
               (pcase (or cf 'exclude)
-                ('exclude (setq args (nconc args (list "--glob=!@*"))))
-                ('only    (setq args (nconc args (list "--glob=@*"))))
+                ('exclude (setq args (append args (list "--glob=!@*"))))
+                ('only    (setq args (append args (list "--glob=@*"))))
                 ('all     nil))
               (when haystack-file-glob
                 (dolist (g haystack-file-glob)
-                  (setq args (nconc args (list (concat "--glob=" g))))))
-              (nconc args (list first-pattern
+                  (setq args (append args (list (concat "--glob=" g))))))
+              (append args (list first-pattern
                                 (expand-file-name haystack-notes-directory)))))
            (current-files
             (split-string
@@ -1448,6 +1483,7 @@ Interactively, a \\[universal-argument] prefix sets COMPOSITE-FILTER to \\='all,
 including composite files in the search."
   (interactive (list (read-string "Haystack search: ")
                      (when current-prefix-arg 'all)))
+  (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
   (haystack--load-expansion-groups)
   (let ((cf (or composite-filter 'exclude)))
@@ -1502,9 +1538,11 @@ including composite files in the search."
                  (header          (haystack--format-header chain-label (car stats) (cdr stats)
                                                           composite-path)))
             (haystack--frecency-record descriptor)
-            (pop-to-buffer
-             (haystack--setup-results-buffer buf-name header output descriptor nil
-                                             composite-path))))
+            (let ((buf (haystack--setup-results-buffer buf-name header output descriptor nil
+                                                       composite-path)))
+              (unless haystack--suppress-display
+                (pop-to-buffer buf))
+              buf)))
       ;; Single-term query: existing path.
       (let* ((parsed   (haystack--parse-input raw-input))
              (term      (plist-get parsed :term))
@@ -1571,9 +1609,11 @@ including composite files in the search."
                (header         (haystack--format-header chain-label (car stats) (cdr stats)
                                                         composite-path)))
           (haystack--frecency-record descriptor)
-          (pop-to-buffer
-           (haystack--setup-results-buffer buf-name header output descriptor nil
-                                           composite-path)))))))
+          (let ((buf (haystack--setup-results-buffer buf-name header output descriptor nil
+                                                     composite-path)))
+            (unless haystack--suppress-display
+              (pop-to-buffer buf))
+            buf))))))
 
 ;;;###autoload
 (defun haystack-search-region ()
@@ -1605,6 +1645,7 @@ Like `haystack-run-root-search' with composite-filter set to \\='only."
 (define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
 (define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
 (define-key haystack-results-mode-map "c" #'haystack-copy-moc)
+(define-key haystack-results-mode-map "N" #'haystack-new-note-with-moc)
 (define-key haystack-results-mode-map (kbd "C-c C-c") #'haystack-compose)
 (define-key haystack-results-mode-map "t" #'haystack-show-tree)
 (define-key haystack-results-mode-map "?" #'haystack-help)
@@ -1643,46 +1684,123 @@ Returns \"unbound\" if CMD has no binding in that map."
   (let ((keys (where-is-internal cmd haystack-results-mode-map)))
     (if keys (key-description (car keys)) "unbound")))
 
-(defun haystack--help-content ()
-  "Return the formatted string for the haystack help buffer."
-  (let ((rule (concat ";;;;" (make-string 50 ?-)))
-        (key  #'haystack--help-key))
+(defun haystack--help-rule ()
+  "Return a propertized rule line for the help buffer."
+  (propertize (concat ";;;;" (make-string 50 ?-)) 'face 'shadow))
+
+(defun haystack--help-section (title)
+  "Return a propertized section header line for TITLE."
+  (propertize (concat ";;;;  " title) 'face 'font-lock-keyword-face))
+
+(defun haystack--help-entry (cmd description)
+  "Return a propertized help entry line for CMD with DESCRIPTION.
+The key is highlighted with `font-lock-constant-face'."
+  (concat ";;;;    "
+          (propertize (format "%-9s" (haystack--help-key cmd))
+                      'face 'font-lock-constant-face)
+          "  "
+          description))
+
+(defun haystack--help-content (&optional avail-width)
+  "Return the formatted string for the haystack help buffer.
+AVAIL-WIDTH is the window body width of the calling window; at 100+
+columns a two-column layout is used to reduce the required height."
+  (if (>= (or avail-width 0) 100)
+      (haystack--help-content-two-col)
+    (haystack--help-content-one-col)))
+
+(defun haystack--help-content-one-col ()
+  "Return single-column help content for narrow windows."
+  (let ((rule (haystack--help-rule)))
     (mapconcat #'identity
                (list rule
-                     ";;;;  Haystack — results buffer commands"
+                     (propertize ";;;;  Haystack — results buffer commands" 'face 'bold)
                      rule
                      ""
-                     ";;;;  Navigation"
-                     (format ";;;;    %-8s  next match"      (funcall key 'haystack-next-match))
-                     (format ";;;;    %-8s  previous match"  (funcall key 'haystack-previous-match))
+                     (haystack--help-section "Navigation")
+                     (haystack--help-entry 'haystack-ret             "visit file (or activate button)")
+                     (haystack--help-entry 'haystack-next-match      "next match")
+                     (haystack--help-entry 'haystack-previous-match  "previous match")
                      ""
-                     ";;;;  Filter"
-                     (format ";;;;    %-8s  filter further"  (funcall key 'haystack-filter-further))
+                     (haystack--help-section "Filter")
+                     (haystack--help-entry 'haystack-filter-further  "filter further")
                      ""
-                     ";;;;  Tree"
-                     (format ";;;;    %-8s  show tree"       (funcall key 'haystack-show-tree))
-                     (format ";;;;    %-8s  go up"           (funcall key 'haystack-go-up))
-                     (format ";;;;    %-8s  go down"         (funcall key 'haystack-go-down))
-                     (format ";;;;    %-8s  kill node"       (funcall key 'haystack-kill-node))
-                     (format ";;;;    %-8s  kill subtree"    (funcall key 'haystack-kill-subtree))
-                     (format ";;;;    %-8s  kill whole tree" (funcall key 'haystack-kill-whole-tree))
+                     (haystack--help-section "Tree")
+                     (haystack--help-entry 'haystack-show-tree       "show tree")
+                     (haystack--help-entry 'haystack-go-up           "go up")
+                     (haystack--help-entry 'haystack-go-down         "go down")
+                     (haystack--help-entry 'haystack-kill-node       "kill node")
+                     (haystack--help-entry 'haystack-kill-subtree    "kill subtree")
+                     (haystack--help-entry 'haystack-kill-whole-tree "kill whole tree")
                      ""
-                     ";;;;  MOC"
-                     (format ";;;;    %-8s  copy moc"        (funcall key 'haystack-copy-moc))
+                     (haystack--help-section "MOC")
+                     (haystack--help-entry 'haystack-copy-moc            "copy moc")
+                     (haystack--help-entry 'haystack-new-note-with-moc   "new note + insert moc")
                      ""
-                     ";;;;    q         close this window"
+                     (haystack--help-section "Composite")
+                     (haystack--help-entry 'haystack-compose             "compose composite note")
+                     ""
+                     (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")
                      rule)
+               "\n")))
+
+(defun haystack--help-content-two-col ()
+  "Return two-column help content for wide windows (100+ cols).
+Navigation/Filter/Tree on the left; MOC/Composite on the right."
+  (let* ((rule  (haystack--help-rule))
+         (left  (list (haystack--help-section "Navigation")
+                      (haystack--help-entry 'haystack-ret             "visit file / button")
+                      (haystack--help-entry 'haystack-next-match      "next match")
+                      (haystack--help-entry 'haystack-previous-match  "previous match")
+                      ""
+                      (haystack--help-section "Filter")
+                      (haystack--help-entry 'haystack-filter-further  "filter further")
+                      ""
+                      (haystack--help-section "Tree")
+                      (haystack--help-entry 'haystack-show-tree       "show tree")
+                      (haystack--help-entry 'haystack-go-up           "go up")
+                      (haystack--help-entry 'haystack-go-down         "go down")
+                      (haystack--help-entry 'haystack-kill-node       "kill node")
+                      (haystack--help-entry 'haystack-kill-subtree    "kill subtree")
+                      (haystack--help-entry 'haystack-kill-whole-tree "kill whole tree")))
+         (right (list (haystack--help-section "MOC")
+                      (haystack--help-entry 'haystack-copy-moc          "copy moc")
+                      (haystack--help-entry 'haystack-new-note-with-moc "new note + moc")
+                      ""
+                      (haystack--help-section "Composite")
+                      (haystack--help-entry 'haystack-compose           "compose composite")
+                      ""
+                      ";;;;"
+                      (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")))
+         (col-w 50)
+         (n     (max (length left) (length right)))
+         (left  (append left  (make-list (- n (length left))  "")))
+         (right (append right (make-list (- n (length right)) "")))
+         (rows  (cl-mapcar (lambda (l r)
+                             (if (string-empty-p (string-trim r))
+                                 l
+                               (format (concat "%-" (number-to-string col-w) "s  %s") l r)))
+                           left right)))
+    (mapconcat #'identity
+               (append (list rule
+                             (propertize ";;;;  Haystack — results buffer commands" 'face 'bold)
+                             rule "")
+                       rows
+                       (list "" rule))
                "\n")))
 
 ;;;###autoload
 (defun haystack-help ()
-  "Show a popup window listing all haystack results buffer commands."
+  "Show a popup window listing all haystack results buffer commands.
+Layout adapts to the current window width: two columns at 100+ characters,
+single column otherwise."
   (interactive)
-  (let ((buf (get-buffer-create "*haystack-help*")))
+  (let ((win-width (window-body-width))
+        (buf (get-buffer-create "*haystack-help*")))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert (haystack--help-content))
+        (insert (haystack--help-content win-width))
         (special-mode)
         (goto-char (point-min))))
     (select-window
@@ -1702,15 +1820,20 @@ Returns \"unbound\" if CMD has no binding in that map."
 Each face is drawn from the active theme, so the tree adapts to colorscheme
 changes automatically.  Customize to taste.")
 
+(defvar haystack-tree-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'haystack-tree-visit)
+    (define-key map "n"         #'haystack-tree-next)
+    (define-key map "p"         #'haystack-tree-prev)
+    (define-key map (kbd "M-n") #'haystack-tree-next-sibling)
+    (define-key map (kbd "M-p") #'haystack-tree-prev-sibling)
+    map)
+  "Keymap for `haystack-tree-mode'.")
+
 (define-derived-mode haystack-tree-mode special-mode "Haystack-Tree"
   "Major mode for the haystack tree buffer.
-Shows all open haystack buffers as a navigable indented tree.")
-
-(define-key haystack-tree-mode-map (kbd "RET") #'haystack-tree-visit)
-(define-key haystack-tree-mode-map "n"         #'haystack-tree-next)
-(define-key haystack-tree-mode-map "p"         #'haystack-tree-prev)
-(define-key haystack-tree-mode-map (kbd "M-n") #'haystack-tree-next-sibling)
-(define-key haystack-tree-mode-map (kbd "M-p") #'haystack-tree-prev-sibling)
+Shows all open haystack buffers as a navigable indented tree."
+  :keymap haystack-tree-mode-map)
 
 (defun haystack-tree-visit ()
   "Switch to the haystack buffer on the current line and close the tree window."
@@ -1799,17 +1922,26 @@ Skips past tree art characters (spaces, │, ├, └, ─)."
        (and parent (buffer-live-p parent))))
    (haystack--all-haystack-buffers)))
 
+(defconst haystack--display-term-max-length 30
+  "Maximum length of a search term in buffer names before truncation.")
+
+(defconst haystack--display-term-context 13
+  "Characters to keep from head and tail when truncating display terms.")
+
 (defun haystack--display-term (term)
   "Return TERM suitable for display in buffer names and headers.
 Collapses all whitespace runs (including newlines) to single spaces and
-trims leading/trailing whitespace.  If the result exceeds 30 characters,
-it is truncated to \"FIRST...LAST\" where FIRST and LAST are each 13
-characters, keeping both ends of the term visible."
+trims leading/trailing whitespace.  If the result exceeds
+`haystack--display-term-max-length' characters, it is truncated to
+\"FIRST...LAST\" where FIRST and LAST are each
+`haystack--display-term-context' characters."
   (let* ((normalised (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " term)))
          (len        (length normalised)))
-    (if (<= len 30)
+    (if (<= len haystack--display-term-max-length)
         normalised
-      (concat (substring normalised 0 13) "..." (substring normalised (- len 13))))))
+      (concat (substring normalised 0 haystack--display-term-context)
+              "..."
+              (substring normalised (- len haystack--display-term-context))))))
 
 (defun haystack--tree-term-label (term negated filename literal regex)
   "Return TERM prefixed with its modifier characters for display.
@@ -2279,6 +2411,18 @@ Use `haystack-yank-moc' to insert the links into a target buffer."
     (message "Haystack: copied %d file link%s" n (if (= 1 n) "" "s"))))
 
 ;;;###autoload
+(defun haystack--format-moc-text (loci chain ext)
+  "Return a formatted MOC string for LOCI using CHAIN label and file extension EXT.
+Format is determined by EXT via `haystack--moc-format-for-extension'.
+For code targets, respects `haystack-moc-code-style' (\\='comment or \\='data)."
+  (let ((fmt (haystack--moc-format-for-extension ext)))
+    (if (and (eq fmt 'code) (eq haystack-moc-code-style 'data))
+        (haystack--format-moc-data-block loci (or chain "search") ext)
+      (mapconcat (lambda (locus)
+                   (haystack--format-moc-link (car locus) (cdr locus) fmt ext))
+                 loci
+                 "\n"))))
+
 (defun haystack-yank-moc ()
   "Insert MOC links at point, formatted for the current buffer's file type.
 Uses the loci stored by the last `haystack-copy-moc'.  Format is
@@ -2291,17 +2435,8 @@ kill ring."
   (let* ((ext  (or (and (buffer-file-name)
                         (file-name-extension (buffer-file-name)))
                    haystack-default-extension))
-         (fmt  (haystack--moc-format-for-extension ext))
-         (text (if (and (eq fmt 'code) (eq haystack-moc-code-style 'data))
-                   (haystack--format-moc-data-block
-                    haystack--last-moc
-                    (or haystack--last-moc-chain "search")
-                    ext)
-                 (mapconcat (lambda (locus)
-                              (haystack--format-moc-link
-                               (car locus) (cdr locus) fmt ext))
-                            haystack--last-moc
-                            "\n"))))
+         (text (haystack--format-moc-text
+                haystack--last-moc haystack--last-moc-chain ext)))
     (kill-new text)
     (insert text "\n")))
 
@@ -2317,7 +2452,11 @@ this setting.  Changing this value takes effect immediately."
   :set (lambda (sym val)
          (set-default sym val)
          (when (fboundp 'haystack--frecency-setup-timer)
-           (haystack--frecency-setup-timer)))
+           (haystack--frecency-setup-timer)
+           ;; Mark as initialized so haystack--frecency-ensure won't
+           ;; call setup again — customizing the interval before first
+           ;; use counts as explicit initialization.
+           (setq haystack--frecency-initialized t)))
   :group 'haystack)
 
 (defvar haystack--frecency-data nil
@@ -2328,6 +2467,11 @@ Persisted to `.haystack-frecency.el' in the notes directory.")
 
 (defvar haystack--frecency-dirty nil
   "Non-nil when `haystack--frecency-data' has unsaved changes.")
+
+(defvar haystack--suppress-display nil
+  "When non-nil, suppress `pop-to-buffer'/`switch-to-buffer' in search commands.
+Used by `haystack--frecency-replay' to run the search chain internally
+without affecting the window layout.")
 
 (defvar haystack--frecency-timer nil
   "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
@@ -2378,6 +2522,20 @@ On failure: warn, set nil, continue."
       (error
        (message "Haystack: failed to save frecency: %s"
                 (error-message-string err))))))
+
+(defvar haystack--frecency-initialized nil
+  "Non-nil once frecency infrastructure has been set up for this session.
+Prevents the idle timer and `kill-emacs-hook' from being installed
+redundantly on repeated calls to `haystack--frecency-ensure'.")
+
+(defun haystack--frecency-ensure ()
+  "Set up frecency infrastructure on first interactive use.
+Subsequent calls are no-ops.  This defers timer and hook installation
+until a haystack command is actually invoked, so loading the library
+does not produce side effects."
+  (unless haystack--frecency-initialized
+    (haystack--frecency-setup-timer)
+    (setq haystack--frecency-initialized t)))
 
 (defun haystack--frecency-setup-timer ()
   "Set up (or cancel) the frecency idle timer based on `haystack-frecency-save-interval'.
@@ -2617,18 +2775,23 @@ A leaf entry is one where no deeper chain with a higher score exists."
                      '((display-buffer-below-selected)
                        (window-height . fit-window-to-buffer))))))
 
+(defvar haystack-frecent-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "s" #'haystack-frecent-toggle-sort)
+    (define-key map "v" #'haystack-frecent-toggle-leaf)
+    (define-key map "t" #'haystack-frecent-sort-score)
+    (define-key map "f" #'haystack-frecent-sort-frequency)
+    (define-key map "r" #'haystack-frecent-sort-recency)
+    (define-key map "k" #'haystack-frecent-kill-entry)
+    (define-key map "?" #'haystack-frecent-help)
+    map)
+  "Keymap for `haystack-frecent-mode'.")
+
 (define-derived-mode haystack-frecent-mode special-mode "Haystack-Frecent"
   "Major mode for the Haystack frecency diagnostic buffer.
 \\{haystack-frecent-mode-map}"
-  :group 'haystack)
-
-(define-key haystack-frecent-mode-map "s" #'haystack-frecent-toggle-sort)
-(define-key haystack-frecent-mode-map "v" #'haystack-frecent-toggle-leaf)
-(define-key haystack-frecent-mode-map "t" #'haystack-frecent-sort-score)
-(define-key haystack-frecent-mode-map "f" #'haystack-frecent-sort-frequency)
-(define-key haystack-frecent-mode-map "r" #'haystack-frecent-sort-recency)
-(define-key haystack-frecent-mode-map "k" #'haystack-frecent-kill-entry)
-(define-key haystack-frecent-mode-map "?" #'haystack-frecent-help)
+  :group 'haystack
+  :keymap haystack-frecent-mode-map)
 
 ;;;###autoload
 (defun haystack-describe-frecent ()
@@ -2654,9 +2817,9 @@ Columns: score, visits, days since last access, search chain.
 CHAIN is a list of prefixed term strings.  Each step is run internally;
 only the final buffer is kept.  Its parent is set to nil so it stands
 alone in the tree."
+  (haystack--load-expansion-groups)
   (let ((current-buf nil))
-    (cl-letf (((symbol-function 'pop-to-buffer)    (lambda (buf &rest _) buf))
-              ((symbol-function 'switch-to-buffer) (lambda (buf &rest _) buf)))
+    (let ((haystack--suppress-display t))
       (setq current-buf (haystack-run-root-search (car chain)))
       (dolist (filter-term (cdr chain))
         (let ((next-buf (with-current-buffer current-buf
@@ -2677,6 +2840,7 @@ By default only leaf entries are shown — chains that are not merely an
 intermediate step toward a more-visited deeper search.  With a prefix
 argument ALL, show every recorded chain."
   (interactive "P")
+  (haystack--frecency-ensure)
   (haystack--load-frecency)
   (unless haystack--frecency-data
     (user-error "Haystack: no frecent searches recorded yet"))
@@ -2734,12 +2898,12 @@ restores your previous `haystack-notes-directory'."
     (unless (file-directory-p src-dir)
       (user-error "Haystack: demo corpus not found at %s" src-dir))
     (let ((temp-dir (make-temp-file "haystack-demo-" t)))
-      (let ((exit (call-process "cp" nil nil nil "-r"
-                                (concat (file-name-as-directory src-dir) ".")
-                                temp-dir)))
-        (unless (zerop exit)
-          (delete-directory temp-dir t)
-          (user-error "Haystack: failed to copy demo corpus to %s" temp-dir)))
+      (condition-case err
+          (copy-directory src-dir temp-dir nil t t)
+        (error
+         (delete-directory temp-dir t)
+         (user-error "Haystack: failed to copy demo corpus to %s: %s"
+                     temp-dir (error-message-string err))))
       (setq haystack--demo-saved-state
             (list :notes-dir   haystack-notes-directory
                   :frecency    (copy-sequence haystack--frecency-data)
@@ -2844,13 +3008,10 @@ exists.  Returns nil if no composite has been written for this chain."
 
 (defun haystack--composite-filename (descriptor)
   "Return the absolute path of the composite file for DESCRIPTOR.
-The filename is @comp__CANONICAL-CHAIN.EXT where EXT is
-`haystack-composite-extension' and CANONICAL-CHAIN is derived from
-`haystack--canonical-chain-slug'."
+The filename is @comp__CANONICAL-CHAIN.org; composite content is always
+org-formatted so the extension is hardcoded."
   (expand-file-name
-   (format "@comp__%s.%s"
-           (haystack--canonical-chain-slug descriptor)
-           haystack-composite-extension)
+   (format "@comp__%s.org" (haystack--canonical-chain-slug descriptor))
    haystack-notes-directory))
 
 (defun haystack--canonical-term-slug (term negated filename)
@@ -2963,6 +3124,7 @@ windowed per `haystack-composite-max-lines'.  When
 `haystack-composite-all-matches' is non-nil, files with multiple match
 lines get one section per match.  Returns the compose buffer."
   (interactive)
+  (require 'org)
   (unless (and (boundp 'haystack--search-descriptor) haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
   (let* ((descriptor  haystack--search-descriptor)
@@ -3082,14 +3244,13 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "s" #'haystack-run-root-search)
 (define-key haystack-prefix-map "r" #'haystack-search-region)
 (define-key haystack-prefix-map "n" #'haystack-new-note)
+(define-key haystack-prefix-map "N" #'haystack-new-note-with-moc)
 (define-key haystack-prefix-map "y" #'haystack-yank-moc)
 (define-key haystack-prefix-map "t" #'haystack-show-tree)
 (define-key haystack-prefix-map "f" #'haystack-frecent)
 (define-key haystack-prefix-map "w" #'haystack-compose)
 (define-key haystack-prefix-map "C" #'haystack-search-composites)
 (define-key haystack-prefix-map "D" #'haystack-demo)
-
-(haystack--frecency-setup-timer)
 
 (provide 'haystack)
 ;;; haystack.el ends here

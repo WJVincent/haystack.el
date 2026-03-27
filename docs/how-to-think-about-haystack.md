@@ -133,6 +133,13 @@ require a specific format, and doesn't store anything about them in a
 database. If you delete Haystack tomorrow, your notes are exactly
 where you left them, readable by every other tool on earth.
 
+One clarification: `haystack-new-note` creates files with lightweight
+frontmatter (a title and a sentinel comment). This is a convenience at
+creation time — it gives the search engine something to find — not a
+requirement. Haystack searches *any* file in the notes directory,
+regardless of format. Files created outside Haystack, without
+frontmatter, in any extension, surface in results like any other.
+
 The tradeoff is simple: you give up surprise connections and
 structural navigation. You get a system with zero infrastructure, zero
 maintenance, and a retrieval model that scales with your Emacs fluency

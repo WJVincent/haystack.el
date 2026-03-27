@@ -5,6 +5,74 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.10.0] — 2026-03-27
+
+### Fixed
+- `haystack--frecency-replay` now explicitly loads expansion groups before
+  replaying.  Previously they were loaded as a side effect of
+  `haystack-run-root-search`, which made replay work only by accident.
+- `haystack--frecency-replay` no longer uses `cl-letf` to silence
+  `pop-to-buffer`/`switch-to-buffer`.  Instead a `haystack--suppress-display`
+  dynamic variable is checked at the three display call sites in
+  `haystack-run-root-search` and `haystack-filter-further`.  This is cleaner
+  and does not globally rebind core Emacs functions during replay.
+- Frecency timer and `kill-emacs-hook` are now deferred to first interactive
+  use via `haystack--frecency-ensure`.  Previously `(require 'haystack)`
+  unconditionally installed an idle timer and a shutdown hook, violating the
+  Emacs packaging norm that loading a library should not produce side effects.
+  `haystack--frecency-ensure` is called at the top of `haystack-run-root-search`,
+  `haystack-filter-further`, and `haystack-frecent`; customizing
+  `haystack-frecency-save-interval` before first use also counts as
+  initialization so the timer is never double-installed.
+
+### Removed
+- `haystack-composite-extension` defcustom removed.  Composite files are
+  always org-formatted (the staging buffer derives from `org-mode` and uses
+  org headings, links, and `#+` properties), so a configurable extension was
+  misleading.  The extension is now hardcoded to `"org"`.
+
+### Added
+- `haystack-new-note-with-moc`: combo command — creates a new note and inserts
+  the current results buffer as a MOC in one step.  Bound to `N` in both
+  `haystack-results-mode-map` and `haystack-prefix-map`.
+- `haystack--format-moc-text`: internal helper consolidating MOC formatting
+  logic; `haystack-yank-moc` now delegates to it.
+- `haystack--suppress-display` dynamic variable: allows internal callers
+  (currently `haystack--frecency-replay`) to suppress window display without
+  globally redefining `pop-to-buffer` or `switch-to-buffer`.
+- `haystack--display-term-max-length` and `haystack--display-term-context`
+  named constants for the 30/13 truncation thresholds in `haystack--display-term`.
+- `haystack-notes-directory` defcustom type now uses
+  `(choice (const :tag "Not set" nil) directory)` so the Customize UI correctly
+  represents the unset state.
+- `haystack-tree-mode-map` and `haystack-frecent-mode-map` are now defined as
+  `defvar` + `make-sparse-keymap` blocks before their `define-derived-mode`
+  calls, matching the pattern used by `haystack-results-mode-map` and
+  `haystack-compose-mode-map`.
+- Demo corpus copy uses `copy-directory` (Elisp built-in) instead of
+  `call-process "cp"`.  Removes the GNU coreutils trailing-dot convention
+  dependency and works on any platform Emacs supports.
+
+- All rg argument builders (`haystack--rg-base-args`, `haystack--build-rg-args`,
+  `haystack--build-rg-count-args`, `haystack--rg-count-xargs-args`,
+  `haystack--files-for-root-search`, AND query builder) replaced `nconc` with
+  `append`.  The lists were always freshly built each call so the mutation was
+  safe, but `append` makes the absence of shared state explicit.
+
+### Fixed
+- Results buffer `?` help menu: added missing `RET` (visit file / activate
+  button), `N` (new note + insert MOC), and a new Composite section with
+  `C-c C-c` (compose composite note).  All bound commands in
+  `haystack-results-mode-map` are now represented.
+- Help buffer now adapts to window width: two-column layout at 100+ columns
+  (Navigation/Filter/Tree left, MOC/Composite right) roughly halves the
+  required height; single-column layout below 100 columns.  Keys are
+  highlighted with `font-lock-constant-face`, section headers with
+  `font-lock-keyword-face`, and rule lines with `shadow` — all resolved
+  from the active color theme.
+
 ### Docs
 - `README.md`: added AND queries section, Composite Notes section,
   updated quick-start table (`C-c h w`, `C-c h C`), results buffer keys

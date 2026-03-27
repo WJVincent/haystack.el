@@ -170,7 +170,7 @@ Expansion groups and frecency. Force multipliers that make the most sense once a
 ** Definition of Done
 - [X] Expansion groups load, validate, and expand search terms
 - [X] =haystack-associate= handles all three states correctly
-- [ ] =haystack-rename-group-root= updates groups, frecency, composites atomically
+- [X] =haystack-rename-group-root= updates groups, frecency, composites atomically
 - [X] Exclusivity guardrail blocks redundant filters and suggests ~=~
 - [X] Multi-word terms supported in expansion groups
 - [X] Frecency records every buffer, scores on read, replays leaf-only
@@ -276,7 +276,7 @@ The most complex subsystems. Benefit from real usage data.
 - =haystack-composite-protect= (default t): intercepts manual saves via =write-contents-functions=
 *** DONE Composite slug convention
 - =@comp__canonical-chain.ext=
-- Extension from =haystack-composite-extension= defcustom (default =org=)
+- Extension hardcoded to =org= — composite content is always org-formatted
 - Slug: each term resolved to expansion group root, lowercased, slugified; joined with =__=
 - AND root terms flattened inline; negated → =not-=; filename → =fn-=
 *** DONE Composite surfacing in buffer headers
@@ -286,7 +286,7 @@ The most complex subsystems. Benefit from real usage data.
 - =C-u haystack-run-root-search= → include composites (='all=)
 - =haystack-search-composites= → only composites (='only=); bound to =C= in prefix map
 - Default: exclude composites (='exclude=, =--glob=!@*=)
-*** TODO Composite format templates
+*** DONE Composite format templates
 - Org (default) — content windowed around first match per =haystack-composite-max-lines=
 - =haystack-composite-all-matches= for per-match-line sections
 
@@ -325,8 +325,9 @@ Not in scope for 1.0. Recorded so they don't get lost.
 - =rust & async= — file-level intersection via =--files-with-matches=
 - Volume gate on intersection count; frecency replay works
 - =!= prefix not supported in AND tokens
-** TODO =haystack-new-note-with-moc=
+** DONE =haystack-new-note-with-moc=
 - Combo command: create new note and yank the current results MOC in one step
+- Bound to =N= in =haystack-results-mode-map= and =haystack-prefix-map=
 ** TODO Boolean DSL (=|=, =()= operators — =&= already done)
 ** TODO Search scope modes (body-only, frontmatter-only via sentinel)
 ** TODO Discoverability save-hook mode
