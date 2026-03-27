@@ -1570,6 +1570,97 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
                (should-error (haystack-filter-further "hit") :type 'user-error)))
          (kill-buffer root-buf))))))
 
+;;;; haystack--parse-and-tokens
+
+(ert-deftest haystack-test/parse-and-tokens-returns-nil-without-ampersand ()
+  "Returns nil when input contains no ' & '."
+  (should-not (haystack--parse-and-tokens "rust"))
+  (should-not (haystack--parse-and-tokens "rust async"))
+  (should-not (haystack--parse-and-tokens "rust&async")))
+
+(ert-deftest haystack-test/parse-and-tokens-splits-on-spaced-ampersand ()
+  "Splits on ' & ' and returns a list of trimmed tokens."
+  (should (equal (haystack--parse-and-tokens "rust & async")
+                 '("rust" "async"))))
+
+(ert-deftest haystack-test/parse-and-tokens-three-terms ()
+  "Works with three or more terms."
+  (should (equal (haystack--parse-and-tokens "rust & async & tokio")
+                 '("rust" "async" "tokio"))))
+
+(ert-deftest haystack-test/parse-and-tokens-preserves-prefixes ()
+  "Prefix characters on tokens are preserved in the returned list."
+  (should (equal (haystack--parse-and-tokens "=rust & ~async")
+                 '("=rust" "~async"))))
+
+(ert-deftest haystack-test/parse-and-tokens-returns-nil-for-single-token ()
+  "Returns nil when splitting produces fewer than two non-empty tokens."
+  (should-not (haystack--parse-and-tokens " & "))
+  (should-not (haystack--parse-and-tokens "rust & ")))
+
+;;;; haystack--run-and-query
+
+(ert-deftest haystack-test/run-and-query-intersection ()
+  "Returns content matches for the first term only in files matching all terms."
+  (haystack-test--with-notes-dir
+   (let ((both  (expand-file-name "both.org"  haystack-notes-directory))
+         (only1 (expand-file-name "only1.org" haystack-notes-directory)))
+     ;; both.org has rust and async; only1.org has rust but not async
+     (with-temp-file both  (insert "rust is fast\nasync fn main() {}\n"))
+     (with-temp-file only1 (insert "rust is great\n"))
+     (let ((out (haystack--run-and-query '("rust" "async") 'all)))
+       ;; Should contain both.org (has both terms)
+       (should (string-match-p "both\\.org" out))
+       ;; Should show first-term (rust) matches, not async lines
+       (should (string-match-p "rust is fast" out))
+       ;; Should NOT contain only1.org (has rust but not async)
+       (should-not (string-match-p "only1\\.org" out))))))
+
+(ert-deftest haystack-test/run-and-query-no-intersection ()
+  "Returns empty string when no files match all terms."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "note.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust is fast\n"))
+     (should (string-empty-p
+              (haystack--run-and-query '("rust" "nomatchxyz99") 'all))))))
+
+(ert-deftest haystack-test/run-and-query-three-terms ()
+  "File must match all three terms to appear in results."
+  (haystack-test--with-notes-dir
+   (let ((all3  (expand-file-name "all3.org"  haystack-notes-directory))
+         (only2 (expand-file-name "only2.org" haystack-notes-directory)))
+     (with-temp-file all3  (insert "rust async tokio\n"))
+     (with-temp-file only2 (insert "rust async\n"))
+     (let ((out (haystack--run-and-query '("rust" "async" "tokio") 'all)))
+       (should     (string-match-p "all3\\.org"  out))
+       (should-not (string-match-p "only2\\.org" out))))))
+
+(ert-deftest haystack-test/run-and-query-negation-errors ()
+  "Signals user-error when any token carries the ! negation prefix."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "note.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust\n"))
+     (should-error
+      (haystack--run-and-query '("rust" "!async") 'all)
+      :type 'user-error))))
+
+(ert-deftest haystack-test/run-and-query-gate-on-intersection-not-first-term ()
+  "Volume gate fires based on the AND intersection count, not the first term alone.
+11 files × 50 rust lines = 550 (above 500 threshold).  Only one file also
+has async, so the intersection count is 50 (below threshold) — no prompt."
+  (haystack-test--with-notes-dir
+   ;; Create 11 files each with 50 'rust' lines — first term alone exceeds gate.
+   (dotimes (i 11)
+     (with-temp-file (expand-file-name (format "note%d.org" i) haystack-notes-directory)
+       (insert (mapconcat #'identity (make-list 50 "rust mention") "\n"))))
+   ;; One file also contains 'async' — intersection is just that file (50 lines < 500).
+   (with-temp-file (expand-file-name "note0.org" haystack-notes-directory)
+     (insert (concat (mapconcat #'identity (make-list 50 "rust mention") "\n")
+                     "\nasync fn here\n")))
+   (cl-letf (((symbol-function 'yes-or-no-p)
+              (lambda (&rest _) (error "Gate should not have fired on intersection"))))
+     (haystack--run-and-query '("rust" "async") 'all))))
+
 ;;;; haystack-run-root-search
 
 (ert-deftest haystack-test/run-root-search-errors-without-directory ()
@@ -1679,6 +1770,59 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
      (haystack-run-root-search "hit")
      (when (get-buffer "*haystack:1:hit*")
        (kill-buffer (get-buffer "*haystack:1:hit*"))))))
+
+;;;; haystack-run-root-search AND queries
+
+(ert-deftest haystack-test/run-root-search-and-creates-buffer ()
+  "An & query creates a buffer named after all terms joined with &."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "note.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust async\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+       (haystack-run-root-search "rust & async")
+       (let ((buf (get-buffer "*haystack:1:rust&async*")))
+         (should buf)
+         (unwind-protect
+             (with-current-buffer buf
+               (should (string-match-p "root=rust & async" (buffer-string))))
+           (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/run-root-search-and-descriptor ()
+  "AND query descriptor stores joined root-term and first token's pattern."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "note.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust async\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+       (haystack-run-root-search "rust & async")
+       (let ((buf (get-buffer "*haystack:1:rust&async*")))
+         (should buf)
+         (unwind-protect
+             (with-current-buffer buf
+               ;; root-term stores stripped-first & raw-rest for frecency replay
+               (should (equal (plist-get haystack--search-descriptor :root-term)
+                              "rust & async"))
+               ;; root-expanded is the first token's rg pattern
+               (should (equal (plist-get haystack--search-descriptor :root-expanded)
+                              "rust"))
+               (should (null haystack--parent-buffer)))
+           (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/run-root-search-and-intersection ()
+  "AND query result contains only files matching all terms."
+  (haystack-test--with-notes-dir
+   (let ((both  (expand-file-name "both.org"  haystack-notes-directory))
+         (only1 (expand-file-name "only1.org" haystack-notes-directory)))
+     (with-temp-file both  (insert "rust async\n"))
+     (with-temp-file only1 (insert "rust only\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+       (haystack-run-root-search "rust & async")
+       (let ((buf (get-buffer "*haystack:1:rust&async*")))
+         (should buf)
+         (unwind-protect
+             (with-current-buffer buf
+               (should     (string-match-p "both\\.org"  (buffer-string)))
+               (should-not (string-match-p "only1\\.org" (buffer-string))))
+           (kill-buffer buf)))))))
 
 ;;;; haystack-search-region
 

@@ -7,7 +7,20 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.8.0] — 2026-03-26
+
 ### Added
+- **AND queries** — a root search of `rust & async` (spaces around `&`
+  required) finds files containing all terms and returns matches for the
+  first term in that intersection.  Any number of terms may be combined:
+  `rust & async & tokio`.  Prefix modifiers (`=`, `~`) work per token.
+  The volume gate runs on the intersection file set (not the first term
+  alone) so it only fires when the final result would be large.  `!`
+  negation is not supported inside `&` queries — use `filter-further`
+  after the AND search instead.  AND chains are recorded by frecency and
+  replay correctly.
 - **Two-phase volume gate** — before running a root search or content
   filter, haystack runs `rg --count` first and prompts
   `"N lines across M files — run anyway?"` if the total meets or
@@ -46,6 +59,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   future searches.
 
 ### Internal
+- `haystack--parse-and-tokens` — splits raw input on `" & "` into a
+  token list; returns nil for single-term input (no AND).
+- `haystack--run-and-query` — executes the AND logic: one
+  `--files-with-matches` pass per token to narrow the candidate set,
+  then a volume-gated content search of the first token's pattern across
+  the surviving files.
 - `haystack--build-rg-count-args` — builds `rg --count --with-filename`
   args for the volume gate root search, mirroring
   `haystack--build-rg-args` without the output-formatting flags.

@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.7.0
+;; Version: 0.8.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -1260,6 +1260,79 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
        (haystack--setup-results-buffer
         buf-name header output new-descriptor parent-buf)))))
 
+(defun haystack--run-and-query (tokens cf)
+  "Execute a file-level AND query for TOKENS with composite filter CF.
+Each element of TOKENS is a raw input string parsed through
+`haystack--parse-input'.  The candidate file set is narrowed by
+successive `--files-with-matches' passes (one per token).  The final
+output is a content search of the first token's pattern across the
+surviving files, formatted as standard rg grep output.
+Returns a raw rg output string, or an empty string when no files survive.
+Signals `user-error' if any token carries the ! negation prefix."
+  (let* ((parsed-list   (mapcar #'haystack--parse-input tokens))
+         (first-parsed  (car parsed-list))
+         (first-pattern (plist-get first-parsed :pattern)))
+    ;; Negation in AND queries is not supported — filter-further handles that.
+    (when (cl-some (lambda (p) (plist-get p :negated)) parsed-list)
+      (user-error
+       "Haystack: ! prefix is not supported in & queries — use filter-further to negate"))
+    ;; Step 1: find files matching the first token across the notes directory.
+    (let* ((fwm-args
+            (let ((args (list "--files-with-matches" "--ignore-case" "--color=never")))
+              (pcase (or cf 'exclude)
+                ('exclude (setq args (nconc args (list "--glob=!@*"))))
+                ('only    (setq args (nconc args (list "--glob=@*"))))
+                ('all     nil))
+              (when haystack-file-glob
+                (dolist (g haystack-file-glob)
+                  (setq args (nconc args (list (concat "--glob=" g))))))
+              (nconc args (list first-pattern
+                                (expand-file-name haystack-notes-directory)))))
+           (current-files
+            (split-string
+             (with-temp-buffer
+               (apply #'call-process "rg" nil t nil fwm-args)
+               (buffer-string))
+             "\n" t)))
+      (if (null current-files)
+          ""
+        ;; Steps 2+: narrow by each subsequent token.
+        (dolist (parsed (cdr parsed-list))
+          (when current-files
+            (let* ((pattern (plist-get parsed :pattern))
+                   (tmp     (haystack--write-filelist current-files)))
+              (unwind-protect
+                  (setq current-files
+                        (split-string
+                         (haystack--xargs-rg
+                          tmp (list "--files-with-matches" "--ignore-case"
+                                    "--color=never" pattern))
+                         "\n" t))
+                (delete-file tmp)))))
+        ;; Step 3: volume gate on the intersection, then content search.
+        (if (null current-files)
+            ""
+          (let ((tmp (haystack--write-filelist current-files)))
+            (unwind-protect
+                (progn
+                  (haystack--volume-gate
+                   (haystack--xargs-rg tmp (haystack--rg-count-xargs-args
+                                            first-pattern cf)))
+                  (haystack--run-rg-for-filelist first-pattern tmp cf))
+              (delete-file tmp))))))))
+
+(defun haystack--parse-and-tokens (raw)
+  "Split RAW on \" & \" and return a list of token strings, or nil.
+Returns nil when RAW does not contain \" & \" (no AND query).  Each
+token is whitespace-trimmed; results with fewer than two non-empty
+tokens are treated as a normal search and return nil."
+  (when (string-match-p " & " raw)
+    (let ((tokens (cl-remove-if #'string-empty-p
+                                (mapcar #'string-trim
+                                        (split-string raw " & " t)))))
+      (when (>= (length tokens) 2)
+        tokens))))
+
 ;;;###autoload
 (defun haystack-run-root-search (raw-input &optional composite-filter)
   "Search for RAW-INPUT in `haystack-notes-directory'.
@@ -1272,72 +1345,124 @@ treated: \\='exclude (default), \\='only, or \\='all."
   (interactive "sHaystack search: ")
   (haystack--assert-notes-directory)
   (haystack--load-expansion-groups)
-  (let* ((cf       (or composite-filter 'exclude))
-         (parsed   (haystack--parse-input raw-input))
-         (term      (plist-get parsed :term))
-         (pattern   (plist-get parsed :pattern))
-         (emacs-pat (plist-get parsed :emacs-pattern))
-         (filename  (plist-get parsed :filename))
-         (output
-          (if filename
-              (let* ((all-files  (haystack--files-for-root-search cf))
-                     (notes-root (file-name-as-directory
-                                  (expand-file-name haystack-notes-directory)))
-                     (matching   (cl-remove-if-not
-                                  (lambda (f)
-                                    ;; Match against path relative to notes dir so that
-                                    ;; directory components (e.g. sicp-org/README.org)
-                                    ;; are included.  Use :emacs-pattern — :pattern is
-                                    ;; ripgrep syntax.
-                                    (let ((rel (if (string-prefix-p notes-root f)
-                                                   (substring f (length notes-root))
-                                                 (file-name-nondirectory f))))
-                                      (string-match-p emacs-pat rel)))
-                                  all-files)))
-                (if (null matching)
-                    ""
-                  (let ((tmp (haystack--write-filelist matching)))
-                    (unwind-protect
-                        (haystack--run-rg-for-filelist "." tmp cf)
-                      (delete-file tmp)))))
-            (progn
-              (haystack--volume-gate
-               (with-temp-buffer
-                 (apply #'call-process "rg" nil t nil
-                        (haystack--build-rg-count-args pattern cf))
-                 (buffer-string)))
-              (with-temp-buffer
-                (let ((exit-code (apply #'call-process "rg" nil t nil
-                                        (haystack--build-rg-args pattern cf))))
-                  (when (= exit-code 2)
-                    (user-error "Haystack: rg error: %s" (buffer-string))))
-                (buffer-string)))))
-         (trunc-pat (if filename "." pattern))
-         (stats    (haystack--count-search-stats output))
-         (output   (haystack--strip-notes-prefix
-                    (haystack--truncate-output output trunc-pat)))
-         (buf-name (format "*haystack:1:%s*"
-                           (haystack--tree-term-label term nil filename
-                                                      (plist-get parsed :literal)
-                                                      (plist-get parsed :regex))))
-         (expansion   (plist-get parsed :expansion))
-         (chain-label (format "%s=%s"
-                              (if filename "filename" "root")
-                              (if expansion
-                                  (haystack--expansion-alternation expansion)
-                                (haystack--display-term term))))
-         (header   (haystack--format-header chain-label (car stats) (cdr stats)))
-         (descriptor (list :root-term        term
-                           :root-expanded    (if filename "." pattern)
-                           :root-literal     (plist-get parsed :literal)
-                           :root-regex       (plist-get parsed :regex)
-                           :root-filename    filename
-                           :root-expansion   expansion
-                           :filters          nil
-                           :composite-filter cf)))
-    (haystack--frecency-record descriptor)
-    (pop-to-buffer
-     (haystack--setup-results-buffer buf-name header output descriptor))))
+  (let ((cf (or composite-filter 'exclude)))
+    (if-let ((and-tokens (haystack--parse-and-tokens raw-input)))
+        ;; AND query: multi-pass file-level intersection.
+        (let* ((parsed-list   (mapcar #'haystack--parse-input and-tokens))
+               (first-parsed  (car parsed-list))
+               (first-term    (plist-get first-parsed :term))
+               (first-pattern (plist-get first-parsed :pattern))
+               (first-exp     (plist-get first-parsed :expansion))
+               (output        (haystack--run-and-query and-tokens cf))
+               (stats         (haystack--count-search-stats output))
+               (output        (haystack--strip-notes-prefix
+                               (haystack--truncate-output output first-pattern)))
+               ;; Buffer name: tree-term-labels joined with & (no spaces).
+               (buf-name      (format "*haystack:1:%s*"
+                                      (mapconcat
+                                       (lambda (p)
+                                         (haystack--tree-term-label
+                                          (plist-get p :term) nil
+                                          (plist-get p :filename)
+                                          (plist-get p :literal)
+                                          (plist-get p :regex)))
+                                       parsed-list "&")))
+               ;; Chain label: "root=TERM1 & TERM2" with expansions shown.
+               (display-parts (mapcar (lambda (p)
+                                        (if (plist-get p :expansion)
+                                            (haystack--expansion-alternation
+                                             (plist-get p :expansion))
+                                          (haystack--display-term (plist-get p :term))))
+                                      parsed-list))
+               (chain-label   (format "root=%s"
+                                      (mapconcat #'identity display-parts " & ")))
+               (header        (haystack--format-header chain-label (car stats) (cdr stats)))
+               ;; :root-term stores stripped first token + raw subsequent tokens so
+               ;; that the frecency chain key reconstructs the exact replay input:
+               ;;   chain-key = (concat root-pfx root-term)
+               ;;             = (concat "=" "rust & async") = "=rust & async"
+               ;;   replay: (haystack-run-root-search "=rust & async") → splits correctly.
+               (root-term-str (if (cdr and-tokens)
+                                  (concat first-term " & "
+                                          (mapconcat #'identity (cdr and-tokens) " & "))
+                                first-term))
+               (descriptor    (list :root-term        root-term-str
+                                    :root-expanded    first-pattern
+                                    :root-literal     (plist-get first-parsed :literal)
+                                    :root-regex       (plist-get first-parsed :regex)
+                                    :root-filename    nil
+                                    :root-expansion   first-exp
+                                    :filters          nil
+                                    :composite-filter cf)))
+          (haystack--frecency-record descriptor)
+          (pop-to-buffer
+           (haystack--setup-results-buffer buf-name header output descriptor)))
+      ;; Single-term query: existing path.
+      (let* ((parsed   (haystack--parse-input raw-input))
+             (term      (plist-get parsed :term))
+             (pattern   (plist-get parsed :pattern))
+             (emacs-pat (plist-get parsed :emacs-pattern))
+             (filename  (plist-get parsed :filename))
+             (output
+              (if filename
+                  (let* ((all-files  (haystack--files-for-root-search cf))
+                         (notes-root (file-name-as-directory
+                                      (expand-file-name haystack-notes-directory)))
+                         (matching   (cl-remove-if-not
+                                      (lambda (f)
+                                        ;; Match against path relative to notes dir so that
+                                        ;; directory components (e.g. sicp-org/README.org)
+                                        ;; are included.  Use :emacs-pattern — :pattern is
+                                        ;; ripgrep syntax.
+                                        (let ((rel (if (string-prefix-p notes-root f)
+                                                       (substring f (length notes-root))
+                                                     (file-name-nondirectory f))))
+                                          (string-match-p emacs-pat rel)))
+                                      all-files)))
+                    (if (null matching)
+                        ""
+                      (let ((tmp (haystack--write-filelist matching)))
+                        (unwind-protect
+                            (haystack--run-rg-for-filelist "." tmp cf)
+                          (delete-file tmp)))))
+                (progn
+                  (haystack--volume-gate
+                   (with-temp-buffer
+                     (apply #'call-process "rg" nil t nil
+                            (haystack--build-rg-count-args pattern cf))
+                     (buffer-string)))
+                  (with-temp-buffer
+                    (let ((exit-code (apply #'call-process "rg" nil t nil
+                                            (haystack--build-rg-args pattern cf))))
+                      (when (= exit-code 2)
+                        (user-error "Haystack: rg error: %s" (buffer-string))))
+                    (buffer-string)))))
+             (trunc-pat (if filename "." pattern))
+             (stats    (haystack--count-search-stats output))
+             (output   (haystack--strip-notes-prefix
+                        (haystack--truncate-output output trunc-pat)))
+             (buf-name (format "*haystack:1:%s*"
+                               (haystack--tree-term-label term nil filename
+                                                          (plist-get parsed :literal)
+                                                          (plist-get parsed :regex))))
+             (expansion   (plist-get parsed :expansion))
+             (chain-label (format "%s=%s"
+                                  (if filename "filename" "root")
+                                  (if expansion
+                                      (haystack--expansion-alternation expansion)
+                                    (haystack--display-term term))))
+             (header   (haystack--format-header chain-label (car stats) (cdr stats)))
+             (descriptor (list :root-term        term
+                               :root-expanded    (if filename "." pattern)
+                               :root-literal     (plist-get parsed :literal)
+                               :root-regex       (plist-get parsed :regex)
+                               :root-filename    filename
+                               :root-expansion   expansion
+                               :filters          nil
+                               :composite-filter cf)))
+        (haystack--frecency-record descriptor)
+        (pop-to-buffer
+         (haystack--setup-results-buffer buf-name header output descriptor))))))
 
 ;;;###autoload
 (defun haystack-search-region ()
