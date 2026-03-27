@@ -333,6 +333,16 @@ Not in scope for 1.0. Recorded so they don't get lost.
 ** DONE =haystack-new-note-with-moc=
 - Combo command: create new note and yank the current results MOC in one step
 - Bound to =N= in =haystack-results-mode-map= and =haystack-prefix-map=
+** DONE IO test suite (=test/haystack-io-test.el=)
+- 12 tests running real =rg= calls against a temp copy of =demo/notes/=
+- Covers: root search, expansion, AND queries, progressive filter, filename filter,
+  negation, frecency replay, compose, discoverability, stop-word prompts,
+  frecency recording, filename-prefix root search
+- Dual purpose: proves each pipeline works end-to-end; proves demo corpus is
+  rich enough to demonstrate every feature
+- =haystack-io-test--with-corpus= macro: copies corpus, saves/restores all globals,
+  kills scoped buffers on exit
+- Edge-case brainstorm in =docs/io-test-brainstorm.md=
 ** TODO Boolean DSL (=|=, =()= operators — =&= already done)
 ** TODO Search scope modes (body-only, frontmatter-only via sentinel)
 ** TODO Discoverability save-hook mode

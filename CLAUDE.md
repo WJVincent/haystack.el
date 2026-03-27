@@ -38,10 +38,15 @@ Run a quick pass over all six before closing a feature.
 ## Tests
 
 ```sh
+# Unit + bench (~2s)
 emacs --batch -l haystack.el -l test/haystack-test.el --eval '(ert-run-tests-batch-and-exit t)'
+
+# IO suite — runs rg for real against demo corpus (~2s)
+emacs --batch -l haystack.el -l test/haystack-io-test.el --eval '(ert-run-tests-batch-and-exit t)'
 ```
 
-Run the **full suite after every source edit**. Current count: ~412 tests.
+Run the **unit suite after every source edit**. Current count: 487 tests.
+Run the **IO suite** when touching search pipelines, frecency, compose, discoverability, or stop words.
 
 Performance ceiling (asserted by `test/haystack-bench.el`):
 - 500 ms per operation at 10k lines
