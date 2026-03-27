@@ -5,6 +5,20 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `haystack-run-root-search-at-point` (`C-c h .`, `.` in results buffers):
+  searches the word under the cursor without prompting.  Hyphens and
+  underscores are treated as word characters, so `bevy-ecs` and `my_note`
+  are captured whole.  Falls back to the active region when one exists.
+- `haystack--word-at-point`: internal helper for word extraction.
+- Stop word infrastructure: `.haystack-stop-words.el` in the notes directory,
+  auto-seeded from the NLTK English stop words corpus (182 words) on first use.
+  - `haystack-add-stop-word` / `haystack-remove-stop-word` /
+    `haystack-describe-stop-words` for list management.
+  - Single-word root searches and filter-further queries against a stop word
+    now prompt: `[s]earch anyway` (literal), `[r]emove from list`, `[q]uit`.
+    Multi-word terms and `=`-prefixed inputs are never blocked.
+
 ---
 
 ## [0.10.0] — 2026-03-27

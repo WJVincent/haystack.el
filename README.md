@@ -83,6 +83,7 @@ See `demo/README.org` for a guided walkthrough.
 | Key | Command |
 |-----------|----------------------------|
 | `C-c h s` | Search your notes |
+| `C-c h .` | Search word at point (or active region) |
 | `C-c h n` | Create a new note |
 | `C-c h N` | Create a new note and insert the current results MOC |
 | `C-c h r` | Search the active region |
@@ -163,6 +164,13 @@ Haystack runs a file-level intersection — only files matching every
 token survive — then shows content matches for the first term. Prefix
 modifiers (`=`, `~`) work per token. The `!` prefix is not supported
 inside `&` queries; use `filter-further` for negation after the root.
+
+### Search at Point
+
+`haystack-run-root-search-at-point` (`C-c h .`, also `.` in results buffers)
+searches the word under the cursor without prompting. Hyphens and underscores
+are treated as part of the word, so `bevy-ecs` and `my_note` are captured
+whole. If a region is active, the region text is used instead.
 
 ### Search Region
 
@@ -261,6 +269,7 @@ instead. This prevents pointless redundant filters.
 | `RET` | Visit file at point (or activate header button) |
 | `n` | Next match (preview in other window) |
 | `p` | Previous match (preview in other window) |
+| `.` | Search word at point (or active region) as a new root search |
 | `f` | Filter further |
 | `u` | Go up to parent buffer |
 | `d` | Go down to child buffer |
@@ -384,6 +393,31 @@ chain)` and returns a string, then registering it:
 `haystack-moc-quote-string` produces a double-quoted string literal
 with internal quotes escaped — useful whenever the output language uses
 `"string"` syntax.
+
+## Stop Words
+
+Haystack maintains a list of common words that are too broad to be useful
+as search terms ("the", "and", "with", etc.). When you search for a stop
+word, Haystack prompts:
+
+```
+Haystack: 'the' is a stop word.  [s]earch anyway  [r]emove from list  [q]uit:
+```
+
+- **s** — search literally (bypasses expansion groups, searches for the exact word)
+- **r** — remove the word from the stop list permanently, then search normally
+- **q** — cancel
+
+The list is seeded automatically from the NLTK English stop words corpus
+(182 words) on first use and stored in `.haystack-stop-words.el` in your
+notes directory. Multi-word
+terms and `=`-prefixed (literal) inputs are never blocked.
+
+| Command | Description |
+|---------|-------------|
+| `haystack-add-stop-word` | Add a word to the stop list |
+| `haystack-remove-stop-word` | Remove a word from the stop list |
+| `haystack-describe-stop-words` | Browse the full stop word list |
 
 ## Composite Notes
 

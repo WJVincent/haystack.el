@@ -1536,7 +1536,8 @@ would not be excluded by !/sicp even though 'sicp' is in its path."
      (with-temp-file subfile (insert "some content\n"))
      (with-temp-file flat    (insert "some content\n")))
    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
-             ((symbol-function 'switch-to-buffer) #'ignore))
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'haystack--stop-word-p) (lambda (_) nil)))
      (haystack-run-root-search "some")
      (let ((root-buf (get-buffer "*haystack:1:some*")))
        (unwind-protect
@@ -4260,6 +4261,229 @@ Cleans up both the results buffer and the compose buffer."
          (should (bufferp buf))
          (should (= 1 pop-count))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; haystack--word-at-point
+
+(ert-deftest haystack-test/word-at-point-plain-word ()
+  "Returns the plain word under point."
+  (with-temp-buffer
+    (insert "hello world")
+    (goto-char (point-min))
+    (should (equal (haystack--word-at-point) "hello"))))
+
+(ert-deftest haystack-test/word-at-point-hyphenated ()
+  "Returns the full hyphenated word under point."
+  (with-temp-buffer
+    (insert "bevy-ecs patterns")
+    (goto-char (point-min))
+    (should (equal (haystack--word-at-point) "bevy-ecs"))))
+
+(ert-deftest haystack-test/word-at-point-underscored ()
+  "Returns the full underscored word under point."
+  (with-temp-buffer
+    (insert "my_note here")
+    (goto-char (point-min))
+    (should (equal (haystack--word-at-point) "my_note"))))
+
+(ert-deftest haystack-test/word-at-point-cursor-mid-word ()
+  "Returns the full word even when point is in the middle."
+  (with-temp-buffer
+    (insert "bevy-ecs")
+    (goto-char 4)
+    (should (equal (haystack--word-at-point) "bevy-ecs"))))
+
+(ert-deftest haystack-test/word-at-point-on-whitespace-returns-nil ()
+  "Returns nil when point is on whitespace."
+  (with-temp-buffer
+    (insert "hello world")
+    (goto-char 6)
+    (should (null (haystack--word-at-point)))))
+
+(ert-deftest haystack-test/word-at-point-on-punctuation-returns-nil ()
+  "Returns nil when point is on a punctuation character."
+  (with-temp-buffer
+    (insert "foo.bar")
+    (goto-char 4)
+    (should (null (haystack--word-at-point)))))
+
+;;;; haystack-run-root-search-at-point
+
+(ert-deftest haystack-test/search-at-point-uses-word-at-point ()
+  "Calls haystack-run-root-search with the word under point."
+  (haystack-test--with-notes-dir
+   (with-temp-buffer
+     (insert "rust programming")
+     (goto-char (point-min))
+     (let ((searched nil))
+       (cl-letf (((symbol-function 'haystack-run-root-search)
+                  (lambda (term &rest _) (setq searched term))))
+         (haystack-run-root-search-at-point)
+         (should (equal searched "rust")))))))
+
+(ert-deftest haystack-test/search-at-point-uses-region-when-active ()
+  "Uses the active region instead of word at point when a region is active."
+  (haystack-test--with-notes-dir
+   (with-temp-buffer
+     (insert "bevy ecs patterns")
+     (goto-char (point-min))
+     (push-mark (point-min) t t)
+     (goto-char 9)
+     (let ((searched nil)
+           (transient-mark-mode t))
+       (cl-letf (((symbol-function 'haystack-run-root-search)
+                  (lambda (term &rest _) (setq searched term))))
+         (haystack-run-root-search-at-point)
+         (should (equal searched "bevy ecs")))))))
+
+(ert-deftest haystack-test/search-at-point-errors-on-no-word-no-region ()
+  "Signals user-error when point is on whitespace and no region is active."
+  (haystack-test--with-notes-dir
+   (with-temp-buffer
+     (insert "  ")
+     (goto-char (point-min))
+     (should-error (haystack-run-root-search-at-point) :type 'user-error))))
+
+;;;; Stop words — data layer
+
+(ert-deftest haystack-test/stop-words-load-returns-nil-when-no-file ()
+  "Loading stop words when no file exists returns nil (not an error)."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words nil))
+     (haystack--load-stop-words)
+     (should (null haystack--stop-words)))))
+
+(ert-deftest haystack-test/stop-words-auto-seed-on-first-access ()
+  "haystack--ensure-stop-words seeds defaults and creates the file when absent."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words nil))
+     (haystack--ensure-stop-words)
+     (should (listp haystack--stop-words))
+     (should (> (length haystack--stop-words) 50))
+     (should (member "the" haystack--stop-words))
+     (should (file-exists-p (expand-file-name ".haystack-stop-words.el"
+                                              haystack-notes-directory))))))
+
+(ert-deftest haystack-test/stop-words-add-word-persists ()
+  "haystack-add-stop-word adds the word and saves the file."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words nil))
+     (haystack--ensure-stop-words)
+     (haystack-add-stop-word "widget")
+     (should (member "widget" haystack--stop-words))
+     ;; Reload from disk and verify
+     (setq haystack--stop-words nil)
+     (haystack--load-stop-words)
+     (should (member "widget" haystack--stop-words)))))
+
+(ert-deftest haystack-test/stop-words-remove-word-persists ()
+  "haystack-remove-stop-word removes the word and saves the file."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words nil))
+     (haystack--ensure-stop-words)
+     (haystack-add-stop-word "widget")
+     (haystack-remove-stop-word "widget")
+     (should-not (member "widget" haystack--stop-words))
+     (setq haystack--stop-words nil)
+     (haystack--load-stop-words)
+     (should-not (member "widget" haystack--stop-words)))))
+
+(ert-deftest haystack-test/stop-words-describe-buffer-created ()
+  "haystack-describe-stop-words opens a buffer listing the stop words."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words nil))
+     (haystack--ensure-stop-words)
+     (haystack-describe-stop-words)
+     (let ((buf (get-buffer "*haystack-stop-words*")))
+       (should (bufferp buf))
+       (should (string-match-p "the" (with-current-buffer buf (buffer-string))))
+       (kill-buffer buf)))))
+
+;;;; Stop words — check helper
+
+(ert-deftest haystack-test/stop-word-check-single-word-in-list ()
+  "haystack--stop-word-p returns t for a single word in the stop list."
+  (let ((haystack--stop-words '("the" "a" "and")))
+    (should (haystack--stop-word-p "the"))))
+
+(ert-deftest haystack-test/stop-word-check-not-in-list ()
+  "haystack--stop-word-p returns nil for a word not in the list."
+  (let ((haystack--stop-words '("the" "a" "and")))
+    (should-not (haystack--stop-word-p "rust"))))
+
+(ert-deftest haystack-test/stop-word-check-case-insensitive ()
+  "haystack--stop-word-p is case-insensitive."
+  (let ((haystack--stop-words '("the")))
+    (should (haystack--stop-word-p "THE"))
+    (should (haystack--stop-word-p "The"))))
+
+(ert-deftest haystack-test/stop-word-check-multi-word-never-blocked ()
+  "haystack--stop-word-p returns nil for multi-word input."
+  (let ((haystack--stop-words '("the" "a")))
+    (should-not (haystack--stop-word-p "the quick"))))
+
+;;;; Stop words — search integration prompt
+
+(ert-deftest haystack-test/stop-word-prompt-s-searches-literally ()
+  "Choosing s runs a literal search (descriptor has :root-literal t)."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words '("the")))
+     (cl-letf (((symbol-function 'haystack--stop-word-prompt)
+                (lambda (_term) ?s))
+               ((symbol-function 'pop-to-buffer) #'ignore))
+       (let ((buf (haystack-run-root-search "the")))
+         (unwind-protect
+             (should (plist-get
+                      (buffer-local-value 'haystack--search-descriptor buf)
+                      :root-literal))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+(ert-deftest haystack-test/stop-word-prompt-r-removes-and-searches ()
+  "Choosing r removes the word from the stop list and searches normally."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words '("the")))
+     (cl-letf (((symbol-function 'haystack--stop-word-prompt)
+                (lambda (_term) ?r))
+               ((symbol-function 'pop-to-buffer) #'ignore))
+       (let ((buf (haystack-run-root-search "the")))
+         (unwind-protect
+             (progn
+               (should-not (member "the" haystack--stop-words))
+               (should-not (plist-get
+                            (buffer-local-value 'haystack--search-descriptor buf)
+                            :root-literal)))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+(ert-deftest haystack-test/stop-word-prompt-q-aborts ()
+  "Choosing q returns nil and opens no buffer."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words '("the")))
+     (cl-letf (((symbol-function 'haystack--stop-word-prompt)
+                (lambda (_term) ?q)))
+       (should (null (haystack-run-root-search "the")))))))
+
+(ert-deftest haystack-test/stop-word-literal-prefix-bypasses-check ()
+  "A =term input bypasses the stop word check entirely."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words '("the"))
+         (prompt-called nil))
+     (cl-letf (((symbol-function 'haystack--stop-word-prompt)
+                (lambda (_term) (setq prompt-called t) ?q))
+               ((symbol-function 'pop-to-buffer) #'ignore))
+       (let ((buf (haystack-run-root-search "=the")))
+         (when (buffer-live-p buf) (kill-buffer buf)))
+       (should-not prompt-called)))))
+
+(ert-deftest haystack-test/stop-word-multi-word-bypasses-check ()
+  "A multi-word input bypasses the stop word check."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words '("the"))
+         (prompt-called nil))
+     (cl-letf (((symbol-function 'haystack--stop-word-prompt)
+                (lambda (_term) (setq prompt-called t) ?q))
+               ((symbol-function 'pop-to-buffer) #'ignore))
+       (let ((buf (haystack-run-root-search "the quick")))
+         (when (buffer-live-p buf) (kill-buffer buf)))
+       (should-not prompt-called)))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

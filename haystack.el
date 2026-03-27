@@ -1486,6 +1486,20 @@ including composite files in the search."
   (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
   (haystack--load-expansion-groups)
+  (haystack--ensure-stop-words)
+  ;; Stop word check: single-word, non-literal, non-regex terms only.
+  (let* ((pre-parsed  (haystack--parse-input raw-input))
+         (pre-term    (plist-get pre-parsed :term))
+         (stop-abort  nil))
+    (when (and (not (plist-get pre-parsed :literal))
+               (not (plist-get pre-parsed :regex))
+               (not (haystack--parse-and-tokens raw-input))
+               (haystack--stop-word-p pre-term))
+      (pcase (haystack--stop-word-prompt pre-term)
+        (?s (setq raw-input (concat "=" pre-term)))
+        (?r (haystack-remove-stop-word pre-term))
+        (_  (setq stop-abort t))))
+    (unless stop-abort
   (let ((cf (or composite-filter 'exclude)))
     (if-let ((and-tokens (haystack--parse-and-tokens raw-input)))
         ;; AND query: multi-pass file-level intersection.
@@ -1613,7 +1627,7 @@ including composite files in the search."
                                                      composite-path)))
             (unless haystack--suppress-display
               (pop-to-buffer buf))
-            buf))))))
+            buf))))))))
 
 ;;;###autoload
 (defun haystack-search-region ()
@@ -1623,6 +1637,34 @@ including composite files in the search."
     (user-error "Haystack: no active region"))
   (haystack-run-root-search
    (buffer-substring-no-properties (region-beginning) (region-end))))
+
+(defun haystack--word-at-point ()
+  "Return the word at point, treating hyphens and underscores as word characters.
+Scans outward from point using alphanumeric, hyphen, and underscore characters.
+Returns nil if point is not on such a character."
+  (save-excursion
+    (let ((chars "a-zA-Z0-9_-"))
+      (let ((ch (char-after (point))))
+        (when (and ch (string-match-p (concat "[" chars "]") (string ch)))
+          (let ((start (progn (skip-chars-backward chars) (point)))
+                (end   (progn (skip-chars-forward  chars) (point))))
+            (buffer-substring-no-properties start end)))))))
+
+;;;###autoload
+(defun haystack-run-root-search-at-point ()
+  "Run a root search on the word at point, or the active region if one exists.
+If a region is active its text is used as the search term.  Otherwise the
+word under point is used, treating hyphens and underscores as word
+characters.  Signals `user-error' if neither a region nor a word is found."
+  (interactive)
+  (cond
+   ((use-region-p)
+    (haystack-run-root-search
+     (buffer-substring-no-properties (region-beginning) (region-end))))
+   ((haystack--word-at-point)
+    (haystack-run-root-search (haystack--word-at-point)))
+   (t
+    (user-error "Haystack: no word at point and no active region"))))
 
 ;;;###autoload
 (defun haystack-search-composites (raw-input)
@@ -1647,6 +1689,7 @@ Like `haystack-run-root-search' with composite-filter set to \\='only."
 (define-key haystack-results-mode-map "c" #'haystack-copy-moc)
 (define-key haystack-results-mode-map "N" #'haystack-new-note-with-moc)
 (define-key haystack-results-mode-map (kbd "C-c C-c") #'haystack-compose)
+(define-key haystack-results-mode-map "." #'haystack-run-root-search-at-point)
 (define-key haystack-results-mode-map "t" #'haystack-show-tree)
 (define-key haystack-results-mode-map "?" #'haystack-help)
 
@@ -2870,6 +2913,130 @@ argument ALL, show every recorded chain."
          (choice      (completing-read prompt table nil t)))
     (haystack--frecency-replay (gethash choice display-map))))
 
+;;;; Stop words
+
+(defvar haystack--stop-words nil
+  "List of stop words loaded from `.haystack-stop-words.el'.
+Nil means not yet loaded.  Use `haystack--ensure-stop-words' before access.")
+
+(defconst haystack--default-stop-words
+  '("a" "about" "above" "after" "again" "against" "all" "also" "am" "an"
+    "and" "any" "are" "aren't" "as" "at" "be" "because" "been" "before"
+    "being" "below" "between" "both" "but" "by" "can" "can't" "cannot"
+    "could" "couldn't" "did" "didn't" "do" "does" "doesn't" "doing" "don't"
+    "down" "during" "each" "few" "for" "from" "further" "get" "got" "had"
+    "hadn't" "has" "hasn't" "have" "haven't" "having" "he" "he'd" "he'll"
+    "he's" "her" "here" "here's" "hers" "herself" "him" "himself" "his"
+    "how" "how's" "i" "i'd" "i'll" "i'm" "i've" "if" "in" "into" "is"
+    "isn't" "it" "it's" "its" "itself" "just" "let's" "like" "me" "more"
+    "most" "mustn't" "my" "myself" "no" "nor" "not" "now" "of" "off" "on"
+    "once" "only" "or" "other" "ought" "our" "ours" "ourselves" "out"
+    "over" "own" "same" "shan't" "she" "she'd" "she'll" "she's" "should"
+    "shouldn't" "so" "some" "such" "than" "that" "that's" "the" "their"
+    "theirs" "them" "themselves" "then" "there" "there's" "these" "they"
+    "they'd" "they'll" "they're" "they've" "this" "those" "through" "to"
+    "too" "under" "until" "up" "very" "was" "wasn't" "we" "we'd" "we'll"
+    "we're" "we've" "were" "weren't" "what" "what's" "when" "when's"
+    "where" "where's" "which" "while" "who" "who's" "whom" "why" "why's"
+    "will" "with" "won't" "would" "wouldn't" "you" "you'd" "you'll"
+    "you're" "you've" "your" "yours" "yourself" "yourselves")
+  "Default English stop words seeded into `.haystack-stop-words.el' on first use.
+This is the standard NLTK English stop words corpus (182 words).")
+
+(defun haystack--stop-words-file ()
+  "Return the path to the stop words data file."
+  (expand-file-name ".haystack-stop-words.el" haystack-notes-directory))
+
+(defun haystack--load-stop-words ()
+  "Load stop words from disk into `haystack--stop-words'.
+Does not seed defaults — leaves `haystack--stop-words' nil if no file exists."
+  (let ((path (haystack--stop-words-file)))
+    (setq haystack--stop-words
+          (condition-case err
+              (when (file-exists-p path)
+                (with-temp-buffer
+                  (insert-file-contents path)
+                  (read (current-buffer))))
+            (error
+             (message "Haystack: failed to load stop words: %s"
+                      (error-message-string err))
+             nil)))))
+
+(defun haystack--save-stop-words ()
+  "Persist `haystack--stop-words' to disk."
+  (condition-case err
+      (with-temp-file (haystack--stop-words-file)
+        (let ((print-level nil) (print-length nil))
+          (pp haystack--stop-words (current-buffer))))
+    (error
+     (message "Haystack: failed to save stop words: %s"
+              (error-message-string err)))))
+
+(defun haystack--ensure-stop-words ()
+  "Load stop words, seeding defaults if the file does not yet exist."
+  (unless haystack--stop-words
+    (let ((path (haystack--stop-words-file)))
+      (if (file-exists-p path)
+          (haystack--load-stop-words)
+        (setq haystack--stop-words (copy-sequence haystack--default-stop-words))
+        (haystack--save-stop-words)))))
+
+(defun haystack--stop-word-p (term)
+  "Return non-nil if TERM is a single-word stop word.
+Multi-word terms (containing whitespace) are never stop words.
+Comparison is case-insensitive."
+  (and (not (string-match-p "[ \t]" term))
+       (member (downcase term) haystack--stop-words)))
+
+(defun haystack--stop-word-prompt (term)
+  "Prompt the user about stop word TERM and return the chosen character.
+Returns ?s (search literally), ?r (remove from list and search), or ?q (quit)."
+  (read-char-choice
+   (format "Haystack: '%s' is a stop word.  [s]earch anyway  [r]emove from list  [q]uit: "
+           term)
+   '(?s ?r ?q)))
+
+;;;###autoload
+(defun haystack-add-stop-word (word)
+  "Add WORD to the stop word list and save."
+  (interactive "sAdd stop word: ")
+  (haystack--ensure-stop-words)
+  (let ((w (downcase (string-trim word))))
+    (unless (member w haystack--stop-words)
+      (push w haystack--stop-words)
+      (haystack--save-stop-words)
+      (message "Haystack: added '%s' to stop words" w))))
+
+;;;###autoload
+(defun haystack-remove-stop-word (word)
+  "Remove WORD from the stop word list and save."
+  (interactive
+   (progn
+     (haystack--ensure-stop-words)
+     (list (completing-read "Remove stop word: " haystack--stop-words nil t))))
+  (haystack--ensure-stop-words)
+  (let ((w (downcase (string-trim word))))
+    (setq haystack--stop-words (delete w haystack--stop-words))
+    (haystack--save-stop-words)
+    (message "Haystack: removed '%s' from stop words" w)))
+
+;;;###autoload
+(defun haystack-describe-stop-words ()
+  "Display all stop words in a dedicated buffer."
+  (interactive)
+  (haystack--ensure-stop-words)
+  (let ((buf (get-buffer-create "*haystack-stop-words*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (format ";;;; Haystack stop words (%d)\n\n"
+                        (length haystack--stop-words)))
+        (dolist (w (sort (copy-sequence haystack--stop-words) #'string<))
+          (insert w "\n"))
+        (special-mode)
+        (goto-char (point-min))))
+    (pop-to-buffer buf)))
+
 ;;;; Demo mode
 
 (defun haystack--demo-package-dir ()
@@ -3242,6 +3409,7 @@ full buffer contents as a new note via `haystack-new-note'."
 Not bound by default.  Add to your config, e.g.:
   (global-set-key (kbd \"C-c h\") haystack-prefix-map)")
 (define-key haystack-prefix-map "s" #'haystack-run-root-search)
+(define-key haystack-prefix-map "." #'haystack-run-root-search-at-point)
 (define-key haystack-prefix-map "r" #'haystack-search-region)
 (define-key haystack-prefix-map "n" #'haystack-new-note)
 (define-key haystack-prefix-map "N" #'haystack-new-note-with-moc)
