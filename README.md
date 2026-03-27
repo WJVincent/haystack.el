@@ -92,6 +92,7 @@ See `demo/README.org` for a guided walkthrough.
 | `C-c h t` | Show the buffer tree |
 | `C-c h w` | Compose a composite note from results |
 | `C-c h C` | Search composite notes only |
+| `C-c h d` | Analyze term discoverability for the current note |
 | `C-c h D` | Start demo mode |
 
 ## Creating Notes
@@ -279,6 +280,7 @@ instead. This prevents pointless redundant filters.
 | `M-k` | Kill the whole tree (walk to root, then kill) |
 | `c` | Copy MOC to kill ring |
 | `N` | Create a new note and insert the current results MOC into it |
+| `D` | Analyze term discoverability for the current note |
 | `C-c C-c` | Compose a composite note from this buffer's results |
 | `?`  | Show help |
 
@@ -418,6 +420,44 @@ terms and `=`-prefixed (literal) inputs are never blocked.
 | `haystack-add-stop-word` | Add a word to the stop list |
 | `haystack-remove-stop-word` | Remove a word from the stop list |
 | `haystack-describe-stop-words` | Browse the full stop word list |
+
+## Discoverability
+
+`haystack-describe-discoverability` (`C-c h d`, or `D` in a results buffer)
+analyses how well-connected a note is to the rest of your corpus.
+
+It tokenizes the current buffer, strips stop words, then asks ripgrep how many
+notes contain each term. Terms are sorted into four tiers:
+
+| Tier | Files | Meaning |
+|------|-------|---------|
+| **Isolated** | 0 | The term appears only here — a potential orphan concept |
+| **Sparse** | 1–`haystack-discoverability-sparse-max` | Niche or specific; still explorable |
+| **Connected** | sparse-max+1 to ubiquitous-min−1 | Well-integrated with the corpus |
+| **Ubiquitous** | ≥ `haystack-discoverability-ubiquitous-min` | So common it may not be useful — consider adding to stop words |
+
+Results are presented as an org-mode buffer with a PROPERTIES drawer per tier.
+Progress is shown in the echo area while the analysis runs.
+
+**Gate:** only works from file-backed buffers whose file is inside
+`haystack-notes-directory`.  Running the command again on the same note
+refreshes the existing buffer.
+
+### Discoverability Buffer Keys
+
+| Key | Action |
+|-----|--------|
+| `RET` | Launch a haystack search for the term at point |
+| `a` | Add the term at point to the stop word list |
+| `q` | Close the buffer |
+
+### Customization
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `haystack-discoverability-sparse-max` | `3` | Upper file-count boundary for the Sparse tier |
+| `haystack-discoverability-ubiquitous-min` | `500` | Lower file-count boundary for the Ubiquitous tier |
+| `haystack-discoverability-split-compound-words` | `nil` | When `t`, split on hyphens and underscores during tokenization |
 
 ## Composite Notes
 

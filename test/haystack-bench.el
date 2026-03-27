@@ -11,11 +11,13 @@
 ;;   100k lines — stress / outlier (100k+ note corpus, every note matched)
 ;;
 ;; Functions covered:
-;;   haystack--count-search-stats  — unique-file + match counting
-;;   haystack--truncate-output     — per-line content windowing
-;;   haystack--extract-filenames   — filelist extraction (filter hot path)
-;;   haystack--strip-notes-prefix  — path shortening before display
-;;   haystack--extract-file-loci   — file+line extraction for MOC
+;;   haystack--count-search-stats          — unique-file + match counting
+;;   haystack--truncate-output             — per-line content windowing
+;;   haystack--extract-filenames           — filelist extraction (filter hot path)
+;;   haystack--strip-notes-prefix          — path shortening before display
+;;   haystack--extract-file-loci           — file+line extraction for MOC
+;;   haystack--discoverability-tokenize    — note text → token list (stop-word filter, dedup)
+;;   haystack--discoverability-render      — term-count alist → org buffer string
 ;;
 ;; Run from the repo root with:
 ;;   emacs --batch -l ert -l haystack.el -l test/haystack-test.el \
@@ -246,6 +248,88 @@ even if an error occurs during setup."
   (haystack-bench--with-forest roots (10 7 7)
     (haystack-bench--within-500ms "tree-render stress (~570 bufs)"
       (haystack-bench--render-forest roots))))
+
+;;;; haystack--discoverability-tokenize
+;;
+;; The primary cost of `haystack-describe-discoverability' has two parts:
+;;   1. Tokenization — pure Elisp on the note text (benched here)
+;;   2. N rg invocations — one per unique token (I/O-bound; cannot be
+;;      unit-benched, but each call is bounded by rg's own latency)
+;;
+;; Tokenization must remain sub-linear in output size even for very large
+;; notes.  Regressions here multiply across every term in the corpus.
+
+(defun haystack-bench--make-note-text (n-words)
+  "Return a synthetic note string of N-WORDS space-separated tokens.
+The vocabulary includes stop words, punctuation-flanked words, and
+hyphenated/underscored compound terms to exercise the full tokenization
+path: split, downcase, stop-word filter, dedup."
+  (let* ((vocab '("rust" "async" "tokio" "bevy" "emacs" "lisp" "haskell"
+                  "programming" "coding" "system" "function" "method" "value"
+                  "the" "and" "is" "a" "an" "of" "in" "to" "for" "with"
+                  "word-word" "under_score" "multi-term" "file_path" "emacs-lisp"))
+         (vocab-len (length vocab))
+         (parts (make-vector n-words nil)))
+    (dotimes (i n-words)
+      (aset parts i (nth (mod i vocab-len) vocab)))
+    (mapconcat #'identity parts " ")))
+
+(ert-deftest haystack-bench/discoverability-tokenize-10k-words ()
+  "haystack--discoverability-tokenize handles a 10k-word note in under 500ms."
+  (let ((text (haystack-bench--make-note-text 10000))
+        (haystack--stop-words haystack--default-stop-words)
+        (haystack-discoverability-split-compound-words nil))
+    (haystack-bench--within-500ms "discoverability-tokenize 10k words"
+      (haystack--discoverability-tokenize text))))
+
+(ert-deftest haystack-bench/discoverability-tokenize-100k-words ()
+  "haystack--discoverability-tokenize handles a 100k-word note in under 2s."
+  (let ((text (haystack-bench--make-note-text 100000))
+        (haystack--stop-words haystack--default-stop-words)
+        (haystack-discoverability-split-compound-words nil))
+    (haystack-bench--within-2s "discoverability-tokenize 100k words"
+      (haystack--discoverability-tokenize text))))
+
+;;;; haystack--discoverability-render
+;;
+;; After all rg calls complete, `haystack--discoverability-render' must
+;; sort N terms into four tier sections and build the org string.
+;; Realistic notes: a few hundred unique tokens after stop-word filtering.
+;; Stress: 10k terms (implausibly large, but verifies O(N log N) sort).
+
+(defun haystack-bench--make-term-counts (n-terms)
+  "Return an alist of N-TERMS (TERM . COUNT) pairs spanning all four tiers."
+  (let (result)
+    (dotimes (i n-terms)
+      (push (cons (format "term%d" i)
+                  ;; Distribute evenly across tiers: isolated/sparse/connected/ubiquitous
+                  (pcase (mod i 4)
+                    (0 0)    ; isolated
+                    (1 2)    ; sparse  (within default sparse-max of 3)
+                    (2 50)   ; connected
+                    (_ 600))) ; ubiquitous (above default ubiquitous-min of 500)
+            result))
+    result))
+
+(ert-deftest haystack-bench/discoverability-render-1k-terms ()
+  "haystack--discoverability-render handles 1k terms in under 500ms."
+  (let ((tc (haystack-bench--make-term-counts 1000))
+        (haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500)
+        (haystack-notes-directory "/notes"))
+    (haystack-bench--within-500ms "discoverability-render 1k terms"
+      (haystack--discoverability-render
+       tc "/notes/20241215120000-bench-note.org"))))
+
+(ert-deftest haystack-bench/discoverability-render-10k-terms ()
+  "haystack--discoverability-render handles 10k terms in under 2s."
+  (let ((tc (haystack-bench--make-term-counts 10000))
+        (haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500)
+        (haystack-notes-directory "/notes"))
+    (haystack-bench--within-2s "discoverability-render 10k terms"
+      (haystack--discoverability-render
+       tc "/notes/20241215120000-bench-note.org"))))
 
 (provide 'haystack-bench)
 ;;; haystack-bench.el ends here

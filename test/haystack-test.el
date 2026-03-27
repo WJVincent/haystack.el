@@ -4485,5 +4485,259 @@ Cleans up both the results buffer and the compose buffer."
          (when (buffer-live-p buf) (kill-buffer buf)))
        (should-not prompt-called)))))
 
+;;;; haystack--discoverability-tokenize
+
+(ert-deftest haystack-test/discoverability-tokenize-basic ()
+  "Tokenize splits on whitespace and lowercases."
+  (let ((haystack--stop-words '()))
+    (should (equal (sort (haystack--discoverability-tokenize "Foo bar baz") #'string<)
+                   '("bar" "baz" "foo")))))
+
+(ert-deftest haystack-test/discoverability-tokenize-punctuation ()
+  "Common punctuation is treated as a separator."
+  (let ((haystack--stop-words '()))
+    (let ((tokens (haystack--discoverability-tokenize "foo, bar. baz: qux!")))
+      (should (member "foo" tokens))
+      (should (member "bar" tokens))
+      (should (member "baz" tokens))
+      (should (member "qux" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-deduplicated ()
+  "Duplicate tokens are removed."
+  (let ((haystack--stop-words '()))
+    (let ((tokens (haystack--discoverability-tokenize "rust rust Rust")))
+      (should (equal (length tokens) 1))
+      (should (member "rust" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-stop-words-removed ()
+  "Stop words are excluded from the token list."
+  (let ((haystack--stop-words '("the" "and" "is")))
+    (let ((tokens (haystack--discoverability-tokenize "the quick brown fox and is")))
+      (should-not (member "the" tokens))
+      (should-not (member "and" tokens))
+      (should-not (member "is" tokens))
+      (should (member "quick" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-hyphens-kept ()
+  "Hyphens are word chars by default — compound words kept intact."
+  (let ((haystack--stop-words '())
+        (haystack-discoverability-split-compound-words nil))
+    (let ((tokens (haystack--discoverability-tokenize "word-word under_score")))
+      (should (member "word-word" tokens))
+      (should (member "under_score" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-split-compound ()
+  "With split-compound-words t, hyphens and underscores split tokens."
+  (let ((haystack--stop-words '())
+        (haystack-discoverability-split-compound-words t))
+    (let ((tokens (haystack--discoverability-tokenize "word-word under_score")))
+      (should-not (member "word-word" tokens))
+      (should-not (member "under_score" tokens))
+      (should (member "word" tokens))
+      (should (member "under" tokens))
+      (should (member "score" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-no-length-filter ()
+  "Short tokens like 'c', 'go', 'js' are kept."
+  (let ((haystack--stop-words '()))
+    (let ((tokens (haystack--discoverability-tokenize "c go js rust")))
+      (should (member "c" tokens))
+      (should (member "go" tokens))
+      (should (member "js" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-empty-string ()
+  "Empty input returns empty list."
+  (let ((haystack--stop-words '()))
+    (should (null (haystack--discoverability-tokenize "")))))
+
+;;;; haystack--discoverability-tier
+
+(ert-deftest haystack-test/discoverability-tier-isolated ()
+  "Zero files → isolated."
+  (let ((haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500))
+    (should (eq 'isolated (haystack--discoverability-tier 0)))))
+
+(ert-deftest haystack-test/discoverability-tier-sparse-min ()
+  "One file → sparse."
+  (let ((haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500))
+    (should (eq 'sparse (haystack--discoverability-tier 1)))))
+
+(ert-deftest haystack-test/discoverability-tier-sparse-max ()
+  "sparse-max files → sparse."
+  (let ((haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500))
+    (should (eq 'sparse (haystack--discoverability-tier 3)))))
+
+(ert-deftest haystack-test/discoverability-tier-connected-min ()
+  "sparse-max+1 files → connected."
+  (let ((haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500))
+    (should (eq 'connected (haystack--discoverability-tier 4)))))
+
+(ert-deftest haystack-test/discoverability-tier-connected-max ()
+  "ubiquitous-min-1 files → connected."
+  (let ((haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500))
+    (should (eq 'connected (haystack--discoverability-tier 499)))))
+
+(ert-deftest haystack-test/discoverability-tier-ubiquitous ()
+  "ubiquitous-min+ files → ubiquitous."
+  (let ((haystack-discoverability-sparse-max 3)
+        (haystack-discoverability-ubiquitous-min 500))
+    (should (eq 'ubiquitous (haystack--discoverability-tier 500)))))
+
+;;;; haystack--discoverability-buffer-name
+
+(ert-deftest haystack-test/discoverability-buffer-name-timestamped ()
+  "Timestamped filename → slug (no timestamp, no ext) in buffer name."
+  (should (equal (haystack--discoverability-buffer-name
+                  "/notes/20241215120000-rust-async.org")
+                 "*haystack-discoverability: rust-async*")))
+
+(ert-deftest haystack-test/discoverability-buffer-name-plain ()
+  "Plain filename → stripped extension in buffer name."
+  (should (equal (haystack--discoverability-buffer-name
+                  "/notes/my-note.md")
+                 "*haystack-discoverability: my-note*")))
+
+;;;; haystack--discoverability-in-notes-dir-p
+
+(ert-deftest haystack-test/discoverability-in-notes-dir-p-yes ()
+  "File inside notes directory → non-nil."
+  (haystack-test--with-notes-dir
+   (let ((f (expand-file-name "note.org" haystack-notes-directory)))
+     (should (haystack--discoverability-in-notes-dir-p f)))))
+
+(ert-deftest haystack-test/discoverability-in-notes-dir-p-no ()
+  "File outside notes directory → nil."
+  (haystack-test--with-notes-dir
+   (should-not (haystack--discoverability-in-notes-dir-p "/tmp/outsider.org"))))
+
+;;;; haystack-describe-discoverability (integration)
+
+(ert-deftest haystack-test/discoverability-errors-not-file-backed ()
+  "Signal user-error when buffer has no associated file."
+  (haystack-test--with-notes-dir
+   (with-temp-buffer
+     (should-error (haystack-describe-discoverability) :type 'user-error))))
+
+(ert-deftest haystack-test/discoverability-errors-outside-notes-dir ()
+  "Signal user-error when the buffer's file is outside the notes directory."
+  (haystack-test--with-notes-dir
+   (haystack-test--with-file-buffer "org"
+     (should-error (haystack-describe-discoverability) :type 'user-error))))
+
+(ert-deftest haystack-test/discoverability-creates-org-buffer ()
+  "Produces a live buffer in haystack-discoverability-mode."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test-note.org"
+                                  haystack-notes-directory))
+          (buf (find-file-noselect file)))
+     (unwind-protect
+         (with-current-buffer buf
+           (let ((inhibit-read-only t))
+             (insert "uniqueterm12345")
+             (write-region nil nil file))
+           (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+             (let ((result (haystack-describe-discoverability)))
+               (unwind-protect
+                   (should (eq (buffer-local-value 'major-mode result)
+                               'haystack-discoverability-mode))
+                 (when (buffer-live-p result) (kill-buffer result))))))
+       (kill-buffer buf)
+       (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/discoverability-buffer-has-tier-headings ()
+  "Buffer content contains all four tier headings."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test-note.org"
+                                  haystack-notes-directory))
+          (buf (find-file-noselect file)))
+     (unwind-protect
+         (with-current-buffer buf
+           (let ((inhibit-read-only t))
+             (insert "uniqueterm12345")
+             (write-region nil nil file))
+           (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+             (let ((result (haystack-describe-discoverability)))
+               (unwind-protect
+                   (with-current-buffer result
+                     (let ((content (buffer-substring-no-properties
+                                     (point-min) (point-max))))
+                       (should (string-match-p "Isolated" content))
+                       (should (string-match-p "Sparse" content))
+                       (should (string-match-p "Connected" content))
+                       (should (string-match-p "Ubiquitous" content))))
+                 (when (buffer-live-p result) (kill-buffer result))))))
+       (kill-buffer buf)
+       (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/discoverability-buffer-is-read-only ()
+  "Discoverability buffer is read-only."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test-note.org"
+                                  haystack-notes-directory))
+          (buf (find-file-noselect file)))
+     (unwind-protect
+         (with-current-buffer buf
+           (let ((inhibit-read-only t))
+             (insert "uniqueterm12345")
+             (write-region nil nil file))
+           (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+             (let ((result (haystack-describe-discoverability)))
+               (unwind-protect
+                   (should (buffer-local-value 'buffer-read-only result))
+                 (when (buffer-live-p result) (kill-buffer result))))))
+       (kill-buffer buf)
+       (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/discoverability-refresh-kills-old-buffer ()
+  "Re-running replaces the existing discoverability buffer."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test-note.org"
+                                  haystack-notes-directory))
+          (buf (find-file-noselect file)))
+     (unwind-protect
+         (with-current-buffer buf
+           (let ((inhibit-read-only t))
+             (insert "uniqueterm12345")
+             (write-region nil nil file))
+           (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+             (let ((r1 (haystack-describe-discoverability)))
+               (let ((r2 (haystack-describe-discoverability)))
+                 (unwind-protect
+                     (progn
+                       (should (buffer-live-p r2))
+                       (should-not (buffer-live-p r1)))
+                   (when (buffer-live-p r2) (kill-buffer r2)))))))
+       (kill-buffer buf)
+       (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/discoverability-org-properties-drawer ()
+  "Each tier section has a PROPERTIES drawer with HAYSTACK_TIER."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test-note.org"
+                                  haystack-notes-directory))
+          (buf (find-file-noselect file)))
+     (unwind-protect
+         (with-current-buffer buf
+           (let ((inhibit-read-only t))
+             (insert "uniqueterm12345")
+             (write-region nil nil file))
+           (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+             (let ((result (haystack-describe-discoverability)))
+               (unwind-protect
+                   (with-current-buffer result
+                     (let ((content (buffer-substring-no-properties
+                                     (point-min) (point-max))))
+                       (should (string-match-p ":HAYSTACK_TIER:" content))
+                       (should (string-match-p ":PROPERTIES:" content))
+                       (should (string-match-p ":END:" content))))
+                 (when (buffer-live-p result) (kill-buffer result))))))
+       (kill-buffer buf)
+       (when (file-exists-p file) (delete-file file))))))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

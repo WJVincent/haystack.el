@@ -5,7 +5,31 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.11.0] — 2026-03-27
+
 ### Added
+- `haystack-describe-discoverability` (`C-c h d`, `D` in results buffers):
+  analyzes term discoverability for the current note.  Tokenizes the buffer,
+  strips stop words, counts how many notes each term appears in, and renders
+  the results as a four-tier org-mode buffer:
+  - **Isolated** (0 files) — potential orphan concepts not linked to the corpus
+  - **Sparse** (1–`haystack-discoverability-sparse-max` files) — specific / niche
+  - **Connected** — moderate presence; well-integrated with the corpus
+  - **Ubiquitous** (`haystack-discoverability-ubiquitous-min`+ files) — consider
+    adding to stop words
+
+  Keybindings in the discoverability buffer: `RET` launches a haystack search
+  for the term at point; `a` adds the term at point to stop words; `q` closes.
+  Three new defcustoms: `haystack-discoverability-sparse-max` (default 3),
+  `haystack-discoverability-ubiquitous-min` (default 500),
+  `haystack-discoverability-split-compound-words` (default nil — hyphens and
+  underscores treated as word characters).
+  Gated to file-backed buffers inside `haystack-notes-directory`.
+- Performance benchmarks for `haystack--discoverability-tokenize` (10k and
+  100k-word notes) and `haystack--discoverability-render` (1k and 10k terms)
+  added to `test/haystack-bench.el`.
 - `haystack-run-root-search-at-point` (`C-c h .`, `.` in results buffers):
   searches the word under the cursor without prompting.  Hyphens and
   underscores are treated as word characters, so `bevy-ecs` and `my_note`

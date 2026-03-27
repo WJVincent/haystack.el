@@ -120,8 +120,14 @@ write (or generate) a few extra terms — a vocabulary section, some
 loose tags, broader category words — so that search can reach the note
 from multiple angles.
 
-Haystack provides diagnostic tools to surface these gaps. But filling
-them is your responsibility. This cost is permanent and by design.
+Haystack provides diagnostic tools to surface these gaps.
+`haystack-describe-discoverability` (`C-c h d`) tokenizes the current note
+and reports how many other notes each term appears in — sorting words into
+four tiers: **Isolated** (0 files, orphan risk), **Sparse** (niche),
+**Connected** (well-linked), and **Ubiquitous** (too common to be useful).
+Isolated terms are your vocabulary gaps; ubiquitous terms belong in the stop
+word list. But filling those gaps is your responsibility. This cost is
+permanent and by design.
 
 ## The Payoff
 

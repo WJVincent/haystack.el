@@ -265,7 +265,7 @@ The most complex subsystems. Benefit from real usage data.
 - [X] One composite per canonical chain, overwrites on regeneration
 - [X] Composites surface in buffer headers with clickable link
 - [X] Composite filter: =C-u= on root search includes composites; =haystack-search-composites= for only-composites
-- [ ] Discoverability command produces diagnostic buffer with reach/isolated terms
+- [X] Discoverability command produces diagnostic buffer with reach/isolated terms
 - [X] Stop words load, seed, add, remove, describe all work
 
 ** Composite Notes
@@ -298,14 +298,16 @@ The most complex subsystems. Benefit from real usage data.
 - Stop word check blocks single-word searches; prompt offers search-literally / remove / quit
 - =haystack-run-root-search-at-point= also added: searches word at point (or region if active);
   bound to =.= in results mode and prefix map
-*** TODO =haystack-describe-discoverability=
-- Tokenize current note buffer
+*** DONE =haystack-describe-discoverability=
+- Tokenize current note buffer; split on whitespace + punctuation; hyphens/underscores word chars by default
 - Strip stop words
-- Search corpus for each term (literal, no expansion, exclude composites, exclude self)
-- Target entire file contents
-- Report =PKM-REACH= (unique files sharing any term)
-- Report =PKM-ISOLATED= (terms with zero external hits)
-- Full term-by-term breakdown in dedicated results buffer
+- Search corpus for each term (literal, case-insensitive, exclude composites, respect =haystack-file-glob=)
+- Four tiers: Isolated (0), Sparse (1–sparse-max), Connected, Ubiquitous (ubiquitous-min+)
+- Rendered as org-mode buffer with PROPERTIES drawers per tier; =RET= launches search; =a= adds to stop words
+- =haystack-discoverability-sparse-max=, =haystack-discoverability-ubiquitous-min=,
+  =haystack-discoverability-split-compound-words= defcustoms
+- Gated to file-backed buffers inside =haystack-notes-directory=
+- Bound to =D= in results buffer; =d= in prefix map
 
 
 * Stretch Goals                                                     :stretch:

@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.10.0
+;; Version: 0.11.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, notes, search
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -1691,6 +1691,7 @@ Like `haystack-run-root-search' with composite-filter set to \\='only."
 (define-key haystack-results-mode-map (kbd "C-c C-c") #'haystack-compose)
 (define-key haystack-results-mode-map "." #'haystack-run-root-search-at-point)
 (define-key haystack-results-mode-map "t" #'haystack-show-tree)
+(define-key haystack-results-mode-map "D" #'haystack-describe-discoverability)
 (define-key haystack-results-mode-map "?" #'haystack-help)
 
 (define-minor-mode haystack-results-mode
@@ -3402,6 +3403,225 @@ full buffer contents as a new note via `haystack-new-note'."
             (y-or-n-p "Discard changes to composite buffer? "))
     (kill-buffer)))
 
+;;;; Discoverability engine
+
+(defcustom haystack-discoverability-sparse-max 3
+  "Maximum file count for a term to be classified as SPARSE.
+Terms found in 1 to this many notes fall in the SPARSE tier.
+Terms found in 0 notes are ISOLATED; those found in more notes
+than `haystack-discoverability-ubiquitous-min' are UBIQUITOUS."
+  :type 'integer
+  :group 'haystack)
+
+(defcustom haystack-discoverability-ubiquitous-min 500
+  "Minimum file count for a term to be classified as UBIQUITOUS.
+Terms found in this many or more notes fall in the UBIQUITOUS tier."
+  :type 'integer
+  :group 'haystack)
+
+(defcustom haystack-discoverability-split-compound-words nil
+  "When non-nil, treat hyphens and underscores as word separators.
+By default (nil), hyphenated and underscored terms like `word-word'
+and `word_word' are kept as single tokens, preserving technical
+vocabulary (e.g. `emacs-lisp', `file_path').  Set to t to split
+them into their component words."
+  :type 'boolean
+  :group 'haystack)
+
+(defun haystack--discoverability-buffer-name (file-path)
+  "Return the buffer name for a discoverability analysis of FILE-PATH.
+Strips a leading 14-digit timestamp and the file extension from the
+basename, keeping hyphens intact."
+  (let* ((basename (file-name-nondirectory file-path))
+         (base     (file-name-sans-extension basename))
+         (slug     (if (string-match "\\`[0-9]\\{14\\}-" base)
+                       (substring base (match-end 0))
+                     base)))
+    (format "*haystack-discoverability: %s*" slug)))
+
+(defun haystack--discoverability-in-notes-dir-p (file-path)
+  "Return non-nil if FILE-PATH is inside `haystack-notes-directory'."
+  (when haystack-notes-directory
+    (file-in-directory-p file-path (expand-file-name haystack-notes-directory))))
+
+(defun haystack--discoverability-tokenize (text)
+  "Return a deduplicated list of lowercase tokens from TEXT.
+Splits on whitespace and common punctuation.  Hyphens and underscores
+are treated as word characters unless
+`haystack-discoverability-split-compound-words' is t.  Stop words
+(per `haystack--stop-words') are excluded.  No minimum length is
+enforced — short technical terms like \"c\" and \"go\" are kept."
+  (let* ((sep (if haystack-discoverability-split-compound-words
+                  "[^a-zA-Z0-9]+"
+                "[^a-zA-Z0-9_-]+"))
+         (raw     (split-string text sep t))
+         (lowered (mapcar #'downcase raw))
+         (no-stop (seq-filter (lambda (tok)
+                                (not (member tok haystack--stop-words)))
+                              lowered)))
+    (seq-uniq no-stop)))
+
+(defun haystack--discoverability-tier (count)
+  "Return the discoverability tier symbol for COUNT files.
+  isolated   — 0 files
+  sparse     — 1 to `haystack-discoverability-sparse-max' files
+  connected  — sparse-max+1 to ubiquitous-min-1 files
+  ubiquitous — `haystack-discoverability-ubiquitous-min' or more files"
+  (cond
+   ((= count 0)                                         'isolated)
+   ((<= count haystack-discoverability-sparse-max)      'sparse)
+   ((< count haystack-discoverability-ubiquitous-min)   'connected)
+   (t                                                   'ubiquitous)))
+
+(defun haystack--discoverability-count-term (term)
+  "Return the number of notes files containing TERM (literal, case-insensitive)."
+  (with-temp-buffer
+    (let ((args (list "-l" "--ignore-case" "--color=never")))
+      (when haystack-file-glob
+        (dolist (g haystack-file-glob)
+          (setq args (append args (list (concat "--glob=" g))))))
+      (setq args (append args (list "--glob=!@*"
+                                    (regexp-quote term)
+                                    (expand-file-name haystack-notes-directory))))
+      (apply #'call-process "rg" nil t nil args))
+    (length (split-string (string-trim (buffer-string)) "\n" t))))
+
+(defun haystack--discoverability-tier-section (heading tier-symbol range tc-list)
+  "Return the org string for one discoverability tier section.
+HEADING is the display name; TIER-SYMBOL is the keyword stored in
+PROPERTIES; RANGE is the human-readable file count range; TC-LIST is
+an alist of (TERM . COUNT) pairs for this tier."
+  (let* ((sorted (sort (copy-sequence tc-list)
+                       (lambda (a b)
+                         (if (= (cdr a) (cdr b))
+                             (string< (car a) (car b))
+                           (< (cdr a) (cdr b))))))
+         (count  (length sorted)))
+    (concat
+     (format "* %s (%s) [%d terms]\n" heading range count)
+     ":PROPERTIES:\n"
+     (format ":HAYSTACK_TIER: %s\n" tier-symbol)
+     ":END:\n\n"
+     (mapconcat (lambda (tc)
+                  (format "- %s (%d)\n" (car tc) (cdr tc)))
+                sorted
+                "")
+     "\n")))
+
+(defun haystack--discoverability-render (term-counts file-path)
+  "Return the org string for a discoverability buffer.
+TERM-COUNTS is an alist of (TERM . COUNT); FILE-PATH is the source note."
+  (let* ((title    (haystack--discoverability-buffer-name file-path))
+         (now      (format-time-string "%Y-%m-%d"))
+         (isolated   (seq-filter (lambda (tc)
+                                   (eq 'isolated (haystack--discoverability-tier (cdr tc))))
+                                 term-counts))
+         (sparse     (seq-filter (lambda (tc)
+                                   (eq 'sparse (haystack--discoverability-tier (cdr tc))))
+                                 term-counts))
+         (connected  (seq-filter (lambda (tc)
+                                   (eq 'connected (haystack--discoverability-tier (cdr tc))))
+                                 term-counts))
+         (ubiquitous (seq-filter (lambda (tc)
+                                   (eq 'ubiquitous (haystack--discoverability-tier (cdr tc))))
+                                 term-counts)))
+    (concat
+     (format "#+TITLE: %s\n#+DATE: %s\n\n" title now)
+     (haystack--discoverability-tier-section
+      "Isolated" 'isolated "0 files" isolated)
+     (haystack--discoverability-tier-section
+      "Sparse" 'sparse
+      (format "1\u2013%d files" haystack-discoverability-sparse-max) sparse)
+     (haystack--discoverability-tier-section
+      "Connected" 'connected
+      (format "%d\u2013%d files"
+              (1+ haystack-discoverability-sparse-max)
+              (1- haystack-discoverability-ubiquitous-min))
+      connected)
+     (haystack--discoverability-tier-section
+      "Ubiquitous" 'ubiquitous
+      (format "%d+ files" haystack-discoverability-ubiquitous-min) ubiquitous))))
+
+(defun haystack--discoverability-search-at-point ()
+  "Launch a haystack search for the term at point.
+On org heading lines (starting with *), show a message instead."
+  (interactive)
+  (let ((line (buffer-substring-no-properties
+               (line-beginning-position) (line-end-position))))
+    (if (string-match-p "\\`\\*" line)
+        (message "Haystack: move cursor to a term line to search")
+      (let ((term (haystack--word-at-point)))
+        (if term
+            (haystack-run-root-search term)
+          (message "Haystack: no term at point"))))))
+
+(defun haystack--discoverability-add-stop-word ()
+  "Add the word at point to the haystack stop word list."
+  (interactive)
+  (let ((term (haystack--word-at-point)))
+    (if term
+        (haystack-add-stop-word term)
+      (message "Haystack: no term at point"))))
+
+(defvar haystack-discoverability-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'haystack--discoverability-search-at-point)
+    (define-key map "a"         #'haystack--discoverability-add-stop-word)
+    (define-key map "q"         #'quit-window)
+    map)
+  "Keymap for `haystack-discoverability-mode'.")
+
+(define-derived-mode haystack-discoverability-mode org-mode "Haystack-Discov"
+  "Major mode for Haystack discoverability analysis buffers.
+Each org heading groups terms by how many notes contain them:
+  Isolated   — 0 files (potential orphan concepts)
+  Sparse     — few files (specific / niche)
+  Connected  — moderate files (well-linked)
+  Ubiquitous — many files (consider adding to stop words)
+
+\\{haystack-discoverability-mode-map}"
+  :keymap haystack-discoverability-mode-map
+  (setq-local buffer-read-only t))
+
+;;;###autoload
+(defun haystack-describe-discoverability ()
+  "Analyze term discoverability for the current buffer's note.
+Tokenizes the buffer, counts how many notes each term appears in,
+and presents the results sorted into four tiers (Isolated, Sparse,
+Connected, Ubiquitous) in an org-mode buffer.
+
+Gate: only works from file-backed buffers whose file is inside
+`haystack-notes-directory'.  Re-running refreshes the existing buffer."
+  (interactive)
+  (haystack--assert-notes-directory)
+  (unless (buffer-file-name)
+    (user-error "Haystack: discoverability requires a file-backed buffer"))
+  (unless (haystack--discoverability-in-notes-dir-p (buffer-file-name))
+    (user-error "Haystack: current file is not in the notes directory"))
+  (haystack--ensure-stop-words)
+  (let* ((file-path (buffer-file-name))
+         (text      (buffer-substring-no-properties (point-min) (point-max)))
+         (tokens    (haystack--discoverability-tokenize text))
+         (total     (length tokens))
+         (term-counts '())
+         (n 0))
+    (dolist (tok tokens)
+      (setq n (1+ n))
+      (message "Haystack discoverability: %d/%d terms..." n total)
+      (push (cons tok (haystack--discoverability-count-term tok)) term-counts))
+    (let* ((buf-name (haystack--discoverability-buffer-name file-path))
+           (old-buf  (get-buffer buf-name)))
+      (when old-buf (kill-buffer old-buf))
+      (let ((buf (get-buffer-create buf-name)))
+        (with-current-buffer buf
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (haystack--discoverability-render term-counts file-path)))
+          (haystack-discoverability-mode)
+          (goto-char (point-min)))
+        (pop-to-buffer buf)
+        buf))))
+
 ;;;; Global prefix map
 
 (defvar haystack-prefix-map (make-sparse-keymap)
@@ -3418,6 +3638,7 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "f" #'haystack-frecent)
 (define-key haystack-prefix-map "w" #'haystack-compose)
 (define-key haystack-prefix-map "C" #'haystack-search-composites)
+(define-key haystack-prefix-map "d" #'haystack-describe-discoverability)
 (define-key haystack-prefix-map "D" #'haystack-demo)
 
 (provide 'haystack)
