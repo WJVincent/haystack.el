@@ -1,6 +1,6 @@
 #+TITLE: Defmacro Patterns
 #+DATE: 2025-02-20
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 ~defmacro~ in emacs-lisp and Common Lisp (cl) defines a macro: a function that
 runs at compile time and transforms one s-expression into another before
 evaluation. The most common pattern is the "wrapping macro" that adds setup and

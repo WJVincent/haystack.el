@@ -1,6 +1,6 @@
 #+TITLE: The Vocabulary Gap Problem
 #+DATE: 2025-03-17
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 The vocabulary-gap is the mismatch between the term you use when writing a note
 and the term you think of when searching for it weeks or months later.
 Terminology drift is a natural consequence of learning: as your understanding of

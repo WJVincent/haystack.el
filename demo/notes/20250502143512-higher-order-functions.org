@@ -1,6 +1,6 @@
 #+TITLE: Higher-Order Functions in Lisp
 #+DATE: 2025-05-02
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Higher-order functions take other functions as arguments or return functions as
 their result, treating functions as first-class values alongside numbers and
 strings. The canonical Lisp higher-order functions are ~map~ (apply a function

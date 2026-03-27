@@ -17,6 +17,8 @@ No categories, no tags, no upfront organisation required.
 - Emacs 28.1+
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) on your
   `PATH`
+- Linux, macOS, or WSL — Unix toolchain required (`xargs`, shell
+  process substitution). Native Windows is not supported.
 
 ## Installation
 
@@ -103,7 +105,7 @@ Frontmatter is inserted automatically based on the file type:
 - **Markdown:** YAML front matter block
 - **Code files:** frontmatter in the appropriate comment syntax
 
-Every file ends with the sentinel `%%% pkm-end-frontmatter %%%` which
+Every file ends with the sentinel `%%% haystack-end-frontmatter %%%` which
 marks where frontmatter ends and note content begins. The sentinel is
 written in the file's native comment syntax.
 
@@ -470,6 +472,15 @@ yours to keep regardless of whether this package exists.
 **Composability.** Haystack is a thin layer over ripgrep and standard
 Emacs buffers. Results buffers are grep-mode compatible — anything
 that speaks grep works out of the box.
+
+**Emergent structure.** Graph-based PKM systems (Org-roam, Obsidian)
+build structure from explicit links you maintain at capture time.
+Haystack builds structure from retrieval patterns you develop through
+use — frecency surfaces your real access paths, and composites let you
+commit a search chain to a named note (think "git commit for
+retrieval") so you can replay it instantly. Structure emerges from
+what you actually look for, not from a filing system you planned
+upfront.
 
 ---
 

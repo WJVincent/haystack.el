@@ -1,6 +1,6 @@
 #+TITLE: Creating New Notes with Haystack
 #+DATE: 2025-03-19
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 The ~haystack-new-note~ command is the primary entry point for creating notes in
 Haystack: it prompts for a title, generates a timestamped filename, writes the
 appropriate frontmatter, and opens the buffer for editing. Filename generation
@@ -8,7 +8,7 @@ follows the zettelkasten convention of a numeric timestamp prefix:
 ~20250319143012-note-title.org~ encodes the creation date in the filename,
 ensuring chronological sorting in directory listings. The frontmatter format
 depends on the note type: org files receive ~#+TITLE~, ~#+DATE~, and the ~# %%%
-pkm-end-frontmatter %%%~ sentinel; Markdown files receive YAML frontmatter with
+haystack-end-frontmatter %%%~ sentinel; Markdown files receive YAML frontmatter with
 the HTML comment sentinel. Haystack can be configured to use a custom template
 for new notes via ~haystack-new-note-template~, allowing you to prepend standard
 headings, property drawers, or section scaffolding to every new note. The

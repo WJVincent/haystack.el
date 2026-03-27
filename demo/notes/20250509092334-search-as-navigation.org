@@ -1,6 +1,6 @@
 #+TITLE: Search as Navigation
 #+DATE: 2025-05-09
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Search as navigation is the design principle that retrieval — typing a query and
 selecting from results — should be the primary way to move through a knowledge
 system, replacing folder browsing and menu navigation. Traditional file managers

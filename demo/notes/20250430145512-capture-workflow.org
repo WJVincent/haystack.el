@@ -1,6 +1,6 @@
 #+TITLE: Capture Workflow
 #+DATE: 2025-04-30
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Capture is the first step in any knowledge-management (pkm) workflow: getting an
 idea, observation, or reference into your system before it disappears from
 working memory. The cardinal rule of capture is low friction — the harder it is

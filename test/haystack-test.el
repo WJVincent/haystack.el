@@ -31,7 +31,7 @@
        (delete-file tmpfile))))
 
 (defun haystack-test--has-sentinel (str)
-  "Return non-nil if STR contains the pkm-end-frontmatter sentinel."
+  "Return non-nil if STR contains the haystack-end-frontmatter sentinel."
   (string-match-p (regexp-quote haystack--sentinel-string) str))
 
 ;;;; haystack--timestamp
@@ -232,7 +232,7 @@
   "Replaces frontmatter up to the sentinel, preserving the body."
   (haystack-test--with-file-buffer "org"
     (insert "#+TITLE: old title\n#+DATE: 1970-01-01\n"
-            "# %%% pkm-end-frontmatter %%%\n\nBody content.\n")
+            "# %%% haystack-end-frontmatter %%%\n\nBody content.\n")
     (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
       (haystack-regenerate-frontmatter))
     (let ((content (buffer-string)))
@@ -244,7 +244,7 @@
   "Repeated regeneration does not accumulate blank lines before the body."
   (haystack-test--with-file-buffer "org"
     (insert "#+TITLE: test\n#+DATE: 1970-01-01\n"
-            "# %%% pkm-end-frontmatter %%%\n\nBody.\n")
+            "# %%% haystack-end-frontmatter %%%\n\nBody.\n")
     (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
       (haystack-regenerate-frontmatter)
       (haystack-regenerate-frontmatter)
@@ -266,7 +266,7 @@
 (ert-deftest haystack-test/regen-abort-leaves-buffer-unchanged ()
   "Does not modify the buffer when the user aborts."
   (haystack-test--with-file-buffer "org"
-    (let ((original "#+TITLE: original\n# %%% pkm-end-frontmatter %%%\n\nBody.\n"))
+    (let ((original "#+TITLE: original\n# %%% haystack-end-frontmatter %%%\n\nBody.\n"))
       (insert original)
       (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) nil)))
         (should-error (haystack-regenerate-frontmatter) :type 'user-error))
@@ -1033,6 +1033,61 @@ Writes INITIAL-GROUPS to disk so functions that call
 (ert-deftest haystack-test/rg-base-args-default-is-exclude ()
   (should (member "--glob=!@*" (haystack--rg-base-args))))
 
+(ert-deftest haystack-test/rg-base-args-has-max-count ()
+  "Includes --max-count=50 to clamp per-file output."
+  (should (member "--max-count=50" (haystack--rg-base-args))))
+
+(ert-deftest haystack-test/rg-base-args-has-max-columns ()
+  "Includes --max-columns=500 to drop minified/base64 lines."
+  (should (member "--max-columns=500" (haystack--rg-base-args))))
+
+;;;; haystack--count-output-stats
+
+(ert-deftest haystack-test/count-output-stats-empty ()
+  (should (equal '(0 . 0) (haystack--count-output-stats ""))))
+
+(ert-deftest haystack-test/count-output-stats-single-file ()
+  (should (equal '(1 . 47) (haystack--count-output-stats "/notes/foo.org:47\n"))))
+
+(ert-deftest haystack-test/count-output-stats-multi-file ()
+  (let* ((out   "/notes/a.org:10\n/notes/b.org:5\n/notes/c.org:1\n")
+         (stats (haystack--count-output-stats out)))
+    (should (= (car stats) 3))
+    (should (= (cdr stats) 16))))
+
+(ert-deftest haystack-test/count-output-stats-ignores-blank-lines ()
+  (should (equal '(2 . 10)
+                 (haystack--count-output-stats "/notes/a.org:3\n\n/notes/b.org:7\n"))))
+
+;;;; haystack--volume-gate
+
+(ert-deftest haystack-test/volume-gate-no-prompt-under-threshold ()
+  "Does not prompt when total lines < 500."
+  ;; 10 files × 49 lines = 490 < 500
+  (let ((out (mapconcat (lambda (i) (format "/notes/f%d.org:49" i))
+                        (number-sequence 1 10) "\n")))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (&rest _) (error "Should not have prompted"))))
+      (should-not (haystack--volume-gate out)))))
+
+(ert-deftest haystack-test/volume-gate-prompts-at-threshold ()
+  "Prompts when total = 500."
+  (let ((prompted nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (&rest _) (setq prompted t) t)))
+      (haystack--volume-gate "/notes/f.org:500\n"))
+    (should prompted)))
+
+(ert-deftest haystack-test/volume-gate-user-approves ()
+  "Returns normally when user confirms."
+  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+    (should-not (haystack--volume-gate "/notes/f.org:501\n"))))
+
+(ert-deftest haystack-test/volume-gate-user-declines ()
+  "Signals user-error when user declines."
+  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
+    (should-error (haystack--volume-gate "/notes/f.org:501\n") :type 'user-error)))
+
 ;;;; haystack--write-filelist
 
 (ert-deftest haystack-test/write-filelist-creates-file ()
@@ -1474,6 +1529,47 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
             (when (get-buffer "*haystack:2:programming:coding in detail*")
               (kill-buffer "*haystack:2:programming:coding in detail*"))))))))
 
+(ert-deftest haystack-test/filter-further-volume-gate-prompts ()
+  "Prompts when a content filter would return >= 500 lines."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+     (with-temp-file note
+       (insert (mapconcat (lambda (_) "rust hit\n") (make-list 500 nil) ""))))
+   (let ((prompted nil))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore)
+               ;; let the root search volume gate pass silently
+               ((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:rust*")))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (setq prompted nil)
+               (cl-letf (((symbol-function 'yes-or-no-p)
+                          (lambda (&rest _) (setq prompted t) t)))
+                 (haystack-filter-further "hit"))
+               (should prompted))
+           (kill-buffer root-buf)
+           (when (get-buffer "*haystack:2:rust:hit*")
+             (kill-buffer (get-buffer "*haystack:2:rust:hit*")))))))))
+
+(ert-deftest haystack-test/filter-further-volume-gate-cancels ()
+  "Signals user-error when user declines at the filter volume gate."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+     (with-temp-file note
+       (insert (mapconcat (lambda (_) "rust hit\n") (make-list 500 nil) ""))))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (&rest _) t)))
+     (haystack-run-root-search "rust")
+     (let ((root-buf (get-buffer "*haystack:1:rust*")))
+       (unwind-protect
+           (with-current-buffer root-buf
+             (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
+               (should-error (haystack-filter-further "hit") :type 'user-error)))
+         (kill-buffer root-buf))))))
+
 ;;;; haystack-run-root-search
 
 (ert-deftest haystack-test/run-root-search-errors-without-directory ()
@@ -1546,6 +1642,43 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
              (should (string-match-p "cargo-build" (buffer-string)))
              (should-not (string-match-p "async-notes" (buffer-string))))
          (kill-buffer buf))))))
+
+(ert-deftest haystack-test/run-root-search-volume-gate-prompts ()
+  "Prompts when rg --count returns >= 500 total lines."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+     (with-temp-file note
+       (insert (mapconcat (lambda (_) "hit\n") (make-list 500 nil) ""))))
+   (let ((prompted nil))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p)
+                (lambda (&rest _) (setq prompted t) t)))
+       (haystack-run-root-search "hit")
+       (should prompted)
+       (when (get-buffer "*haystack:1:hit*")
+         (kill-buffer (get-buffer "*haystack:1:hit*")))))))
+
+(ert-deftest haystack-test/run-root-search-volume-gate-cancels ()
+  "Signals user-error when user declines at the volume gate."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+     (with-temp-file note
+       (insert (mapconcat (lambda (_) "hit\n") (make-list 500 nil) ""))))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)   (lambda (&rest _) nil)))
+     (should-error (haystack-run-root-search "hit") :type 'user-error))))
+
+(ert-deftest haystack-test/run-root-search-volume-gate-no-prompt-under-threshold ()
+  "Does not prompt when total lines < 500."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "small.org" haystack-notes-directory)))
+     (with-temp-file note (insert "hit\nhit\n")))
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)
+              (lambda (&rest _) (error "Should not have prompted"))))
+     (haystack-run-root-search "hit")
+     (when (get-buffer "*haystack:1:hit*")
+       (kill-buffer (get-buffer "*haystack:1:hit*"))))))
 
 ;;;; haystack-search-region
 
@@ -2893,7 +3026,7 @@ Saves and restores the global and the dirty flag."
            ;; Create a minimal demo/notes layout at demo-src
            (make-directory (expand-file-name "demo/notes" demo-src) t)
            (with-temp-file (expand-file-name "demo/notes/sample.org" demo-src)
-             (insert "#+TITLE: Sample\n#+DATE: 2025-01-01\n# %%% pkm-end-frontmatter %%%\n\nSample note.\n"))
+             (insert "#+TITLE: Sample\n#+DATE: 2025-01-01\n# %%% haystack-end-frontmatter %%%\n\nSample note.\n"))
            (cl-letf (((symbol-function 'haystack--demo-package-dir)
                       (lambda () demo-src)))
              ,@body))

@@ -1,6 +1,6 @@
 #+TITLE: Haystack Frecency Engine
 #+DATE: 2025-03-25
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Frecency is a portmanteau of "frequency" and "recency," and Haystack's frecency
 engine uses both signals to rank search results beyond simple text relevance.
 The frecency score for a note increases each time you open it and decays over

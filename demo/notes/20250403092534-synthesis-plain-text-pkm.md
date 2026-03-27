@@ -2,7 +2,7 @@
 title: Plain Text PKM
 date: 2025-04-03
 ---
-<!-- %%% pkm-end-frontmatter %%% -->
+<!-- %%% haystack-end-frontmatter %%% -->
 Plain-text PKM (personal knowledge management) is the practice of maintaining
 your second-brain as a directory of plain-text files — org, Markdown, or similar
 — without relying on proprietary databases or binary formats. The alignment

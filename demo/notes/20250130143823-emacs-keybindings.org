@@ -1,6 +1,6 @@
 #+TITLE: Emacs Keybindings
 #+DATE: 2025-01-30
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Emacs keybindings are organized as a hierarchy of keymaps: the global keymap
 applies everywhere, major mode keymaps shadow it within a buffer, and minor mode
 keymaps can shadow both. The ~C-x~ prefix is the command prefix for less

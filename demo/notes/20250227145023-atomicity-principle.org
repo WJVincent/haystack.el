@@ -1,6 +1,6 @@
 #+TITLE: The Atomicity Principle in PKM
 #+DATE: 2025-02-27
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 The atomicity principle in personal knowledge management (pkm) holds that each
 note should capture one idea — no more, no less — making it a discrete, self-
 contained unit of thought. Atomic notes (zettel) are easier to link to other

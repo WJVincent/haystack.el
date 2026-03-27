@@ -2,7 +2,7 @@
 title: Clojure Overview
 date: 2025-02-18
 ---
-<!-- %%% pkm-end-frontmatter %%% -->
+<!-- %%% haystack-end-frontmatter %%% -->
 Clojure is a modern Lisp dialect created by Rich Hickey in 2007 that targets the
 JVM, prioritizing immutability, concurrency, and practical interoperability with
 the Java ecosystem. Unlike Common Lisp (cl) or emacs-lisp, Clojure makes

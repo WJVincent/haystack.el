@@ -1,6 +1,6 @@
 #+TITLE: Synthesis in PKM
 #+DATE: 2025-03-07
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Synthesis is the highest-value activity in personal knowledge management (pkm):
 the act of combining ideas from multiple notes or sources into a new claim that
 did not exist in any single source. In a zettelkasten second-brain system,

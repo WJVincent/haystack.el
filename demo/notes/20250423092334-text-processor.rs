@@ -1,6 +1,6 @@
 // title: Text Processor for Notes Corpus
 // date: 2025-04-23
-// %%% pkm-end-frontmatter %%%
+// %%% haystack-end-frontmatter %%%
 
 //! Text processing utilities for a plain-text notes (zettel) corpus.
 //!
@@ -13,7 +13,7 @@
 
 use std::collections::HashMap; use std::path::Path;
 
-const FRONTMATTER_SENTINEL: &str = "%%% pkm-end-frontmatter %%%";
+const FRONTMATTER_SENTINEL: &str = "%%% haystack-end-frontmatter %%%";
 
 /// Common English stopwords to exclude from vocabulary analysis.
 const STOPWORDS: &[&str] = &[
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_split_at_sentinel() {
-        let content = "#+TITLE: Test\n# %%% pkm-end-frontmatter %%%\nBody text here.";
+        let content = "#+TITLE: Test\n# %%% haystack-end-frontmatter %%%\nBody text here.";
         let (front, body) = split_at_sentinel(content);
         assert!(front.contains("#+TITLE"));
         assert!(body.contains("Body text"));

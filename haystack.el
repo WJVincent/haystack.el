@@ -162,13 +162,13 @@ If the directory is missing, offer to create it.  Signals a
 
 ;;; Frontmatter generators — one function per comment type.
 ;;; Each takes TITLE (string) and returns a complete frontmatter block
-;;; including the pkm-end-frontmatter sentinel on the final line.
+;;; including the haystack-end-frontmatter sentinel on the final line.
 
 (defun haystack--frontmatter-org (title)
   "Return Org-mode frontmatter for TITLE."
   (concat "#+TITLE: " title "\n"
           "#+DATE: " (format-time-string "%Y-%m-%d") "\n"
-          "# %%% pkm-end-frontmatter %%%\n\n"))
+          "# %%% haystack-end-frontmatter %%%\n\n"))
 
 (defun haystack--frontmatter-md (title)
   "Return Markdown (YAML) frontmatter for TITLE."
@@ -176,49 +176,49 @@ If the directory is missing, offer to create it.  Signals a
           "title: " title "\n"
           "date: " (format-time-string "%Y-%m-%d") "\n"
           "---\n"
-          "<!-- %%% pkm-end-frontmatter %%% -->\n\n"))
+          "<!-- %%% haystack-end-frontmatter %%% -->\n\n"))
 
 (defun haystack--frontmatter-c-block (title)
   "Return frontmatter for TITLE using /* */ block comments (C, CSS)."
   (concat "/* title: " title " */\n"
           "/* date: " (format-time-string "%Y-%m-%d") " */\n"
-          "/* %%% pkm-end-frontmatter %%% */\n\n"))
+          "/* %%% haystack-end-frontmatter %%% */\n\n"))
 
 (defun haystack--frontmatter-dash (title)
   "Return frontmatter for TITLE using -- line comments (Lua, Haskell, SQL)."
   (concat "-- title: " title "\n"
           "-- date: " (format-time-string "%Y-%m-%d") "\n"
-          "-- %%% pkm-end-frontmatter %%%\n\n"))
+          "-- %%% haystack-end-frontmatter %%%\n\n"))
 
 (defun haystack--frontmatter-semi (title)
   "Return frontmatter for TITLE using ;; line comments (Lisps)."
   (concat ";; title: " title "\n"
           ";; date: " (format-time-string "%Y-%m-%d") "\n"
-          ";; %%% pkm-end-frontmatter %%%\n\n"))
+          ";; %%% haystack-end-frontmatter %%%\n\n"))
 
 (defun haystack--frontmatter-slash (title)
   "Return frontmatter for TITLE using // line comments (JS, TS, Rust, Go)."
   (concat "// title: " title "\n"
           "// date: " (format-time-string "%Y-%m-%d") "\n"
-          "// %%% pkm-end-frontmatter %%%\n\n"))
+          "// %%% haystack-end-frontmatter %%%\n\n"))
 
 (defun haystack--frontmatter-hash (title)
   "Return frontmatter for TITLE using # line comments (Python, Ruby, Shell)."
   (concat "# title: " title "\n"
           "# date: " (format-time-string "%Y-%m-%d") "\n"
-          "# %%% pkm-end-frontmatter %%%\n\n"))
+          "# %%% haystack-end-frontmatter %%%\n\n"))
 
 (defun haystack--frontmatter-html-block (title)
   "Return frontmatter for TITLE using <!-- --> block comments (HTML)."
   (concat "<!-- title: " title " -->\n"
           "<!-- date: " (format-time-string "%Y-%m-%d") " -->\n"
-          "<!-- %%% pkm-end-frontmatter %%% -->\n\n"))
+          "<!-- %%% haystack-end-frontmatter %%% -->\n\n"))
 
 (defun haystack--frontmatter-ml-block (title)
   "Return frontmatter for TITLE using (* *) block comments (OCaml, SML)."
   (concat "(* title: " title " *)\n"
           "(* date: " (format-time-string "%Y-%m-%d") " *)\n"
-          "(* %%% pkm-end-frontmatter %%% *)\n\n"))
+          "(* %%% haystack-end-frontmatter %%% *)\n\n"))
 
 (defcustom haystack-frontmatter-functions
   '(;; Markup / unique formats
@@ -266,21 +266,21 @@ If the directory is missing, offer to create it.  Signals a
   "Alist mapping file extensions to frontmatter generator functions.
 Each entry is (EXT . FUNCTION) where EXT is a lowercase extension string
 without the leading dot, and FUNCTION takes a single TITLE argument and
-returns a frontmatter string ending with the pkm-end-frontmatter sentinel.
+returns a frontmatter string ending with the haystack-end-frontmatter sentinel.
 
 To add support for a new file type, define a function and add it:
 
   (defun my-python-frontmatter (title)
     (concat \"# title: \" title \"\\n\"
             \"# date: \" (format-time-string \"%Y-%m-%d\") \"\\n\"
-            \"# %%% pkm-end-frontmatter %%%\\n\\n\"))
+            \"# %%% haystack-end-frontmatter %%%\\n\\n\"))
 
   (add-to-list \\='haystack-frontmatter-functions
                \\='(\"py\" . my-python-frontmatter))"
   :type '(alist :key-type string :value-type function)
   :group 'haystack)
 
-(defconst haystack--sentinel-string "%%% pkm-end-frontmatter %%%"
+(defconst haystack--sentinel-string "%%% haystack-end-frontmatter %%%"
   "Literal string marking the end of a Haystack frontmatter block.")
 
 (defun haystack--frontmatter (title ext)
@@ -345,7 +345,7 @@ file, and runs `haystack-after-create-hook'."
 ;;;###autoload
 (defun haystack-regenerate-frontmatter ()
   "Regenerate the frontmatter block in the current buffer.
-If a pkm-end-frontmatter sentinel is found, everything from the top of
+If a haystack-end-frontmatter sentinel is found, everything from the top of
 the file up to and including the sentinel line is replaced.  If no
 sentinel exists, the new frontmatter is inserted at the top.
 
@@ -774,7 +774,8 @@ COMPOSITE-FILTER controls how @* composite files are handled:
   \\='only     — restrict to them (adds --glob=@*)
   \\='all      — no composite filter applied"
   (let ((args (list "--line-number" "--ignore-case"
-                    "--color=never" "--no-heading" "--with-filename")))
+                    "--color=never" "--no-heading" "--with-filename"
+                    "--max-count=50" "--max-columns=500")))
     (pcase (or composite-filter 'exclude)
       ('exclude (setq args (nconc args (list "--glob=!@*"))))
       ('only    (setq args (nconc args (list "--glob=@*"))))
@@ -789,6 +790,52 @@ Applies `haystack-file-glob' restrictions and expands ~ in the directory path."
       (dolist (glob haystack-file-glob)
         (setq args (nconc args (list (concat "--glob=" glob))))))
     (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
+
+(defun haystack--build-rg-count-args (pattern &optional composite-filter)
+  "Return rg --count args for PATTERN in `haystack-notes-directory'.
+Like `haystack--build-rg-args' but uses --count for the two-phase gate."
+  (let ((args (list "--count" "--with-filename" "--ignore-case" "--color=never")))
+    (pcase (or composite-filter 'exclude)
+      ('exclude (setq args (nconc args (list "--glob=!@*"))))
+      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('all     nil))
+    (when haystack-file-glob
+      (dolist (glob haystack-file-glob)
+        (setq args (nconc args (list (concat "--glob=" glob))))))
+    (nconc args (list pattern (expand-file-name haystack-notes-directory)))))
+
+(defun haystack--rg-count-xargs-args (pattern &optional composite-filter)
+  "Return rg --count args for use with xargs (no directory).
+Like the xargs variant of `haystack--build-rg-count-args'."
+  (let ((args (list "--count" "--with-filename" "--ignore-case" "--color=never")))
+    (pcase (or composite-filter 'exclude)
+      ('exclude (setq args (nconc args (list "--glob=!@*"))))
+      ('only    (setq args (nconc args (list "--glob=@*"))))
+      ('all     nil))
+    (nconc args (list pattern))))
+
+(defun haystack--count-output-stats (output)
+  "Return (FILES . LINES) from rg --count OUTPUT.
+FILES is the number of files with matches; LINES is the sum of all counts."
+  (let ((files 0) (lines 0))
+    (dolist (line (split-string output "\n" t))
+      (when (string-match ":\\([0-9]+\\)\\'" line)
+        (cl-incf files)
+        (cl-incf lines (string-to-number (match-string 1 line)))))
+    (cons files lines)))
+
+(defun haystack--volume-gate (count-output)
+  "Prompt when COUNT-OUTPUT from rg --count would produce a large result.
+If the total line count is >= 500, asks the user to confirm.
+Signals `user-error' if the user declines."
+  (let* ((stats (haystack--count-output-stats count-output))
+         (files (car stats))
+         (lines (cdr stats)))
+    (when (>= lines 500)
+      (unless (yes-or-no-p
+               (format "Haystack: %d lines across %d files — run anyway? "
+                       lines files))
+        (user-error "Haystack: search cancelled")))))
 
 (defun haystack--count-search-stats (output)
   "Return (FILES . MATCHES) from ripgrep OUTPUT string.
@@ -1177,7 +1224,10 @@ Prefix RAW-INPUT with ! to exclude files containing the term."
                 (unwind-protect
                     (if negated
                         (haystack--run-negation-filter pattern root-pattern tmp cf)
-                      (haystack--run-rg-for-filelist pattern tmp cf))
+                      (progn
+                        (haystack--volume-gate
+                         (haystack--xargs-rg tmp (haystack--rg-count-xargs-args pattern cf)))
+                        (haystack--run-rg-for-filelist pattern tmp cf)))
                   (delete-file tmp)))))
            (stats       (haystack--count-search-stats raw-output))
            (trunc-pat   (if (or filename negated) root-pattern pattern))
@@ -1250,12 +1300,18 @@ treated: \\='exclude (default), \\='only, or \\='all."
                     (unwind-protect
                         (haystack--run-rg-for-filelist "." tmp cf)
                       (delete-file tmp)))))
-            (with-temp-buffer
-              (let ((exit-code (apply #'call-process "rg" nil t nil
-                                      (haystack--build-rg-args pattern cf))))
-                (when (= exit-code 2)
-                  (user-error "Haystack: rg error: %s" (buffer-string))))
-              (buffer-string))))
+            (progn
+              (haystack--volume-gate
+               (with-temp-buffer
+                 (apply #'call-process "rg" nil t nil
+                        (haystack--build-rg-count-args pattern cf))
+                 (buffer-string)))
+              (with-temp-buffer
+                (let ((exit-code (apply #'call-process "rg" nil t nil
+                                        (haystack--build-rg-args pattern cf))))
+                  (when (= exit-code 2)
+                    (user-error "Haystack: rg error: %s" (buffer-string))))
+                (buffer-string)))))
          (trunc-pat (if filename "." pattern))
          (stats    (haystack--count-search-stats output))
          (output   (haystack--strip-notes-prefix

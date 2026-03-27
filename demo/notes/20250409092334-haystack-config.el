@@ -1,6 +1,6 @@
 ;; title: Haystack Configuration Reference
 ;; date: 2025-04-09
-;; %%% pkm-end-frontmatter %%%
+;; %%% haystack-end-frontmatter %%%
 
 ;; Complete reference for all Haystack configuration variables.
 ;; These are all defcustom variables in the haystack group,

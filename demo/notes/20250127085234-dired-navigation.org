@@ -1,6 +1,6 @@
 #+TITLE: Dired Navigation
 #+DATE: 2025-01-27
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Dired (Directory Editor) is Emacs's built-in file manager, displaying directory
 contents as an editable buffer where each line represents a file or
 subdirectory. Navigation in Dired uses standard Emacs motion keys: ~n~/~p~ move

@@ -1,6 +1,6 @@
 #+TITLE: Ripgrep Performance
 #+DATE: 2025-05-07
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Ripgrep (rg) is a line-oriented search tool written in Rust that combines the
 speed of a custom regex engine with intelligent file handling, consistently
 outperforming grep, ack, and ag on real-world code and text corpora. On a

@@ -1,6 +1,6 @@
 #+TITLE: Zettelkasten Introduction
 #+DATE: 2025-02-25
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 The zettelkasten (German: "slip box") is a knowledge-management method developed
 by sociologist Niklas Luhmann, who used it to write over 70 books and 400
 articles over a 40-year career. The core idea is a collection of atomic notes

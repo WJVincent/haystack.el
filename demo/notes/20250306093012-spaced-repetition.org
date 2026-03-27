@@ -1,6 +1,6 @@
 #+TITLE: Spaced Repetition
 #+DATE: 2025-03-06
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Spaced repetition is a learning technique that schedules review of material at
 increasing intervals, exploiting the "spacing effect" to maximize long-term
 retention with minimal review time. The algorithm originally formalized by Piotr

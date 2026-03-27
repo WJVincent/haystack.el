@@ -7,6 +7,55 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Two-phase volume gate** — before running a root search or content
+  filter, haystack runs `rg --count` first and prompts
+  `"N lines across M files — run anyway?"` if the total meets or
+  exceeds 500 lines.  The gate is skipped for filename filters
+  (already narrowed in Elisp) and negation filters.  Users who want
+  the large result set can confirm and proceed; the prompt is the
+  natural point to refine with `=` or `/` prefixes instead.
+- `--max-count=50` added to `haystack--rg-base-args` — silently clamps
+  per-file output to 50 lines.  Invisible in normal usage; prevents a
+  single pathological file from flooding the results buffer.
+- `--max-columns=500` added to `haystack--rg-base-args` — drops lines
+  wider than 500 characters.  Prevents minified JS and base64 blobs
+  from producing unreadable grep lines.
+
+### Changed
+- **Sentinel renamed** — `%%% pkm-end-frontmatter %%%` is now
+  `%%% haystack-end-frontmatter %%%` across all frontmatter generators,
+  the `haystack--sentinel-string` constant, tests, demo corpus, and
+  documentation.  Existing notes with the old sentinel will not be
+  recognised by `haystack-regenerate-frontmatter` — a one-time
+  `sed` pass over your notes directory is needed:
+  `sed -i 's/pkm-end-frontmatter/haystack-end-frontmatter/g' notes/**/*`
+
+### Documentation
+- README Requirements section now states the Unix toolchain requirement
+  explicitly: Linux, macOS, or WSL.  Native Windows is unsupported.
+- README Design section gains an **Emergent structure** paragraph
+  contrasting Haystack's retrieval-driven structure (frecency +
+  composites) with graph PKM's link-maintenance model.  Includes the
+  "git commit for retrieval" framing for composites.
+- Demo note `haystack-composites-roadmap.md` rewritten — the previous
+  version incorrectly described composites as saved search profiles.
+  The note now accurately describes composites as full-text
+  concatenations of search results committed to a named `@comp__*`
+  file, with SOURCE-CHAIN frontmatter enabling header surfacing on
+  future searches.
+
+### Internal
+- `haystack--build-rg-count-args` — builds `rg --count --with-filename`
+  args for the volume gate root search, mirroring
+  `haystack--build-rg-args` without the output-formatting flags.
+- `haystack--rg-count-xargs-args` — the xargs variant: count args
+  without the notes directory, for use in filter-further.
+- `haystack--count-output-stats` — parses `rg --count` output
+  (`file:N` lines) into a `(files . lines)` cons.
+- `haystack--volume-gate` — checks stats from a count run against the
+  500-line threshold and calls `yes-or-no-p` if exceeded.
+
 ---
 
 ## [0.7.0] — 2026-03-25
@@ -32,7 +81,21 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   synthesis candidates.
 - `D` binding on `haystack-prefix-map` → `haystack-demo`.
 
+### Bug Fixes
+- `haystack-demo-stop` was killing all haystack results buffers, including
+  any open against the user's real notes directory.  Fixed by stamping each
+  results buffer with `haystack--buffer-notes-dir` at creation time and
+  filtering kills to only those matching the demo temp directory.
+- The tree view and `haystack--all-haystack-buffers` returned buffers from
+  all notes directories.  Now scoped to the active `haystack-notes-directory`
+  via the same stamp, so demo and real-notes buffers never mix.
+
 ### Internal
+- `haystack--buffer-notes-dir` (buffer-local) — the expanded
+  `haystack-notes-directory` at buffer creation time; set in
+  `haystack--setup-results-buffer`.
+- `haystack--all-haystack-buffers` filters on `haystack--buffer-notes-dir`
+  matching the current `haystack-notes-directory`.
 - `haystack--demo-active`, `haystack--demo-temp-dir`,
   `haystack--demo-saved-state` — demo state variables.
 - `haystack--demo-package-dir` — locates the haystack.el directory

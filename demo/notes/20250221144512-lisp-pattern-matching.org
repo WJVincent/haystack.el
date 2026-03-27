@@ -1,6 +1,6 @@
 #+TITLE: Pattern Matching in Lisp
 #+DATE: 2025-02-21
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Pattern matching is a control flow mechanism that simultaneously tests the
 structure of a value and binds its components to names, replacing chains of
 conditionals and accessor calls. Emacs Lisp gained the ~pcase~ macro as its

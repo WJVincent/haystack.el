@@ -1,6 +1,6 @@
 #+TITLE: Retrieval Over Tagging
 #+DATE: 2025-03-12
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 A recurring insight in personal knowledge management (pkm) is that retrieval
 quality matters more than organizational structure: a note you can find is
 infinitely more valuable than a perfectly organized note you cannot. Tag-based

@@ -1,6 +1,6 @@
 #+TITLE: Magit Basics
 #+DATE: 2025-01-21
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Magit is an Emacs interface to Git that exposes nearly every Git operation
 through an interactive, keyboard-driven buffer-based UI. The central Magit
 status buffer (~magit-status~, bound to ~C-x g~ in most configurations) provides

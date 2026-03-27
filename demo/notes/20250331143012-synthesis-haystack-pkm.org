@@ -1,6 +1,6 @@
 #+TITLE: Haystack Design Philosophy
 #+DATE: 2025-03-31
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Haystack's design philosophy can be summarized in one principle: personal
 knowledge management (pkm) should be organized around retrieval, not storage,
 and retrieval should be fast enough to be frictionless. The decision to use

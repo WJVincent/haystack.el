@@ -1,6 +1,6 @@
 # title: Note Sorter — Sorting and Ranking Zettel
 # date: 2025-04-11
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 """ Utilities for sorting and ranking a corpus of plain-text notes (zettel).
 
 Sorting notes by different criteria — date, title, frecency, word count — is a
@@ -39,7 +39,7 @@ class NoteRecord:
 
 def parse_note(path: Path) -> NoteRecord:
     """Parse a note file into a NoteRecord, reading past the frontmatter sentinel."""
-    sentinel = "%%% pkm-end-frontmatter %%%"
+    sentinel = "%%% haystack-end-frontmatter %%%"
     record = NoteRecord(path=path, filename=path.name)
     body_lines = []
     in_body = False

@@ -1,6 +1,6 @@
 #+TITLE: Emacs Windows and Frames
 #+DATE: 2025-01-16
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 In Emacs, the word "window" means something different from the OS concept: a
 window is a viewport into a buffer within a single Emacs frame. A frame is what
 most operating systems call a window — a top-level GUI container managed by the

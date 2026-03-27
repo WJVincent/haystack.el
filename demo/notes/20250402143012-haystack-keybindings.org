@@ -1,6 +1,6 @@
 #+TITLE: Haystack Keybindings
 #+DATE: 2025-04-02
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Haystack ships with default keybindings under a ~C-c h~ prefix map, following
 the Emacs convention of ~C-c~ for user and package bindings. The primary
 bindings out of the box: ~C-c h s~ for ~haystack-search~, ~C-c h n~ for

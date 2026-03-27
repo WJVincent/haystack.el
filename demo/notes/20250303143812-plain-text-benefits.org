@@ -1,6 +1,6 @@
 #+TITLE: Plain Text Benefits for PKM
 #+DATE: 2025-03-03
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Plain text is the most durable storage format for personal knowledge management
 (pkm): it requires no proprietary software, survives format migrations
 trivially, and remains readable on any device. A second-brain built in plain

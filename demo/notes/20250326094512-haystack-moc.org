@@ -1,6 +1,6 @@
 #+TITLE: Haystack Map of Content
 #+DATE: 2025-03-26
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 A Map of Content (MOC) is a note that serves as a curated index or overview for
 a topic, collecting links to related notes (zettel) and organizing them into a
 meaningful structure. In Haystack, an MOC is created like any other note via

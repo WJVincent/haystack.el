@@ -1,6 +1,6 @@
 #+TITLE: Embark Actions
 #+DATE: 2025-01-23
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Embark is an Emacs package that provides context-sensitive actions on the thing
 at point or the current minibuffer candidate. The central command ~embark-act~
 opens a dispatch menu of actions relevant to the current target — a file,

@@ -1,6 +1,6 @@
 #+TITLE: Special Forms in Lisp
 #+DATE: 2025-02-10
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Special forms are built-in syntactic constructs in Lisp that do not follow the
 standard evaluation rule of evaluating all arguments before applying the
 operator. In emacs-lisp and Common Lisp (cl), the core special forms include

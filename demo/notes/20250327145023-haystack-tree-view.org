@@ -1,6 +1,6 @@
 #+TITLE: Haystack Tree View
 #+DATE: 2025-03-27
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Haystack's tree view renders the connections between notes as a collapsible
 outline in a dedicated Emacs buffer, providing a hierarchical browsing mode on
 top of the flat notes directory. The tree view is constructed dynamically by

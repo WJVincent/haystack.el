@@ -1,6 +1,6 @@
 #+TITLE: Tree-sitter Integration in Emacs
 #+DATE: 2025-04-24
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Emacs 29 introduced built-in support for tree-sitter, a parsing library that
 constructs concrete syntax trees for source code in real time as you type. The
 ~treesit~ module replaces regex-based font-lock and navigation with precise

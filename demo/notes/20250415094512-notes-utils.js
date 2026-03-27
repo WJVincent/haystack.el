@@ -1,6 +1,6 @@
 // title: Notes Utilities
 // date: 2025-04-15
-// %%% pkm-end-frontmatter %%%
+// %%% haystack-end-frontmatter %%%
 
 /**
  * Utility functions for working with a plain-text notes (zettel) corpus.
@@ -14,7 +14,7 @@
 import { readFile, writeFile, readdir, stat } from "node:fs/promises"; import {
 join, extname, basename } from "node:path";
 
-const SENTINEL = "%%% pkm-end-frontmatter %%%";
+const SENTINEL = "%%% haystack-end-frontmatter %%%";
 
 /**
  * Generate a zettelkasten-style timestamped filename.

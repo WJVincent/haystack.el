@@ -1,6 +1,6 @@
 -- title: Text Search in Lua
 -- date: 2025-04-17
--- %%% pkm-end-frontmatter %%%
+-- %%% haystack-end-frontmatter %%%
 
 --[[
   Lua utilities for text search over a notes corpus.

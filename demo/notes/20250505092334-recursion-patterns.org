@@ -1,6 +1,6 @@
 #+TITLE: Recursion Patterns in Lisp
 #+DATE: 2025-05-05
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Recursion is the natural control flow mechanism in Lisp for traversing recursive
 data structures like lists, trees, and nested s-expressions. The basic
 structural recursion pattern on a list: handle the empty list (~null~ check),

@@ -1,6 +1,6 @@
 #+TITLE: Emacs as a PKM System
 #+DATE: 2025-02-03
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Emacs has become one of the most powerful platforms for personal knowledge
 management (pkm) because it combines a programmable editor with an ecosystem of
 tools designed for note-taking, linking, and retrieval. The zettelkasten method

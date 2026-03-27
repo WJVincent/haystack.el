@@ -1,6 +1,6 @@
 // title: Search API — Ripgrep-backed Note Search
 // date: 2025-04-14
-// %%% pkm-end-frontmatter %%%
+// %%% haystack-end-frontmatter %%%
 
 /**
  * A Node.js module providing a search API backed by ripgrep (rg).
@@ -15,7 +15,7 @@
 import { spawn } from "node:child_process"; import { readFile } from
 "node:fs/promises"; import { join, basename } from "node:path";
 
-const FRONTMATTER_SENTINEL = "%%% pkm-end-frontmatter %%%";
+const FRONTMATTER_SENTINEL = "%%% haystack-end-frontmatter %%%";
 
 /**
  * Run ripgrep (rg) against a notes directory and return matching file paths.

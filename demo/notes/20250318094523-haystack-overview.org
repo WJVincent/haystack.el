@@ -1,6 +1,6 @@
 #+TITLE: Haystack Overview
 #+DATE: 2025-03-18
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Haystack is an Emacs package for personal knowledge management (pkm) that
 provides fast, search-first navigation over a flat directory of plain-text
 notes. Its core capability is full-text search powered by ripgrep (rg): given a

@@ -1,6 +1,6 @@
 #+TITLE: Haystack Configuration
 #+DATE: 2025-04-01
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Haystack is configured through a small set of customizable variables, all
 following the ~haystack-~ prefix convention for emacs-lisp packages. The most
 important variable is ~haystack-notes-directory~: a string path to the directory

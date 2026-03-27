@@ -1,6 +1,6 @@
 #+TITLE: Haystack Discoverability
 #+DATE: 2025-04-07
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Discoverability in Haystack is the probability that a note you need will surface
 when you search for it, even if you cannot remember exactly what you wrote or
 how you titled it. The three mechanisms that drive discoverability are: rg's

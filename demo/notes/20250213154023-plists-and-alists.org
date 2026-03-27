@@ -1,6 +1,6 @@
 #+TITLE: Plists and Alists
 #+DATE: 2025-02-13
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Emacs Lisp (emacs-lisp) provides two idiomatic key-value data structures built
 from plain lists: property lists (plists) and association lists (alists). A
 plist is a flat list of alternating keys and values: ~(:name "Alice" :age 30)~;

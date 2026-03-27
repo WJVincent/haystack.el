@@ -1,6 +1,6 @@
 #+TITLE: Lisp Macros
 #+DATE: 2025-02-07
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Macros in Lisp are code-transformation functions that run at compile/read time,
 taking unevaluated s-expressions as input and returning new s-expressions for
 the evaluator to execute. Because Lisp code is data (homoiconicity), macros are

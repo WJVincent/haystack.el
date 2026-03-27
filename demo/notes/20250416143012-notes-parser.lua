@@ -1,10 +1,10 @@
 -- title: Notes Parser
 -- date: 2025-04-16
--- %%% pkm-end-frontmatter %%%
+-- %%% haystack-end-frontmatter %%%
 
 --[[
   A Lua module for parsing plain-text notes (zettel) with org or Markdown
-  frontmatter. This parser handles the pkm-end-frontmatter sentinel used
+  frontmatter. This parser handles the haystack-end-frontmatter sentinel used
   by Haystack and extracts title, date, and arbitrary key-value metadata.
 
   Designed to be embedded in Neovim plugins, Pandoc filters, or standalone
@@ -13,7 +13,7 @@
 
 local M = {}
 
-M.SENTINEL = "%%% pkm-end-frontmatter %%%"
+M.SENTINEL = "%%% haystack-end-frontmatter %%%"
 
 --- Parse frontmatter from a note file string.
 --- Returns a table with metadata fields and the body text separately.

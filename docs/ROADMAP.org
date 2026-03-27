@@ -35,7 +35,7 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - =haystack-default-extension= defcustom (default org)
 *** DONE Filetype-aware frontmatter insertion
 - YAML for Markdown, =#+= for Org, comment styles for code files
-- Universal =%%% pkm-end-frontmatter %%%= sentinel in appropriate comment syntax
+- Universal =%%% haystack-end-frontmatter %%%= sentinel in appropriate comment syntax
 - =haystack-frontmatter-functions= defcustom alist — user-extensible per extension
 - =haystack-regenerate-frontmatter= to rebuild frontmatter in existing notes
 - Missing directory offers to create via =y-or-n-p= (=haystack--ensure-notes-directory=)
@@ -208,15 +208,13 @@ Expansion groups and frecency. Force multipliers that make the most sense once a
   - If moved term was root, next member becomes root
   - If only member, dissolve group
 - State 3: B already in A's group → no-op, inform
-- Reject multi-word terms (whitespace check)
-*** TODO =haystack-rename-group-root=
-- Update groups file
-- Update frecency entries
-- Update composite =SOURCE-CHAIN= fields
-- Rename composite files
-- Atomic: all or warn
-*** TODO =haystack-dissolve-group=
-- Remove group entirely
+- Multi-word terms accepted (single-word restriction removed in 0.6.0)
+*** TODO =haystack-rename-group-root= (full atomic version)
+- Basic rename implemented (0.4.0); full atomicity pending composites
+- Still needed: update frecency entries, composite SOURCE-CHAIN fields,
+  rename composite files
+*** DONE =haystack-dissolve-group=
+- Remove group entirely (implemented 0.4.0)
 - Downstream composites/frecency remain valid (lose expansion on replay)
 
 ** Frecency Engine — Core

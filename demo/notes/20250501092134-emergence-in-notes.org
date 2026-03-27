@@ -1,6 +1,6 @@
 #+TITLE: Emergence in Notes
 #+DATE: 2025-05-01
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Emergence in personal knowledge management (pkm) refers to insights, patterns,
 and connections that become visible only when a corpus of notes is large enough
 and well-structured enough to surface them. A zettelkasten is designed to be an

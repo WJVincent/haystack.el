@@ -1,6 +1,6 @@
 #+TITLE: Functional Programming in Lisp
 #+DATE: 2025-05-06
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Functional programming (FP) emphasizes pure functions, immutable data, and
 transformations over values rather than mutation of state, and Lisp dialects
 have been central to FP's history. Pure functions — those with no side effects

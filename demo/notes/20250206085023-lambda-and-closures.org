@@ -1,6 +1,6 @@
 #+TITLE: Lambda and Closures in Lisp
 #+DATE: 2025-02-06
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Lambda expressions are anonymous functions in Lisp, expressed with the ~lambda~
 special form: ~(lambda (x) (* x x))~ creates a function that squares its
 argument. In Emacs Lisp (emacs-lisp), lexical binding must be explicitly enabled

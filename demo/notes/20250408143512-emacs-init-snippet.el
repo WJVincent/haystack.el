@@ -1,6 +1,6 @@
 ;; title: Emacs Init Snippet for Haystack
 ;; date: 2025-04-08
-;; %%% pkm-end-frontmatter %%%
+;; %%% haystack-end-frontmatter %%%
 
 ;; This snippet shows a complete use-package configuration for Haystack
 ;; integrated into a modern Emacs init with Vertico, Consult, and Orderless.

@@ -1,6 +1,6 @@
 #+TITLE: Note Atomicity
 #+DATE: 2025-03-11
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Note atomicity is the practice of writing each zettel around a single, clearly
 defined idea — a principle that makes notes more linkable, more retrievable, and
 more useful over time. An atomic note has a natural title that captures its

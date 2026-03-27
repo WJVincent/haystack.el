@@ -1,6 +1,6 @@
 #+TITLE: Knowledge Graph Limits
 #+DATE: 2025-02-28
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Knowledge graphs — networks where notes (zettel) are nodes and explicit links
 are edges — are a compelling model for personal knowledge management (pkm), but
 they have practical limitations that are often underappreciated. The maintenance

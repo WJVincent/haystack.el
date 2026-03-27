@@ -1,6 +1,6 @@
 #+TITLE: Evergreen Notes
 #+DATE: 2025-02-26
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Evergreen notes are a knowledge-management practice articulated by Andy
 Matuschak: notes written to be refined and updated over time rather than left as
 static records. Unlike fleeting notes or literature summaries, an evergreen note

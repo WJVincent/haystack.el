@@ -1,6 +1,6 @@
 #+TITLE: Vertico and Consult
 #+DATE: 2025-01-22
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Vertico is a minimalist vertical completion UI for Emacs that replaces the
 default horizontal completion display with a clean candidate list in the
 minibuffer. Unlike older completion frameworks that add heavy infrastructure,

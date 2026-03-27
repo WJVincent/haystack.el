@@ -1,6 +1,6 @@
 #+TITLE: S-Expressions
 #+DATE: 2025-02-04
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 S-expressions (symbolic expressions) are the fundamental syntactic unit of Lisp:
 a notation where both code and data are represented as nested parenthesized
 lists. The term "s-expression" was coined by John McCarthy in his original 1960

@@ -1,6 +1,6 @@
 #+TITLE: Buffer Hierarchy in Haystack
 #+DATE: 2025-03-28
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Buffer-hierarchy in Haystack refers to the navigational structure created when
 the tree view builds a parent-child relationship among note buffers, reflecting
 how notes connect to each other conceptually. Unlike filesystem directories

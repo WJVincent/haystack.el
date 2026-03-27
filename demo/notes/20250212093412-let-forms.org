@@ -1,6 +1,6 @@
 #+TITLE: Let Forms in Lisp
 #+DATE: 2025-02-12
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 The ~let~ form is the primary mechanism for introducing local variable bindings
 in Lisp, creating a lexical scope where named values are available only within
 the form's body. The syntax is ~(let ((var1 val1) (var2 val2) ...) body...)~:

@@ -1,6 +1,6 @@
 #+TITLE: Linking Strategies in PKM
 #+DATE: 2025-04-29
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Linking is the mechanism that transforms a collection of notes (zettel) into a
 knowledge network: each link declares a meaningful relationship between two
 ideas. Not all links are equal in value: a link from a synthesis note to two

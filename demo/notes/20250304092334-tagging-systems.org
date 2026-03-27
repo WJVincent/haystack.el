@@ -1,6 +1,6 @@
 #+TITLE: Tagging Systems in PKM
 #+DATE: 2025-03-04
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Tagging is a common organization strategy in personal knowledge management
 (pkm): attaching keywords to notes (zettel) so they can be retrieved by category
 rather than by content search. Tags work best for stable, high-level categories

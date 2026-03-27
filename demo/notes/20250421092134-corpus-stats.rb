@@ -1,6 +1,6 @@
 # title: Corpus Statistics
 # date: 2025-04-21
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 
 # Corpus statistics tool for a Haystack-managed plain-text notes directory.
 #
@@ -14,7 +14,7 @@
 
 require "pathname" require "date" require "set"
 
-SENTINEL    = "%%% pkm-end-frontmatter %%%"
+SENTINEL    = "%%% haystack-end-frontmatter %%%"
 STOPWORDS   = %w[the a an and or but in on at to for of with is are was were be been
                  it its this that these those i we you he she they my your his her our
                  from by as into through about above over after before not no nor so if].to_set

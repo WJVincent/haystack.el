@@ -1,6 +1,6 @@
 // title: Search Index in Rust
 // date: 2025-04-22
-// %%% pkm-end-frontmatter %%%
+// %%% haystack-end-frontmatter %%%
 
 //! A lightweight in-memory search index for a plain-text notes corpus.
 //!
@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet}; use std::fs; use std::path::{Path,
 PathBuf};
 
-const FRONTMATTER_SENTINEL: &str = "%%% pkm-end-frontmatter %%%";
+const FRONTMATTER_SENTINEL: &str = "%%% haystack-end-frontmatter %%%";
 
 /// Metadata parsed from a note's frontmatter.
 #[derive(Debug, Clone)]

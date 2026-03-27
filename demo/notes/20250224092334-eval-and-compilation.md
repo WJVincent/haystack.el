@@ -2,7 +2,7 @@
 title: Eval and Compilation in Lisp
 date: 2025-02-24
 ---
-<!-- %%% pkm-end-frontmatter %%% -->
+<!-- %%% haystack-end-frontmatter %%% -->
 The `eval` function is a defining feature of Lisp: it takes a data structure (an
 s-expression) and evaluates it as code, erasing the boundary between program and
 data at runtime. In emacs-lisp, `eval` accepts a form and an optional lexical

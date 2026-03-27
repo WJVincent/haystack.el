@@ -1,6 +1,6 @@
 #+TITLE: Orderless Completion
 #+DATE: 2025-01-24
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Orderless is a completion style for Emacs that matches candidates containing all
 of your space-separated components, regardless of their order or position in the
 string. Traditional prefix completion requires you to type the beginning of a

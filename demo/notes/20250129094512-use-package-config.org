@@ -1,6 +1,6 @@
 #+TITLE: use-package Configuration
 #+DATE: 2025-01-29
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 ~use-package~ is a macro for organizing Emacs package configuration in a
 declarative, self-documenting style that has become the dominant approach in the
 community. Each ~use-package~ form bundles together the package name, loading

@@ -1,6 +1,6 @@
 #+TITLE: Cognitive Load in Knowledge Work
 #+DATE: 2025-03-10
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Cognitive-load is the total amount of mental effort being used in working memory
 at any given moment; managing it is central to designing effective tools for
 knowledge work. Working memory is severely limited — humans can hold roughly 4-7

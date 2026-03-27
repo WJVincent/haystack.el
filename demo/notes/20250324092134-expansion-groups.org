@@ -1,6 +1,6 @@
 #+TITLE: Haystack Expansion Groups
 #+DATE: 2025-03-24
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Expansion groups are Haystack's mechanism for declaring synonyms: groups of
 terms that should be treated as equivalent for search purposes, so querying any
 one term finds notes using any other. The vocabulary-gap problem motivates

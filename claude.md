@@ -93,6 +93,8 @@ benefit here.
   ;; Set buffer-local vars
   (setq-local haystack--parent-buffer parent)
   (setq-local haystack--search-descriptor descriptor)
+  ;; Stamp with the notes directory so tree/kill ops stay scoped
+  (setq-local haystack--buffer-notes-dir (expand-file-name haystack-notes-directory))
 
   ;; Insert header with read-only property
   (let ((inhibit-read-only t))
@@ -207,11 +209,11 @@ Haystack notes. Must be set before use."  :type 'directory :group
 ### Finding Buffers (for tree ops)
 
 ```elisp
-;; Find all haystack results buffers
-(seq-filter (lambda (b)
-              (with-current-buffer b
-                (bound-and-true-p haystack--search-descriptor)))
-            (buffer-list))
+;; Find all haystack results buffers for the *current* notes directory.
+;; haystack--all-haystack-buffers is the canonical function — use it.
+;; It filters on haystack--buffer-notes-dir matching haystack-notes-directory,
+;; so demo and real-notes buffers never mix in the tree view.
+(haystack--all-haystack-buffers)
 
 ;; Find children of a given buffer
 (seq-filter (lambda (b)
@@ -244,15 +246,35 @@ Haystack notes. Must be set before use."  :type 'directory :group
 ### Standard Search
 
 ```sh
-rg -n -i --color never "pattern" /path/to/notes
+rg -n -i --color never --max-count 50 --max-columns 500 "pattern" /path/to/notes
 ```
 
-`-n` = line numbers (three-field output: `file:line:content`)  
-`-i` = case insensitive  
+`-n` = line numbers (three-field output: `file:line:content`)
+`-i` = case insensitive
 `--color never` = no ANSI escapes in output
+`--max-count 50` = silent per-file clamp; prevents one pathological file flooding results
+`--max-columns 500` = drops minified/base64 lines silently
 
 **Do not use `--vimgrep`** — it adds a column field that breaks
 parsers.
+
+### Two-Phase Volume Gate
+
+Before running any content search, run `rg --count` first. If the total
+exceeds 500 lines, prompt the user before proceeding.
+
+```sh
+# Count run — always include --with-filename
+rg --count --with-filename -i --color never [--glob flags] "pattern" /path
+```
+
+**`--with-filename` is mandatory for count runs.** Without it, rg omits
+the filename prefix when only one file matches (outputs `47` instead of
+`file.org:47`), which breaks `haystack--count-output-stats`. This applies
+to both the direct `call-process` variant and the `xargs` variant.
+
+Sum the per-file counts; if total ≥ 500, call `yes-or-no-p`. Gate only
+on content filters — filename filters are already narrowed in Elisp.
 
 ### With File Glob
 

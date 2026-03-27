@@ -2,7 +2,7 @@
 title: Common Lisp vs Emacs Lisp
 date: 2025-02-17
 ---
-<!-- %%% pkm-end-frontmatter %%% -->
+<!-- %%% haystack-end-frontmatter %%% -->
 Common Lisp (cl) and Emacs Lisp (emacs-lisp, elisp) share a common ancestor in
 Maclisp but have diverged significantly in scope, design philosophy, and typical
 use cases. Common Lisp is a large, standardized language (ANSI X3.226) with a

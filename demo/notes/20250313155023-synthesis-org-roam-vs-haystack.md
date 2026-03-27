@@ -2,7 +2,7 @@
 title: Org-Roam vs Haystack
 date: 2025-03-13
 ---
-<!-- %%% pkm-end-frontmatter %%% -->
+<!-- %%% haystack-end-frontmatter %%% -->
 Org-roam and Haystack are both Emacs packages for personal knowledge management
 (pkm) built on top of plain-text notes, but they embody different philosophies
 about what a second-brain system should do. Org-roam implements the zettelkasten

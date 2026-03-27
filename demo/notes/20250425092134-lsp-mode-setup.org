@@ -1,6 +1,6 @@
 #+TITLE: LSP Mode Setup
 #+DATE: 2025-04-25
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 LSP mode brings Language Server Protocol support to Emacs, enabling IDE-grade
 features like code completion, go-to-definition, find-references, and inline
 diagnostics. The Language Server Protocol decouples editor integration from

@@ -1,6 +1,6 @@
 #+TITLE: Haystack Search
 #+DATE: 2025-03-20
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Search is the central operation in Haystack: the ~haystack-search~ command
 launches a ripgrep (rg) query against the notes directory and presents matching
 notes through a completing-read interface with frecency ranking. Ripgrep (rg) is

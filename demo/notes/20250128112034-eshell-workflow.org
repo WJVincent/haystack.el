@@ -1,6 +1,6 @@
 #+TITLE: Eshell Workflow
 #+DATE: 2025-01-28
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Eshell is an Emacs shell implemented entirely in emacs-lisp, providing a
 command-line interface that blends Unix shell conventions with direct access to
 the Emacs environment. Unlike term-mode or vterm, which emulate a terminal,

@@ -1,6 +1,6 @@
 #+TITLE: Haystack Filtering
 #+DATE: 2025-03-21
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Haystack filtering narrows the search space before ripgrep (rg) runs, letting
 you restrict results by file extension, frontmatter field, date range, or
 directory prefix. The ~/ filter~ syntax in Haystack restricts matches to notes

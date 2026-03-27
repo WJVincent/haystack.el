@@ -1,6 +1,6 @@
 #+TITLE: Mark and Region in Emacs
 #+DATE: 2025-01-18
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 The mark is an invisible saved position in a buffer; the region is the span of
 text between the mark and the current cursor position (point). Setting the mark
 with ~C-SPC~ begins defining a region, and subsequent movement commands extend

@@ -1,6 +1,6 @@
 #+TITLE: Corfu Completion
 #+DATE: 2025-04-28
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Corfu is an in-buffer completion UI for Emacs that displays candidates in a
 small popup near the cursor rather than in the minibuffer, providing context-
 aware completions as you type. It is built entirely on Emacs's standard

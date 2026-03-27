@@ -1,6 +1,6 @@
 #+TITLE: Quoting in Lisp
 #+DATE: 2025-02-11
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Quoting in Lisp prevents evaluation: ~'x~ or ~(quote x)~ returns the symbol ~x~
 itself rather than the value bound to ~x~. This distinction is essential because
 Lisp uses the same syntax for both data structures and executable code; quoting

@@ -1,6 +1,6 @@
 #+TITLE: Emacs Buffers
 #+DATE: 2025-01-15
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 Buffers are the fundamental unit of work in Emacs; nearly everything you
 interact with lives inside one. Unlike most editors that tie buffers directly to
 files, Emacs buffers can hold file contents, shell output, compilation results,

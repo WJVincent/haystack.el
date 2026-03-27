@@ -1,6 +1,6 @@
 #+TITLE: Haystack Workflow
 #+DATE: 2025-05-08
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 A typical Haystack workflow consists of three recurring loops: capture (write
 new notes quickly), search (find relevant notes by content), and explore
 (navigate related notes through tree view or MOCs). The capture loop begins with

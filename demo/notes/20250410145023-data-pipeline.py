@@ -1,6 +1,6 @@
 # title: Data Pipeline for Note Search and Retrieval
 # date: 2025-04-10
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 """ A simple pipeline for processing a plain-text notes corpus and building a
 retrieval-ready data structure. This demonstrates how ripgrep (rg) output can be
 consumed by a Python pipeline for further ranking or analysis.
@@ -37,7 +37,7 @@ def run_ripgrep(query: str, notes_dir: Path, extensions: list[str]) -> list[str]
 def parse_frontmatter(file_path: Path) -> dict:
     """Extract frontmatter metadata from a note file.
 
-    Reads up to the pkm-end-frontmatter sentinel and parses key: value lines.
+    Reads up to the haystack-end-frontmatter sentinel and parses key: value lines.
     Works for both org-style (#+KEY: value) and YAML-style (key: value) notes.
     """
     metadata = {"path": str(file_path), "filename": file_path.name}

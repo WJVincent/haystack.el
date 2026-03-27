@@ -1,6 +1,6 @@
 # title: Note Importer
 # date: 2025-04-18
-# %%% pkm-end-frontmatter %%%
+# %%% haystack-end-frontmatter %%%
 
 # A Ruby script for importing notes from external sources into a
 # Haystack-compatible plain-text notes corpus.
@@ -12,11 +12,11 @@
 #
 # The importer normalizes all incoming notes to the flat zettelkasten
 # directory structure expected by Haystack, with timestamped filenames
-# and pkm-end-frontmatter sentinels.
+# and haystack-end-frontmatter sentinels.
 
 require "fileutils" require "date" require "pathname"
 
-SENTINEL = "%%% pkm-end-frontmatter %%%" TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
+SENTINEL = "%%% haystack-end-frontmatter %%%" TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
 
 # Generate a zettelkasten-style timestamped filename.
 # @param title [String]

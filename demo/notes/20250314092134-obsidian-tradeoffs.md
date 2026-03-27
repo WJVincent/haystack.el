@@ -2,7 +2,7 @@
 title: Obsidian Tradeoffs
 date: 2025-03-14
 ---
-<!-- %%% pkm-end-frontmatter %%% -->
+<!-- %%% haystack-end-frontmatter %%% -->
 Obsidian is a popular personal knowledge management (pkm) application that
 stores notes as plain Markdown files, providing a polished GUI with graph
 visualization, backlinks, and a plugin ecosystem. Its core strength is ease of
