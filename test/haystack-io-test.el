@@ -40,18 +40,20 @@ file-visiting buffers inside it, then deletes the temp directory."
   (declare (indent 0))
   `(let* ((src-dir  haystack-io-test--demo-notes-dir)
           (temp-dir (make-temp-file "haystack-io-test-" t))
-          (saved-notes-dir   haystack-notes-directory)
-          (saved-freq-data   (copy-sequence haystack--frecency-data))
-          (saved-freq-dirty  haystack--frecency-dirty)
-          (saved-freq-init   haystack--frecency-initialized)
-          (saved-exp-groups  (copy-sequence haystack--expansion-groups))
-          (saved-stop-words  (copy-sequence haystack--stop-words)))
+          (saved-notes-dir     haystack-notes-directory)
+          (saved-freq-data     (copy-sequence haystack--frecency-data))
+          (saved-freq-dirty    haystack--frecency-dirty)
+          (saved-freq-init     haystack--frecency-initialized)
+          (saved-exp-groups    (copy-sequence haystack--expansion-groups))
+          (saved-exp-loaded    haystack--expansion-groups-loaded)
+          (saved-stop-words    (copy-sequence haystack--stop-words)))
      (unwind-protect
          (progn
            (copy-directory src-dir temp-dir nil t t)
-           (setq haystack-notes-directory temp-dir
-                 haystack--frecency-dirty nil
-                 haystack--stop-words     nil)
+           (setq haystack-notes-directory          temp-dir
+                 haystack--frecency-dirty          nil
+                 haystack--stop-words              nil
+                 haystack--expansion-groups-loaded nil)
            ;; Load corpus data and mark initialized to skip idle-timer setup
            (haystack--load-expansion-groups)
            (haystack--load-frecency)
@@ -72,12 +74,13 @@ file-visiting buffers inside it, then deletes the temp directory."
                (when (and fname (string-prefix-p prefix (expand-file-name fname)))
                  (ignore-errors (kill-buffer buf)))))))
        ;; Restore globals
-       (setq haystack-notes-directory      saved-notes-dir
-             haystack--frecency-data       saved-freq-data
-             haystack--frecency-dirty      saved-freq-dirty
-             haystack--frecency-initialized saved-freq-init
-             haystack--expansion-groups    saved-exp-groups
-             haystack--stop-words          saved-stop-words)
+       (setq haystack-notes-directory             saved-notes-dir
+             haystack--frecency-data              saved-freq-data
+             haystack--frecency-dirty             saved-freq-dirty
+             haystack--frecency-initialized       saved-freq-init
+             haystack--expansion-groups           saved-exp-groups
+             haystack--expansion-groups-loaded    saved-exp-loaded
+             haystack--stop-words                 saved-stop-words)
        (when (file-directory-p temp-dir)
          (delete-directory temp-dir t)))))
 

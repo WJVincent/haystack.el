@@ -5,6 +5,44 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Internal
+
+- **Dispatcher decomposition**: `haystack-run-root-search` is now a thin
+  dispatcher delegating to `haystack--run-root-search-and` (AND query path)
+  and `haystack--run-root-search-filename` (/ prefix path).
+  `haystack-filter-further` delegates to `haystack--filter-by-content`,
+  `haystack--filter-by-filename`, and `haystack--filter-by-negation`.
+
+- **Unified rg arg builder**: `haystack--rg-args` (`cl-defun` with keyword args
+  `:count`, `:files-with-matches`, `:files-without-match`, `:composite-filter`,
+  `:file-glob`, `:pattern`, `:extra-args`) replaces the four separate builders
+  (`haystack--rg-base-args`, `haystack--build-rg-args`,
+  `haystack--build-rg-count-args`, `haystack--rg-count-xargs-args`).
+
+- **Cached expansion group loading**: `haystack--expansion-groups-loaded` flag
+  prevents redundant disk reads.  `haystack-reload-expansion-groups` clears it to
+  force a re-read.  Demo mode transitions also clear it.  `haystack--save-expansion-groups`
+  sets it after any write.
+
+- **Empty slug guard**: `haystack-new-note` and `haystack-new-note-with-moc` now
+  signal `user-error` when the slug sanitizes to an empty string.
+
+- **AND query auto-quoting verified**: `haystack--run-and-query` already routes
+  all tokens through `haystack--parse-input` (which applies `regexp-quote`);
+  added explicit tests for `C++` and `~C.+` patterns.
+
+- **Frecency leaf algorithm**: `haystack--frecent-leaves` replaced with an
+  O(N·L) hash-based algorithm (was O(N²)).  `haystack--frecent-leaf-p` kept as
+  a thin wrapper for backward compatibility.
+
+- **Function rename**: `haystack--run-rg-for-filelist` renamed to
+  `haystack--search-in-filelist`.
+
+- **Rename-group-root operation order**: composite file renaming now happens
+  first (steps: rename composites → update frecency → update groups), so a
+  partial failure leaves the group name and composite filenames mutually
+  consistent.
+
 ### Added
 - IO test suite (`test/haystack-io-test.el`, 12 tests): end-to-end tests running
   real `rg` calls against a temp copy of the demo corpus.  Covers root search,

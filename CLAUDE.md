@@ -100,8 +100,15 @@ All buffer-local vars: `haystack--` (set with `make-local-variable`)
 ;; With xargs (the standard path for filters)
 ;; haystack--xargs-rg writes filenames null-separated to a temp file and calls:
 ;;   xargs -0 rg ARGS < FILELIST
-;; Use haystack--xargs-rg or haystack--run-rg-for-filelist — do not
+;; Use haystack--xargs-rg or haystack--search-in-filelist — do not
 ;; call rg directly.
+;;
+;; For building arg lists, use haystack--rg-args (cl-defun with keyword args):
+;;   (haystack--rg-args :count t :composite-filter cf :file-glob t
+;;                      :pattern pattern :extra-args (list notes-dir))
+;; Keys: :count, :files-with-matches, :files-without-match (mode flags),
+;;       :composite-filter ('exclude/'only/'all), :file-glob (boolean),
+;;       :pattern, :extra-args (list).
 
 ;; Negation step 1: get files WITHOUT a match (also via xargs)
 ;;   xargs -0 rg --files-without-match -i --color never PATTERN < FILELIST
@@ -388,6 +395,12 @@ All live in `haystack-notes-directory`:
 | File                      | Format                                            | Version Control? | Phase |
 |---------------------------|---------------------------------------------------|------------------|-------|
 | `.expansion-groups.el`    | Alist: `((root . (syn1 syn2)) ...)`               | Yes              | 2     |
+
+**Expansion group caching**: `haystack--expansion-groups-loaded` is a boolean
+flag. `haystack--load-expansion-groups` skips the disk read when already t.
+Call `haystack-reload-expansion-groups` to force a re-read. The flag is cleared
+by demo mode transitions and set by `haystack--save-expansion-groups` after any
+write.
 | `.haystack-frecency.el`   | Alist: `(((t1 t2) :count N :last-access TS) ...)` | Optional         | 2     |
 | `.haystack-stop-words.el` | List: `("the" "a" "an" ...)`                      | Yes              | 3     |
 

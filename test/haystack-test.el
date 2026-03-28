@@ -14,8 +14,11 @@
 ;;;; Helpers
 
 (defmacro haystack-test--with-notes-dir (&rest body)
-  "Run BODY with a temporary directory bound as `haystack-notes-directory'."
-  `(let ((haystack-notes-directory (make-temp-file "haystack-test-" t)))
+  "Run BODY with a temporary directory bound as `haystack-notes-directory'.
+Also resets `haystack--expansion-groups-loaded' so each test gets a
+clean cache state independent of test execution order."
+  `(let ((haystack-notes-directory (make-temp-file "haystack-test-" t))
+         (haystack--expansion-groups-loaded nil))
      (unwind-protect
          (progn ,@body)
        (delete-directory haystack-notes-directory t))))
@@ -225,6 +228,33 @@
                          (buffer-string))))
          (should (= 1 (length files)))
          (should (string-empty-p content)))))))
+
+(ert-deftest haystack-test/sanitize-slug-all-unsafe-returns-empty ()
+  "`haystack--sanitize-slug' returns empty string for all-unsafe input."
+  (should (string-empty-p (haystack--sanitize-slug ":/\\"))))
+
+(ert-deftest haystack-test/new-note-empty-slug-signals-user-error ()
+  "`haystack-new-note' signals user-error when slug sanitizes to empty."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'read-string)
+              (lambda (_prompt &optional _init _hist _default) ":/\\")))
+     (should-error (haystack-new-note) :type 'user-error))))
+
+(ert-deftest haystack-test/new-note-with-moc-empty-slug-signals-user-error ()
+  "`haystack-new-note-with-moc' signals user-error when slug sanitizes to empty."
+  (haystack-test--with-notes-dir
+   (let* ((desc (list :root-term "foo" :root-expanded "foo" :root-literal nil
+                      :root-regex nil :root-filename nil :root-expansion nil
+                      :filters nil :composite-filter 'exclude))
+          (buf  (get-buffer-create "*haystack:test-slug-guard*")))
+     (with-current-buffer buf
+       (setq-local haystack--search-descriptor desc)
+       (insert "/notes/foo.org:1:some content\n"))
+     (with-current-buffer buf
+       (cl-letf (((symbol-function 'read-string)
+                  (lambda (_prompt &optional _init _hist _default) ":/\\")))
+         (should-error (haystack-new-note-with-moc) :type 'user-error)))
+     (kill-buffer buf))))
 
 ;;;; haystack-regenerate-frontmatter
 
@@ -1033,58 +1063,84 @@ Writes INITIAL-GROUPS to disk so functions that call
     (should (equal (haystack--strip-notes-prefix "/other/foo.org:1:content")
                    "/other/foo.org:1:content"))))
 
-;;;; haystack--build-rg-args
+;;;; haystack--rg-args
 
 (ert-deftest haystack-test/rg-args-excludes-composites-by-default ()
-  "No composite-filter argument produces --glob=!@*."
-  (let ((haystack-notes-directory "/notes")
-        (haystack-file-glob nil))
-    (should (member "--glob=!@*" (haystack--build-rg-args "rust")))))
+  "Default composite-filter produces --glob=!@*."
+  (let ((haystack-file-glob nil))
+    (should (member "--glob=!@*" (haystack--rg-args :pattern "rust")))))
 
 (ert-deftest haystack-test/rg-args-exclude-symbol ()
   "'exclude produces --glob=!@*."
-  (let ((haystack-notes-directory "/notes")
-        (haystack-file-glob nil))
-    (should (member "--glob=!@*" (haystack--build-rg-args "rust" 'exclude)))))
+  (let ((haystack-file-glob nil))
+    (should (member "--glob=!@*"
+                    (haystack--rg-args :composite-filter 'exclude :pattern "rust")))))
 
 (ert-deftest haystack-test/rg-args-only-symbol ()
   "'only produces --glob=@* with no negation variant."
-  (let ((haystack-notes-directory "/notes")
-        (haystack-file-glob nil))
-    (let ((args (haystack--build-rg-args "rust" 'only)))
+  (let ((haystack-file-glob nil))
+    (let ((args (haystack--rg-args :composite-filter 'only :pattern "rust")))
       (should (member "--glob=@*" args))
       (should-not (member "--glob=!@*" args)))))
 
 (ert-deftest haystack-test/rg-args-all-symbol ()
   "'all produces no @* glob at all."
-  (let ((haystack-notes-directory "/notes")
-        (haystack-file-glob nil))
+  (let ((haystack-file-glob nil))
     (should-not (cl-some (lambda (a) (string-match-p "@\\*" a))
-                         (haystack--build-rg-args "rust" 'all)))))
+                         (haystack--rg-args :composite-filter 'all :pattern "rust")))))
 
 (ert-deftest haystack-test/rg-args-applies-file-glob ()
-  "`haystack-file-glob' entries appear as --glob= arguments."
+  "`haystack-file-glob' entries appear as --glob= arguments when :file-glob t."
   (let ((haystack-notes-directory "/notes")
         (haystack-file-glob '("*.org" "*.md")))
-    (let ((args (haystack--build-rg-args "rust" 'exclude)))
+    (let ((args (haystack--rg-args :composite-filter 'exclude
+                                   :file-glob t
+                                   :pattern "rust"
+                                   :extra-args (list "/notes"))))
       (should (member "--glob=*.org" args))
       (should (member "--glob=*.md" args)))))
 
 (ert-deftest haystack-test/rg-args-contains-pattern-and-directory ()
-  "Pattern and notes directory appear as the final two arguments."
+  "Pattern and notes directory appear in the argument list."
   (let ((haystack-notes-directory "/my/notes")
         (haystack-file-glob nil))
-    (let ((args (haystack--build-rg-args "mypattern" 'exclude)))
+    (let ((args (haystack--rg-args :composite-filter 'exclude
+                                   :pattern "mypattern"
+                                   :extra-args (list "/my/notes"))))
       (should (member "mypattern" args))
       (should (member "/my/notes" args)))))
 
 (ert-deftest haystack-test/rg-args-expands-tilde-in-directory ()
-  "A ~ in `haystack-notes-directory' is expanded to an absolute path."
+  "A ~ in `haystack-notes-directory' is expanded before being passed as extra-arg."
   (let ((haystack-notes-directory "~/notes")
         (haystack-file-glob nil))
-    (let ((args (haystack--build-rg-args "rust" 'exclude)))
+    (let ((args (haystack--rg-args :composite-filter 'exclude
+                                   :pattern "rust"
+                                   :extra-args (list (expand-file-name haystack-notes-directory)))))
       (should-not (member "~/notes" args))
       (should (member (expand-file-name "~/notes") args)))))
+
+(ert-deftest haystack-test/rg-args-count-mode-has-count-and-with-filename ()
+  "Count mode adds --count and --with-filename at the head."
+  (let ((haystack-file-glob nil))
+    (let ((args (haystack--rg-args :count t :composite-filter 'all :pattern "rust")))
+      (should (member "--count" args))
+      (should (member "--with-filename" args))
+      (should-not (member "--line-number" args)))))
+
+(ert-deftest haystack-test/rg-args-fwm-mode-has-files-with-matches ()
+  "Files-with-matches mode adds --files-with-matches."
+  (let ((haystack-file-glob nil))
+    (let ((args (haystack--rg-args :files-with-matches t
+                                   :composite-filter 'all :pattern "rust")))
+      (should (member "--files-with-matches" args))
+      (should-not (member "--line-number" args)))))
+
+(ert-deftest haystack-test/rg-args-file-glob-not-applied-without-flag ()
+  "File globs are NOT added when :file-glob is nil (or omitted)."
+  (let ((haystack-file-glob '("*.org")))
+    (let ((args (haystack--rg-args :composite-filter 'exclude :pattern "rust")))
+      (should-not (member "--glob=*.org" args)))))
 
 ;;;; haystack--truncate-content
 
@@ -1174,30 +1230,40 @@ Writes INITIAL-GROUPS to disk so functions that call
                            "\n")))
     (should (equal (haystack--count-search-stats output) '(2 . 2)))))
 
-;;;; haystack--rg-base-args
+;;;; haystack--rg-args (content mode)
 
 (ert-deftest haystack-test/rg-base-args-exclude ()
-  (should (member "--glob=!@*" (haystack--rg-base-args 'exclude))))
+  "Content mode with 'exclude adds --glob=!@*."
+  (let ((haystack-file-glob nil))
+    (should (member "--glob=!@*" (haystack--rg-args :composite-filter 'exclude)))))
 
 (ert-deftest haystack-test/rg-base-args-only ()
-  (let ((args (haystack--rg-base-args 'only)))
-    (should (member "--glob=@*" args))
-    (should-not (member "--glob=!@*" args))))
+  "Content mode with 'only adds --glob=@* only."
+  (let ((haystack-file-glob nil))
+    (let ((args (haystack--rg-args :composite-filter 'only)))
+      (should (member "--glob=@*" args))
+      (should-not (member "--glob=!@*" args)))))
 
 (ert-deftest haystack-test/rg-base-args-all ()
-  (should-not (cl-some (lambda (a) (string-match-p "@\\*" a))
-                       (haystack--rg-base-args 'all))))
+  "Content mode with 'all adds no @* glob."
+  (let ((haystack-file-glob nil))
+    (should-not (cl-some (lambda (a) (string-match-p "@\\*" a))
+                         (haystack--rg-args :composite-filter 'all)))))
 
 (ert-deftest haystack-test/rg-base-args-default-is-exclude ()
-  (should (member "--glob=!@*" (haystack--rg-base-args))))
+  "Content mode with no composite-filter defaults to 'exclude."
+  (let ((haystack-file-glob nil))
+    (should (member "--glob=!@*" (haystack--rg-args)))))
 
 (ert-deftest haystack-test/rg-base-args-has-max-count ()
-  "Includes --max-count=50 to clamp per-file output."
-  (should (member "--max-count=50" (haystack--rg-base-args))))
+  "Content mode includes --max-count=50 to clamp per-file output."
+  (let ((haystack-file-glob nil))
+    (should (member "--max-count=50" (haystack--rg-args)))))
 
 (ert-deftest haystack-test/rg-base-args-has-max-columns ()
-  "Includes --max-columns=500 to drop minified/base64 lines."
-  (should (member "--max-columns=500" (haystack--rg-base-args))))
+  "Content mode includes --max-columns=500 to drop minified/base64 lines."
+  (let ((haystack-file-glob nil))
+    (should (member "--max-columns=500" (haystack--rg-args)))))
 
 ;;;; haystack--count-output-stats
 
@@ -1307,7 +1373,7 @@ Writes INITIAL-GROUPS to disk so functions that call
                        (haystack--write-filelist (list note)))))
      (unwind-protect
          (should (string-match-p "\\$100"
-                  (haystack--run-rg-for-filelist "\\$100" tmp 'all)))
+                  (haystack--search-in-filelist "\\$100" tmp 'all)))
        (delete-file tmp)))))
 
 (ert-deftest haystack-test/xargs-rg-shell-metacharacters-literal ()
@@ -1318,7 +1384,7 @@ Writes INITIAL-GROUPS to disk so functions that call
                        (haystack--write-filelist (list note)))))
      (unwind-protect
          (should (string-match-p "foo & bar"
-                  (haystack--run-rg-for-filelist "foo & bar" tmp 'all)))
+                  (haystack--search-in-filelist "foo & bar" tmp 'all)))
        (delete-file tmp)))))
 
 ;;;; haystack--extract-filenames
@@ -1819,6 +1885,25 @@ has async, so the intersection count is 50 (below threshold) — no prompt."
    (cl-letf (((symbol-function 'yes-or-no-p)
               (lambda (&rest _) (error "Gate should not have fired on intersection"))))
      (haystack--run-and-query '("rust" "async") 'all))))
+
+(ert-deftest haystack-test/run-and-query-special-chars-auto-quoted ()
+  "AND query tokens with regex metacharacters are regexp-quoted by default.
+C++ without = prefix should not cause an rg error — the + chars are escaped."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "cplusplus.org" haystack-notes-directory)))
+     (with-temp-file note (insert "C++ is a language\nfoo bar baz\n"))
+     ;; Should succeed without error and find the file.
+     (let ((out (haystack--run-and-query '("C++" "foo") 'all)))
+       (should (string-match-p "cplusplus\\.org" out))))))
+
+(ert-deftest haystack-test/run-and-query-regex-prefix-not-quoted ()
+  "AND query tokens with ~ prefix are passed as raw regex, not escaped."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "regex-note.org" haystack-notes-directory)))
+     (with-temp-file note (insert "Cargo is great\nfoo bar baz\n"))
+     ;; ~C.+ matches "Cargo" via raw regex; foo matches the second line.
+     (let ((out (haystack--run-and-query '("~C.+" "foo") 'all)))
+       (should (string-match-p "regex-note\\.org" out))))))
 
 ;;;; haystack-run-root-search
 
