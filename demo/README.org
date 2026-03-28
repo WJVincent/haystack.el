@@ -87,28 +87,30 @@ dominated by their deeper siblings.
    that it lives in the temporary directory and will be discarded on
    ~haystack-demo-stop~.
 
-** 6 · Orphan notes
-   From any search results buffer, press =f= and type =/orphan= (the
-   =/= prefix triggers a filename filter).  This scopes to the four
-   notes that are intentionally isolated — they share little vocabulary
-   with the rest of the corpus and would be hard to find through
-   content search alone:
-   - =orphan-s-expressions= — symbolic-expression theory, minimal cross-topic refs
-   - =orphan-cognitive-load= — mental overhead framing, unique vocabulary
-   - =orphan-buffer-hierarchy= — haystack tree internals, narrow scope
-   - =orphan-vocabulary-gap= — terminology drift, isolated concept
+** 6 · Discoverability
+   Open one of the orphan notes (filter =/orphan= from any results
+   buffer).  With the note buffer active, run ~M-x
+   haystack-describe-discoverability~.  A report will open showing
+   every unique token in the note, grouped into tiers:
+   - *Isolated* — terms that appear in no other note (vocabulary gap)
+   - *Sparse* — terms that appear in 1–2 other notes
+   - *Connected* — terms shared with several notes
+   - *Ubiquitous* — terms that appear almost everywhere
 
-   These are prime candidates for the Phase 3 discoverability engine
-   (~M-x haystack-describe-discoverability~, not yet implemented).
+   Try it on =orphan-vocabulary-gap= — its Isolated tier is large,
+   confirming that the note's vocabulary is genuinely unique.
 
-** 7 · Synthesis candidates
+** 7 · Compose
    From any results buffer, press =f= and type =/synthesis=.  You'll
-   land on four notes that bridge two topic areas and are good
-   candidates for a composite once the Phase 3 composer lands:
+   land on four notes that bridge two topic areas:
    - =synthesis-emacs-pkm= (Emacs ∩ PKM)
    - =synthesis-org-roam-vs-haystack= (PKM ∩ Haystack)
    - =synthesis-plain-text-pkm= (PKM ∩ Haystack)
    - =synthesis-haystack-pkm= (Haystack ∩ PKM)
+
+   Press ~C-c C-c~ (~haystack-compose~) to open a staging buffer.
+   Each matched file appears as a section with context.  Edit freely,
+   then ~C-c C-c~ again to commit the composite note to disk.
 
 * Stopping the demo
 

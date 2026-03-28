@@ -46,13 +46,13 @@ Search: "rust"              → 40 notes
 
 ## What a Session Actually Looks Like
 
-1. You call `haystack-search`. A prompt asks for a term. You type
-   `rust`.
+1. You call `haystack-run-root-search` (`C-c h s`). A prompt asks for
+   a term. You type `rust`.
 2. A buffer appears with every file in your notes directory containing
    "rust," formatted as clickable grep results. The header says
    something like `42 files, 187 matches`.
-3. You realize 42 files is too many. You call `haystack-filter` and
-   type `bevy`. A *new* buffer appears showing only the files from
+3. You realize 42 files is too many. You call `haystack-filter-further`
+   (`f` in the results buffer) and type `bevy`. A *new* buffer appears showing only the files from
    step 2 that *also* contain "bevy." The original buffer is still
    there, untouched.
 4. You see the note you want in the results. You jump to it with

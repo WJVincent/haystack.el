@@ -624,5 +624,101 @@ existing composite and mentions it in the staging buffer header."
          (when (buffer-live-p compose-buf) (kill-buffer compose-buf))
          (when (buffer-live-p root-buf)    (kill-buffer root-buf)))))))
 
+;;;; Test 22 — Frecency replay bypasses stop-word prompt
+
+(ert-deftest haystack-io-test/frecency-replay-bypasses-stop-word ()
+  "Frecency replay succeeds even when the root term is a stop word.
+The stop-word prompt must never fire during replay — this is DWIM behavior.
+Before the fix, replay would invoke the prompt, and a ?q abort would crash
+with `wrong-type-argument' because `haystack-run-root-search' returns nil."
+  (haystack-io-test--with-corpus
+   (let ((prompt-called nil))
+     (cl-letf (((symbol-function 'pop-to-buffer)         #'ignore)
+               ((symbol-function 'switch-to-buffer)      #'ignore)
+               ((symbol-function 'yes-or-no-p)           (lambda (_) t))
+               ((symbol-function 'haystack--stop-word-prompt)
+                (lambda (_) (setq prompt-called t) ?q)))
+       ;; Add the root term as a stop word (after ensure has loaded)
+       (haystack--ensure-stop-words)
+       (push "haystack" haystack--stop-words)
+       (let ((buf (haystack--frecency-replay '("haystack" "filtering"))))
+         (unwind-protect
+             (progn
+               (should-not prompt-called)
+               (should (buffer-live-p buf))
+               (with-current-buffer buf
+                 (should (equal (plist-get haystack--search-descriptor :root-term)
+                                "haystack"))))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+;;;; Test 23 — Frecency replay cleans up on error
+
+(ert-deftest haystack-io-test/frecency-replay-cleans-up-on-error ()
+  "Frecency replay cleans up intermediate buffers when an error occurs mid-chain.
+Confirms that `unwind-protect' kills the in-progress buffer so no orphan
+haystack buffers remain after a failed replay."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     ;; Replay a chain where the second term will work but we sabotage
+     ;; filter-further to error on the third step.
+     (let ((call-count 0))
+       (cl-letf (((symbol-function 'haystack-filter-further)
+                  (let ((orig (symbol-function 'haystack-filter-further)))
+                    (lambda (term)
+                      (cl-incf call-count)
+                      (if (>= call-count 2)
+                          (error "Simulated mid-chain failure")
+                        (funcall orig term))))))
+         (condition-case nil
+             (haystack--frecency-replay '("haystack" "filtering" "search" "extra"))
+           (error nil)))
+       ;; No orphan haystack buffers should remain
+       (let ((orphans (cl-remove-if-not
+                       (lambda (buf)
+                         (string-prefix-p "*haystack:" (buffer-name buf)))
+                       (buffer-list))))
+         (should (null orphans)))))))
+
+;;;; Test 25 — Filename search runs volume gate
+
+(ert-deftest haystack-io-test/filename-search-runs-volume-gate ()
+  "Root /filename search calls `haystack--volume-gate' before returning results.
+Confirms that the filename search path applies the same volume limit
+as content searches."
+  (haystack-io-test--with-corpus
+   (let ((gate-called nil))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p)      (lambda (_) t))
+               ((symbol-function 'haystack--volume-gate)
+                (let ((orig (symbol-function 'haystack--volume-gate)))
+                  (lambda (count-output)
+                    (setq gate-called t)
+                    (funcall orig count-output)))))
+       (let ((buf (haystack-run-root-search "/emacs")))
+         (unwind-protect
+             (progn
+               (should gate-called)
+               (should (buffer-live-p buf)))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+;;;; Test 26 — Discoverability counts capitalized tokens
+
+(ert-deftest haystack-io-test/discoverability-counts-capitalized-tokens ()
+  "Discoverability counts a term that appears only in capitalized form.
+A note containing only 'Xyloquartz' (never lowercase) must still be
+counted when we ask for the count of 'xyloquartz'.  Confirms the fix for
+the [a-z0-9_-]+ parsing regex that previously dropped uppercase matches."
+  (haystack-io-test--with-corpus
+   (let ((test-note (expand-file-name "20260328000000-caps-test.org"
+                                      haystack-notes-directory)))
+     (with-temp-file test-note
+       (insert "#+TITLE: Caps Test\n\nXyloquartz appears here.\n"))
+     (let ((results (haystack--discoverability-count-all-terms '("xyloquartz"))))
+       (should (assoc "xyloquartz" results))
+       (should (>= (cdr (assoc "xyloquartz" results)) 1))))))
+
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

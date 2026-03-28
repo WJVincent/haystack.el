@@ -27,6 +27,13 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   no-ref comment.  Child buffers created by `haystack-filter-further` inside a
   mentions tree inherit the origin and the `*haystack-ref:` rename automatically.
 
+- IO test suite (`test/haystack-io-test.el`): end-to-end tests running
+  real `rg` calls against a temp copy of the demo corpus.  Covers root search,
+  expansion groups, AND queries, progressive filter, filename filter, negation,
+  frecency replay, compose staging, discoverability, stop-word prompts, frecency
+  recording, and filename-prefix root search.  Serves as continuous verification
+  that every feature is meaningfully demonstrable in the demo corpus.
+
 ### Internal
 
 - **MOC language registry**: `haystack--moc-language-registry` stores the
@@ -80,18 +87,6 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   first (steps: rename composites → update frecency → update groups), so a
   partial failure leaves the group name and composite filenames mutually
   consistent.
-
-### Added
-- IO test suite (`test/haystack-io-test.el`, 21 tests): end-to-end tests running
-  real `rg` calls against a temp copy of the demo corpus.  Covers root search,
-  expansion groups, AND queries, progressive filter, filename filter, negation,
-  frecency replay, compose staging, discoverability, stop-word prompts, frecency
-  recording, and filename-prefix root search.  Also covers: zero-result path,
-  regex `~` prefix, three-term AND, three-level filter chain, negated filename
-  filter, `composite-filter 'only` with empty composite set, frecency flush to
-  disk, frecency replay of zero-result chain, and compose commit writing the
-  `@comp__` file.  Serves as continuous verification that every feature is
-  meaningfully demonstrable in the demo corpus.
 
 ### Fixed
 

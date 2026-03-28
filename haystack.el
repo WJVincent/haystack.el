@@ -1676,7 +1676,13 @@ in PARSED, then re-runs rg on the matching set for content."
         ""
       (let ((tmp (haystack--write-filelist matching)))
         (unwind-protect
-            (haystack--search-in-filelist "." tmp cf)
+            (progn
+              (haystack--volume-gate
+               (haystack--xargs-rg tmp
+                                   (haystack--rg-args :count t
+                                                      :composite-filter cf
+                                                      :pattern ".")))
+              (haystack--search-in-filelist "." tmp cf))
           (delete-file tmp))))))
 
 ;;;###autoload
@@ -1701,13 +1707,15 @@ including composite files in the search."
   (let* ((pre-parsed  (haystack--parse-input raw-input))
          (pre-term    (plist-get pre-parsed :term))
          (stop-abort  nil))
-    (when (and (not (plist-get pre-parsed :literal))
+    (when (and (not haystack--suppress-stop-word)
+               (not (plist-get pre-parsed :literal))
                (not (plist-get pre-parsed :regex))
                (not (haystack--parse-and-tokens raw-input))
                (haystack--stop-word-p pre-term))
       (pcase (haystack--stop-word-prompt pre-term)
         (?s (setq raw-input (concat "=" pre-term)))
-        (?r (haystack-remove-stop-word pre-term))
+        (?r (haystack-remove-stop-word pre-term)
+            (setq raw-input (concat "=" pre-term)))
         (_  (setq stop-abort t))))
     (unless stop-abort
       (let* ((cf     (or composite-filter 'exclude))
@@ -2715,6 +2723,11 @@ Persisted to `.haystack-frecency.el' in the notes directory.")
 Used by `haystack--frecency-replay' to run the search chain internally
 without affecting the window layout.")
 
+(defvar haystack--suppress-stop-word nil
+  "When non-nil, bypass the stop-word prompt in root search.
+Used by `haystack--frecency-replay' so replaying a chain whose root term
+was later added to the stop-word list does not crash or prompt.")
+
 (defvar haystack--frecency-timer nil
   "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
 
@@ -3070,20 +3083,28 @@ Columns: score, visits, days since last access, search chain.
   "Replay CHAIN and display a leaf results buffer.
 CHAIN is a list of prefixed term strings.  Each step is run internally;
 only the final buffer is kept.  Its parent is set to nil so it stands
-alone in the tree."
+alone in the tree.
+Stop-word prompts are suppressed so replaying a chain whose root was
+later added to the stop-word list does not crash or prompt."
   (haystack--load-expansion-groups)
-  (let ((current-buf nil))
-    (let ((haystack--suppress-display t))
-      (setq current-buf (haystack-run-root-search (car chain)))
-      (dolist (filter-term (cdr chain))
-        (let ((next-buf (with-current-buffer current-buf
-                          (haystack-filter-further filter-term))))
-          (kill-buffer current-buf)
-          (setq current-buf next-buf))))
-    (with-current-buffer current-buf
-      (setq-local haystack--parent-buffer nil))
-    (pop-to-buffer current-buf)
-    current-buf))
+  (let ((current-buf nil)
+        (done nil))
+    (unwind-protect
+        (let ((haystack--suppress-display t)
+              (haystack--suppress-stop-word t))
+          (setq current-buf (haystack-run-root-search (car chain)))
+          (dolist (filter-term (cdr chain))
+            (let ((next-buf (with-current-buffer current-buf
+                              (haystack-filter-further filter-term))))
+              (kill-buffer current-buf)
+              (setq current-buf next-buf)))
+          (with-current-buffer current-buf
+            (setq-local haystack--parent-buffer nil))
+          (pop-to-buffer current-buf)
+          (setq done t)
+          current-buf)
+      (when (and (not done) current-buf (buffer-live-p current-buf))
+        (kill-buffer current-buf)))))
 
 ;;;###autoload
 (defun haystack-frecent (&optional all)
@@ -3445,8 +3466,8 @@ restores your previous `haystack-notes-directory'."
                      temp-dir (error-message-string err))))
       (setq haystack--demo-saved-state
             (list :notes-dir   haystack-notes-directory
-                  :frecency    (copy-sequence haystack--frecency-data)
-                  :exp-groups  (copy-sequence haystack--expansion-groups)))
+                  :frecency    (copy-tree haystack--frecency-data)
+                  :exp-groups  (copy-tree haystack--expansion-groups)))
       (setq haystack--demo-temp-dir  temp-dir
             haystack--demo-active    t
             haystack-notes-directory temp-dir
@@ -3647,7 +3668,8 @@ error.  Returns nil on success."
           (push pair done))
       (error
        ;; Roll back completed renames in reverse order.
-       (dolist (pair (nreverse done))
+       ;; `done' is already LIFO from `push', so iterate directly.
+       (dolist (pair done)
          (condition-case _
              (rename-file (cdr pair) (car pair))
            (error nil)))

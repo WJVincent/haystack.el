@@ -847,6 +847,37 @@ Writes INITIAL-GROUPS to disk so functions that call
      (should     (file-exists-p old1))
      (should-not (file-exists-p new1)))))
 
+(ert-deftest haystack-test/rename-composites-atomic-rollback-order-is-lifo ()
+  "Rollback of a 3-pair rename where pair 3 fails runs in LIFO order.
+Pair 2 must be rolled back before pair 1.  Verifies that the `done' list
+is not `nreverse'd, preserving the correct LIFO ordering from `push'."
+  (haystack-test--with-notes-dir
+   (let* ((old1 (expand-file-name "@comp__one.org"   haystack-notes-directory))
+          (new1 (expand-file-name "@comp__uno.org"   haystack-notes-directory))
+          (old2 (expand-file-name "@comp__two.org"   haystack-notes-directory))
+          (new2 (expand-file-name "@comp__dos.org"   haystack-notes-directory))
+          (old3 "/nonexistent/path/@comp__three.org")
+          (new3 "/nonexistent/path/@comp__tres.org")
+          (rollback-log nil))
+     (with-temp-file old1 (insert "one"))
+     (with-temp-file old2 (insert "two"))
+     ;; Wrap rename-file to log rollback calls (where src is a "new" path)
+     (cl-letf (((symbol-function 'rename-file)
+                (let ((orig (symbol-function 'rename-file)))
+                  (lambda (src dst &rest args)
+                    ;; Log rollbacks: when src matches a renamed-to path
+                    (when (or (equal src new1) (equal src new2))
+                      (push src rollback-log))
+                    (apply orig src dst args)))))
+       (should-error (haystack--rename-composites-atomic
+                      (list (cons old1 new1) (cons old2 new2) (cons old3 new3)))))
+     ;; Both originals restored
+     (should (file-exists-p old1))
+     (should (file-exists-p old2))
+     ;; Rollback order: pair 2 (new2) first, then pair 1 (new1) — LIFO.
+     ;; push-based log records in reverse: last-pushed = first-rolled-back.
+     (should (equal rollback-log (list new1 new2))))))
+
 ;;; haystack-rename-group-root — full atomic integration
 
 (ert-deftest haystack-test/rename-group-root-updates-frecency ()
@@ -3821,6 +3852,24 @@ Saves and restores the global and the dirty flag."
   "haystack-demo-stop signals if demo is not running."
   (should-error (haystack-demo-stop) :type 'user-error))
 
+(ert-deftest haystack-test/demo-deep-copies-mutable-state ()
+  "Demo mode deep-copies frecency and expansion-group state.
+A stale reference to a pre-demo nested cons cell, if mutated during demo,
+must not corrupt the saved state that demo-stop restores from."
+  (haystack-test--with-demo-dir
+   (let ((haystack--expansion-groups
+          '(("lang" . ("rust" "python")))))
+     ;; Capture a reference to the shared nested cons cell BEFORE demo.
+     (let ((stale-cell (assoc "lang" haystack--expansion-groups)))
+       (haystack-demo)
+       ;; Mutate through the stale reference — with copy-sequence, this
+       ;; also mutates the saved state because the cons cell is shared.
+       (setcdr stale-cell '("go" "java"))
+       ;; Restore — the saved state must be unaffected by the mutation.
+       (haystack-demo-stop)
+       (should (equal (cdr (assoc "lang" haystack--expansion-groups))
+                      '("rust" "python")))))))
+
 ;;;; Composite surfacing in buffer headers
 
 (ert-deftest haystack-test/format-header-no-composite-line-when-absent ()
@@ -4738,8 +4787,10 @@ Cleans up both the results buffer and the compose buffer."
                       :root-literal))
            (when (buffer-live-p buf) (kill-buffer buf))))))))
 
-(ert-deftest haystack-test/stop-word-prompt-r-removes-and-searches ()
-  "Choosing r removes the word from the stop list and searches normally."
+(ert-deftest haystack-test/stop-word-prompt-r-removes-and-searches-literally ()
+  "Choosing r removes the word from the stop list and searches literally.
+The literal prefix ensures that expansion-group roots are not expanded,
+matching the behavior of ?s (search anyway)."
   (haystack-test--with-notes-dir
    (let ((haystack--stop-words '("the")))
      (cl-letf (((symbol-function 'haystack--stop-word-prompt)
@@ -4749,9 +4800,9 @@ Cleans up both the results buffer and the compose buffer."
          (unwind-protect
              (progn
                (should-not (member "the" haystack--stop-words))
-               (should-not (plist-get
-                            (buffer-local-value 'haystack--search-descriptor buf)
-                            :root-literal)))
+               (should (plist-get
+                        (buffer-local-value 'haystack--search-descriptor buf)
+                        :root-literal)))
            (when (buffer-live-p buf) (kill-buffer buf))))))))
 
 (ert-deftest haystack-test/stop-word-prompt-q-aborts ()
