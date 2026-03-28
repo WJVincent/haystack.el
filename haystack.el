@@ -3,7 +3,7 @@
 ;; Author: wv
 ;; Version: 0.11.0
 ;; Package-Requires: ((emacs "28.1"))
-;; Keywords: tools, notes, search
+;; Keywords: tools, files, outlines
 ;; URL: https://github.com/WJVincent/haystack.el
 
 ;;; Commentary:
@@ -51,6 +51,7 @@
 
 (require 'cl-lib)
 (require 'grep)
+(require 'org)
 
 ;;;; Customization
 
@@ -75,14 +76,14 @@ Must be a string without a leading dot (e.g. \"org\", \"md\", \"txt\")."
 When a result line's content exceeds this width, it is truncated to a
 window of this many characters centred on the match, with ... at either
 truncated end.  Increase for more context; decrease for tighter lines."
-  :type 'integer
+  :type '(integer :min 1)
   :group 'haystack)
 
 
 (defcustom haystack-moc-code-style 'comment
   "How MOC links are formatted when yanking into code files.
-  data    — language-appropriate structured data (Phase 2; currently falls
-            back to `comment' for all extensions)
+  data    — language-appropriate structured data block (e.g. a JS array);
+            falls back to `comment' for extensions with no data formatter
   comment — line prefixed with the language's comment syntax"
   :type '(choice (const :tag "Structured data" data)
                  (const :tag "Commented lines" comment))
@@ -93,7 +94,7 @@ truncated end.  Increase for more context; decrease for tighter lines."
 When a file exceeds this limit, a window of this many lines centred on
 the first search match is used instead, with ellipsis markers at the
 truncated ends.  Set to nil for no limit (entire file always included)."
-  :type '(choice integer (const :tag "No limit" nil))
+  :type '(choice (integer :min 1) (const :tag "No limit" nil))
   :group 'haystack)
 
 (defcustom haystack-composite-all-matches nil
@@ -174,10 +175,14 @@ for mentions trees; the *haystack-ref: buffer-name prefix is cosmetic.")
 
 ;;;; Internal utilities
 
+(defun haystack--validate-notes-directory ()
+  "Signal a `user-error' if `haystack-notes-directory' is unset."
+  (unless haystack-notes-directory
+    (user-error "Haystack: `haystack-notes-directory' is not set")))
+
 (defun haystack--assert-notes-directory ()
   "Signal an error if `haystack-notes-directory' is unset or missing."
-  (unless haystack-notes-directory
-    (user-error "Haystack: `haystack-notes-directory' is not set"))
+  (haystack--validate-notes-directory)
   (unless (file-directory-p haystack-notes-directory)
     (user-error "Haystack: notes directory does not exist: %s"
                 haystack-notes-directory)))
@@ -186,8 +191,7 @@ for mentions trees; the *haystack-ref: buffer-name prefix is cosmetic.")
   "Ensure `haystack-notes-directory' is set and exists.
 If the directory is missing, offer to create it.  Signals a
 `user-error' if unset or if the user declines to create it."
-  (unless haystack-notes-directory
-    (user-error "Haystack: `haystack-notes-directory' is not set"))
+  (haystack--validate-notes-directory)
   (unless (file-directory-p haystack-notes-directory)
     (if (y-or-n-p (format "Directory %s does not exist.  Create it? "
                           haystack-notes-directory))
@@ -211,7 +215,10 @@ Each entry is (NAME . PLIST) with keys:
   :suffix     — comment closing token, or \"\" for line comments
   :extensions — list of file extension strings (documentation only)
 
-Populated by `haystack-define-frontmatter' calls.  Do not modify directly.")
+Populated by `haystack-define-frontmatter' calls at load time.  Do not
+modify directly.  File reload is safe: each macro call uses `setf
+(alist-get ...)' which updates existing entries in place rather than
+accumulating duplicates.")
 
 (cl-defmacro haystack-define-frontmatter (name &key prefix (suffix "") extensions)
   "Define a frontmatter generator for comment style NAME.
@@ -391,27 +398,26 @@ spaces), making this suitable for use as a search term."
 Leading and trailing whitespace is trimmed.  Any run of whitespace is
 replaced by a single hyphen.  Characters unsafe in filenames
 (/ \\ : * ? \" < > |) are removed."
-  (let* ((s (string-trim slug))
-         (s (replace-regexp-in-string "[[:space:]]+" "-" s))
-         (s (replace-regexp-in-string "[/\\\\:*?\"<>|]" "" s)))
-    s))
+  (thread-last slug
+    string-trim
+    (replace-regexp-in-string "[[:space:]]+" "-")
+    (replace-regexp-in-string "[/\\\\:*?\"<>|]" "")))
 
 ;;;###autoload
-(defun haystack-new-note ()
-  "Create a new timestamped note in `haystack-notes-directory'.
-Prompts for a slug and file extension, writes frontmatter, opens the
-file, and runs `haystack-after-create-hook'."
-  (interactive)
-  (haystack--ensure-notes-directory)
-  (let* ((slug (haystack--sanitize-slug (read-string "Slug: ")))
-         (_    (when (string-empty-p slug)
-                 (user-error "Haystack: slug is empty after sanitization")))
-         (ext  (read-string (format "Extension (default %s): " haystack-default-extension)
-                            nil nil haystack-default-extension))
+(defun haystack--create-note-file ()
+  "Prompt for slug and extension, create the timestamped note file, and open it.
+Writes frontmatter and (when demo mode is active) a demo banner.
+Positions point at the end of the buffer.  Returns the new file path.
+Running `haystack-after-create-hook' is the caller's responsibility."
+  (let* ((slug     (haystack--sanitize-slug (read-string "Slug: ")))
+         (_        (when (string-empty-p slug)
+                     (user-error "Haystack: slug is empty after sanitization")))
+         (ext      (read-string (format "Extension (default %s): " haystack-default-extension)
+                                nil nil haystack-default-extension))
          (filename (concat (haystack--timestamp) "-" slug "." ext))
-         (path (expand-file-name filename haystack-notes-directory))
-         (title (haystack--pretty-title filename))
-         (fm (haystack--frontmatter title ext)))
+         (path     (expand-file-name filename haystack-notes-directory))
+         (title    (haystack--pretty-title filename))
+         (fm       (haystack--frontmatter title ext)))
     (when (file-exists-p path)
       (user-error "Haystack: file already exists: %s" path))
     (with-temp-file path
@@ -420,7 +426,16 @@ file, and runs `haystack-after-create-hook'."
         (insert "HAYSTACK DEMO NOTE — this file will be deleted when haystack-demo-stop is called.\n\n")))
     (find-file path)
     (goto-char (point-max))
-    (run-hooks 'haystack-after-create-hook)))
+    path))
+
+(defun haystack-new-note ()
+  "Create a new timestamped note in `haystack-notes-directory'.
+Prompts for a slug and file extension, writes frontmatter, opens the
+file, and runs `haystack-after-create-hook'."
+  (interactive)
+  (haystack--ensure-notes-directory)
+  (haystack--create-note-file)
+  (run-hooks 'haystack-after-create-hook))
 
 ;;;###autoload
 (defun haystack-new-note-with-moc ()
@@ -439,26 +454,10 @@ Also updates `haystack--last-moc' and pushes the MOC text to the kill ring."
       (setq haystack--last-moc       loci)
       (setq haystack--last-moc-chain chain)
       (haystack--ensure-notes-directory)
-      (let* ((slug     (haystack--sanitize-slug (read-string "Slug: ")))
-             (_        (when (string-empty-p slug)
-                         (user-error "Haystack: slug is empty after sanitization")))
-             (ext      (read-string (format "Extension (default %s): "
-                                            haystack-default-extension)
-                                    nil nil haystack-default-extension))
-             (filename (concat (haystack--timestamp) "-" slug "." ext))
-             (path     (expand-file-name filename haystack-notes-directory))
-             (title    (haystack--pretty-title filename))
-             (fm       (haystack--frontmatter title ext))
+      (let* ((path     (haystack--create-note-file))
+             (ext      (file-name-extension path))
              (moc-text (haystack--format-moc-text loci chain ext)))
-        (when (file-exists-p path)
-          (user-error "Haystack: file already exists: %s" path))
-        (with-temp-file path
-          (when fm (insert fm))
-          (when haystack--demo-active
-            (insert "HAYSTACK DEMO NOTE — this file will be deleted when haystack-demo-stop is called.\n\n")))
         (kill-new moc-text)
-        (find-file path)
-        (goto-char (point-max))
         (insert moc-text "\n")
         (run-hooks 'haystack-after-create-hook)))))
 
@@ -550,6 +549,20 @@ Clears the cache flag so the next load re-reads from disk."
            (length haystack--expansion-groups)
            (if (= 1 (length haystack--expansion-groups)) "" "s")))
 
+(defun haystack--show-info-buffer (buf-name content &optional display-fn)
+  "Show BUF-NAME in `special-mode' populated with CONTENT.
+DISPLAY-FN is called with the buffer to display it; defaults to
+`pop-to-buffer'.  The buffer is created if it does not exist and is
+always erased and repopulated."
+  (let ((buf (get-buffer-create buf-name)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert content)
+        (special-mode)
+        (goto-char (point-min))))
+    (funcall (or display-fn #'pop-to-buffer) buf)))
+
 ;;;###autoload
 (defun haystack-validate-groups ()
   "Check loaded expansion groups for terms that appear in more than one group.
@@ -566,44 +579,35 @@ message is shown instead."
             (puthash key term seen)))))
     (if (null dups)
         (message "Haystack: expansion groups OK — no duplicate terms")
-      (let ((buf (get-buffer-create "*haystack-group-conflicts*")))
-        (with-current-buffer buf
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert "Haystack — Expansion Group Conflicts\n")
-            (insert (make-string 40 ?=) "\n\n")
-            (dolist (dup (nreverse dups))
-              (insert (format "  %S conflicts with %S\n"
-                              (car dup) (cadr dup))))
-            (special-mode)
-            (goto-char (point-min))))
-        (pop-to-buffer buf)))))
+      (haystack--show-info-buffer
+       "*haystack-group-conflicts*"
+       (concat "Haystack — Expansion Group Conflicts\n"
+               (make-string 40 ?=) "\n\n"
+               (mapconcat (lambda (dup)
+                            (format "  %S conflicts with %S\n"
+                                    (car dup) (cadr dup)))
+                          (nreverse dups) ""))))))
 
 ;;;###autoload
 (defun haystack-describe-expansion-groups ()
   "Display all loaded expansion groups in a dedicated buffer."
   (interactive)
-  (let ((buf (get-buffer-create "*haystack-expansion-groups*")))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert "Haystack — Expansion Groups\n")
-        (insert (make-string 40 ?=) "\n\n")
-        (if (null haystack--expansion-groups)
-            (insert "(no groups loaded)\n")
-          (dolist (group haystack--expansion-groups)
-            (insert (format "%-20s → %s\n"
-                            (car group)
-                            (mapconcat #'identity (cdr group) ", ")))))
-        (special-mode)
-        (goto-char (point-min))))
-    (pop-to-buffer buf)))
+  (haystack--show-info-buffer
+   "*haystack-expansion-groups*"
+   (concat "Haystack — Expansion Groups\n"
+           (make-string 40 ?=) "\n\n"
+           (if (null haystack--expansion-groups)
+               "(no groups loaded)\n"
+             (mapconcat (lambda (group)
+                          (format "%-20s → %s\n"
+                                  (car group)
+                                  (mapconcat #'identity (cdr group) ", ")))
+                        haystack--expansion-groups "")))))
 
 (defun haystack--group-all-members (group)
   "Return GROUP as a flat list of all members including the root element.
-GROUP has the form (ROOT MEMBER1 MEMBER2 ...).  This function exists to
-document intent: callers that want all members — root included — should
-use this rather than the equivalent but cryptic `(cons (car g) (cdr g))'."
+GROUP has the form (ROOT MEMBER1 MEMBER2 ...).  Use this at call sites
+where the intent — include the root — should be explicit."
   group)
 
 (defun haystack--member-in-group-p (term members)
@@ -991,38 +995,33 @@ FILE-GLOB: when non-nil, expand `haystack-file-glob' into --glob= flags.
 PATTERN: the rg pattern string, appended after the glob flags.
 
 EXTRA-ARGS: additional args appended last (e.g. the notes directory path)."
-  (let ((args
-         (cond
-          ((or count files-with-matches files-without-match)
-           (list "--ignore-case" "--color=never"))
-          (t
-           (list "--line-number" "--ignore-case" "--color=never"
-                 "--no-heading" "--with-filename"
-                 "--max-count=50" "--max-columns=500")))))
-    ;; Mode-specific leading flags
-    (cond
-     (count
-      (setq args (append (list "--count" "--with-filename") args)))
-     (files-with-matches
-      (setq args (cons "--files-with-matches" args)))
-     (files-without-match
-      (setq args (cons "--files-without-match" args))))
-    ;; Composite filter glob
-    (pcase (or composite-filter 'exclude)
-      ('exclude (setq args (append args (list "--glob=!@*"))))
-      ('only    (setq args (append args (list "--glob=@*"))))
-      ('all     nil))
-    ;; User-configured file globs (for direct directory searches)
-    (when (and file-glob haystack-file-glob)
-      (dolist (glob haystack-file-glob)
-        (setq args (append args (list (concat "--glob=" glob))))))
-    ;; Pattern
-    (when pattern
-      (setq args (append args (list pattern))))
-    ;; Trailing extra args (e.g. directory)
-    (when extra-args
-      (setq args (append args extra-args)))
-    args))
+  (let* (;; Mode-specific leading flags (prepended before base flags)
+         (mode-args
+          (cond (count                (list "--count" "--with-filename"))
+                (files-with-matches   (list "--files-with-matches"))
+                (files-without-match  (list "--files-without-match"))
+                (t                    nil)))
+         ;; Base flags shared by all modes
+         (base-args
+          (if (or count files-with-matches files-without-match)
+              (list "--ignore-case" "--color=never")
+            (list "--line-number" "--ignore-case" "--color=never"
+                  "--no-heading" "--with-filename"
+                  "--max-count=50" "--max-columns=500")))
+         ;; Composite-file scoping glob
+         (composite-args
+          (pcase (or composite-filter 'exclude)
+            ('exclude (list "--glob=!@*"))
+            ('only    (list "--glob=@*"))
+            (_        nil)))
+         ;; User-configured file globs (direct directory searches only)
+         (file-glob-args
+          (when (and file-glob haystack-file-glob)
+            (mapcar (lambda (g) (concat "--glob=" g)) haystack-file-glob)))
+         ;; Pattern and trailing positional args
+         (tail-args
+          (append (when pattern (list pattern)) extra-args)))
+    (append mode-args base-args composite-args file-glob-args tail-args)))
 
 (defun haystack--count-output-stats (output)
   "Return (FILES . LINES) from rg --count OUTPUT.
@@ -1122,9 +1121,10 @@ When COMPOSITE-PATH is non-nil, a composite link line is included."
   (let ((buf (current-buffer)))
     (while (buffer-live-p (buffer-local-value 'haystack--parent-buffer buf))
       (setq buf (buffer-local-value 'haystack--parent-buffer buf)))
-    (if (eq buf (current-buffer))
-        (message "Already at root")
-      (switch-to-buffer buf))))
+    (cond
+     ((eq buf (current-buffer)) (message "Already at root"))
+     ((not (buffer-live-p buf)) (message "Haystack: root buffer no longer exists"))
+     (t (switch-to-buffer buf)))))
 
 (defun haystack-ret ()
   "Visit result at point, or activate button if point is on one."
@@ -1209,15 +1209,7 @@ Header lines (starting with ;;;) are automatically skipped because they
 do not match the file:line: pattern.  Relative paths are expanded using
 `default-directory', which is set to `haystack-notes-directory' in all
 results buffers."
-  (let ((seen  (make-hash-table :test #'equal))
-        (files nil))
-    (dolist (line (split-string text "\n" t))
-      (when (string-match "\\`\\([^:]+\\):[0-9]+:" line)
-        (let ((f (expand-file-name (match-string 1 line))))
-          (unless (gethash f seen)
-            (puthash f t seen)
-            (push f files)))))
-    (nreverse files)))
+  (mapcar #'car (haystack--extract-file-loci text)))
 
 (defun haystack--filter-label (negated filename)
   "Return the chain label string for a filter with NEGATED and FILENAME flags."
@@ -1445,8 +1437,7 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
   (interactive
    (list (read-string "[=]literal  [/]filename  [!]negate  [~]regex\nFilter: ")))
   (haystack--frecency-ensure)
-  (unless (and (boundp 'haystack--search-descriptor)
-               haystack--search-descriptor)
+  (unless (bound-and-true-p haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
   (haystack--load-expansion-groups)
   (let* ((parent-buf   (current-buffer))
@@ -1577,6 +1568,10 @@ Signals `user-error' if any token carries the ! negation prefix."
                          "\n" t))
                 (delete-file tmp)))))
         ;; Step 3: volume gate on the intersection, then content search.
+        ;; The gate counts only the intersection files (not the full directory)
+        ;; because that is the actual search scope for the AND query.  This is
+        ;; intentional: a strict second term can legitimately shrink a large
+        ;; result below the threshold without user intervention.
         (if (null current-files)
             ""
           (let ((tmp (haystack--write-filelist current-files)))
@@ -1637,10 +1632,10 @@ for the dispatcher to use."
          ;;   chain-key = (concat root-pfx root-term)
          ;;             = (concat "=" "rust & async") = "=rust & async"
          ;;   replay: (haystack-run-root-search "=rust & async") → splits correctly.
-         (root-term-str (if (cdr and-tokens)
-                            (concat first-term " & "
-                                    (mapconcat #'identity (cdr and-tokens) " & "))
-                          first-term))
+         ;; (cdr and-tokens) is always non-nil here: haystack--parse-and-tokens
+         ;; guarantees at least two tokens before dispatching to this path.
+         (root-term-str (concat first-term " & "
+                                (mapconcat #'identity (cdr and-tokens) " & ")))
          (descriptor    (list :root-term        root-term-str
                               :root-expanded    first-pattern
                               :root-literal     (plist-get first-parsed :literal)
@@ -1696,7 +1691,7 @@ COMPOSITE-FILTER is a symbol controlling how @* composite files are
 treated: \\='exclude (default), \\='only, or \\='all.
 Interactively, a \\[universal-argument] prefix sets COMPOSITE-FILTER to \\='all,
 including composite files in the search."
-  (interactive (list (read-string "Haystack search: ")
+  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [A & B]AND\nSearch: ")
                      (when current-prefix-arg 'all)))
   (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
@@ -1789,7 +1784,11 @@ including composite files in the search."
 
 ;;;###autoload
 (defun haystack-search-region ()
-  "Search for the active region text via `haystack-run-root-search'."
+  "Search for the active region text via `haystack-run-root-search'.
+Note: prefix characters at the start of the region (!, ~, /, =) are
+interpreted as search modifiers, the same as when typed interactively.
+If the selected text begins with one of these characters and you want
+a literal match, prefix the term with = instead."
   (interactive)
   (unless (use-region-p)
     (user-error "Haystack: no active region"))
@@ -1833,25 +1832,27 @@ Like `haystack-run-root-search' with composite-filter set to \\='only."
 
 ;;;; Results minor mode
 
-(defvar haystack-results-mode-map (make-sparse-keymap)
+(defvar haystack-results-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET")     #'haystack-ret)
+    (define-key map "n"             #'haystack-next-match)
+    (define-key map "p"             #'haystack-previous-match)
+    (define-key map "f"             #'haystack-filter-further)
+    (define-key map "u"             #'haystack-go-up)
+    (define-key map "d"             #'haystack-go-down)
+    (define-key map "k"             #'haystack-kill-node)
+    (define-key map "K"             #'haystack-kill-subtree)
+    (define-key map (kbd "M-k")     #'haystack-kill-whole-tree)
+    (define-key map "c"             #'haystack-copy-moc)
+    (define-key map "N"             #'haystack-new-note-with-moc)
+    (define-key map (kbd "C-c C-c") #'haystack-compose)
+    (define-key map "."             #'haystack-run-root-search-at-point)
+    (define-key map "t"             #'haystack-show-tree)
+    (define-key map "D"             #'haystack-describe-discoverability)
+    (define-key map "Y"             #'haystack-mentions-yank-to-origin)
+    (define-key map "?"             #'haystack-help)
+    map)
   "Keymap active in haystack results buffers (on top of `grep-mode').")
-(define-key haystack-results-mode-map (kbd "RET") #'haystack-ret)
-(define-key haystack-results-mode-map "n" #'haystack-next-match)
-(define-key haystack-results-mode-map "p" #'haystack-previous-match)
-(define-key haystack-results-mode-map "f" #'haystack-filter-further)
-(define-key haystack-results-mode-map "u" #'haystack-go-up)
-(define-key haystack-results-mode-map "d" #'haystack-go-down)
-(define-key haystack-results-mode-map "k" #'haystack-kill-node)
-(define-key haystack-results-mode-map "K" #'haystack-kill-subtree)
-(define-key haystack-results-mode-map (kbd "M-k") #'haystack-kill-whole-tree)
-(define-key haystack-results-mode-map "c" #'haystack-copy-moc)
-(define-key haystack-results-mode-map "N" #'haystack-new-note-with-moc)
-(define-key haystack-results-mode-map (kbd "C-c C-c") #'haystack-compose)
-(define-key haystack-results-mode-map "." #'haystack-run-root-search-at-point)
-(define-key haystack-results-mode-map "t" #'haystack-show-tree)
-(define-key haystack-results-mode-map "D" #'haystack-describe-discoverability)
-(define-key haystack-results-mode-map "Y" #'haystack-mentions-yank-to-origin)
-(define-key haystack-results-mode-map "?" #'haystack-help)
 
 (define-minor-mode haystack-results-mode
   "Minor mode active in all haystack results buffers.
@@ -2000,22 +2001,19 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
 Layout adapts to the current window width: two columns at 100+ characters,
 single column otherwise."
   (interactive)
-  (let ((win-width (window-body-width))
-        (buf (get-buffer-create "*haystack-help*")))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert (haystack--help-content win-width))
-        (special-mode)
-        (goto-char (point-min))))
-    (select-window
-     (display-buffer buf
-                     '((display-buffer-below-selected)
-                       (window-height . fit-window-to-buffer))))))
+  (let ((win-width (window-body-width)))
+    (haystack--show-info-buffer
+     "*haystack-help*"
+     (haystack--help-content win-width)
+     (lambda (buf)
+       (select-window
+        (display-buffer buf
+                        '((display-buffer-below-selected)
+                          (window-height . fit-window-to-buffer))))))))
 
 ;;;; Tree view
 
-(defvar haystack-tree-depth-faces
+(defcustom haystack-tree-depth-faces
   '(font-lock-keyword-face
     font-lock-function-name-face
     font-lock-variable-name-face
@@ -2023,7 +2021,9 @@ single column otherwise."
     font-lock-string-face)
   "Faces cycled through successive depth levels in `haystack-show-tree'.
 Each face is drawn from the active theme, so the tree adapts to colorscheme
-changes automatically.  Customize to taste.")
+changes automatically."
+  :type '(repeat face)
+  :group 'haystack)
 
 (defvar haystack-tree-mode-map
   (let ((map (make-sparse-keymap)))
@@ -2157,6 +2157,26 @@ Negation maps to !, filename to /, regex to ~, literal to =."
                 (literal  "="))
           (haystack--display-term term)))
 
+(defun haystack--descriptor-leaf-label (descriptor)
+  "Return the display label for DESCRIPTOR's leaf (deepest) term.
+If DESCRIPTOR has filters, uses the last filter's term and modifiers.
+Otherwise uses the root term and modifiers."
+  (let ((filters (plist-get descriptor :filters)))
+    (if filters
+        (let ((f (car (last filters))))
+          (haystack--tree-term-label
+           (plist-get f :term)
+           (plist-get f :negated)
+           (plist-get f :filename)
+           (plist-get f :literal)
+           (plist-get f :regex)))
+      (haystack--tree-term-label
+       (plist-get descriptor :root-term)
+       nil
+       (plist-get descriptor :root-filename)
+       (plist-get descriptor :root-literal)
+       (plist-get descriptor :root-regex)))))
+
 (defun haystack--tree-render-node (buf current-buf prefix connector depth)
   "Insert a rendered line for BUF, then recurse into its children.
 PREFIX is the accumulated continuation art from ancestor nodes (e.g. \"│   \").
@@ -2164,21 +2184,7 @@ CONNECTOR is the branching art for this node (\"├── \", \"└── \", or
 DEPTH drives the face chosen from `haystack-tree-depth-faces'.
 Each line gets a `haystack-tree-buffer' text property pointing to BUF."
   (let* ((descriptor (buffer-local-value 'haystack--search-descriptor buf))
-         (filters    (plist-get descriptor :filters))
-         (term       (if filters
-                         (let ((f (car (last filters))))
-                           (haystack--tree-term-label
-                            (plist-get f :term)
-                            (plist-get f :negated)
-                            (plist-get f :filename)
-                            (plist-get f :literal)
-                            (plist-get f :regex)))
-                       (haystack--tree-term-label
-                        (plist-get descriptor :root-term)
-                        nil
-                        (plist-get descriptor :root-filename)
-                        (plist-get descriptor :root-literal)
-                        (plist-get descriptor :root-regex))))
+         (term       (haystack--descriptor-leaf-label descriptor))
          (current-p  (eq buf current-buf))
          (term-face  (nth (mod depth (length haystack-tree-depth-faces))
                           haystack-tree-depth-faces))
@@ -2270,8 +2276,7 @@ q closes the tree window without navigating."
 
 (defun haystack--assert-results-buffer ()
   "Signal a user-error if the current buffer is not a haystack results buffer."
-  (unless (and (boundp 'haystack--search-descriptor)
-               haystack--search-descriptor)
+  (unless (bound-and-true-p haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer")))
 
 ;;;###autoload
@@ -2331,19 +2336,8 @@ Signals a user-error if there are no children."
         (insert rule "\n")
         (dolist (child children)
           (let* ((descriptor (buffer-local-value 'haystack--search-descriptor child))
-                 (filters    (plist-get descriptor :filters))
-                 (term       (if filters
-                                 (let ((f (car (last filters))))
-                                   (haystack--tree-term-label
-                                    (plist-get f :term)    (plist-get f :negated)
-                                    (plist-get f :filename) (plist-get f :literal)
-                                    (plist-get f :regex)))
-                               (haystack--tree-term-label
-                                (plist-get descriptor :root-term) nil
-                                (plist-get descriptor :root-filename)
-                                (plist-get descriptor :root-literal)
-                                (plist-get descriptor :root-regex))))
-                 (start (point)))
+                 (term       (haystack--descriptor-leaf-label descriptor))
+                 (start      (point)))
             (insert term "\n")
             (put-text-property start (1- (point)) 'haystack-children-buffer child)))
         (insert rule "\n")
@@ -2442,8 +2436,9 @@ org → \\='org, md/markdown → \\='markdown, anything else → \\='code."
     ;; // line comments
     ("js" . "//") ("mjs" . "//") ("jsx" . "//")
     ("ts" . "//") ("tsx" . "//")
-    ("rs" . "//") ("go" . "//") ("c" . "//") ("h" . "//")
-    ("css" . "//") ("java" . "//") ("kt" . "//") ("swift" . "//")
+    ("rs" . "//") ("go" . "//") ("java" . "//") ("kt" . "//") ("swift" . "//")
+    ;; /* */ block comments — opening delimiter only, matching frontmatter style
+    ("c" . "/*") ("h" . "/*") ("css" . "/*")
     ;; # line comments
     ("py" . "#") ("rb" . "#") ("sh" . "#") ("bash" . "#")
     ("txt" . "#") ("toml" . "#") ("yaml" . "#") ("yml" . "#")
@@ -2479,7 +2474,10 @@ Each entry is (NAME . PLIST) where PLIST has keys:
   :close      — closing delimiter (e.g. \"\\n];\")
   :extensions — list of file extension strings (documentation only)
 
-Populated by `haystack-define-moc-language' calls.  Do not modify directly.")
+Populated by `haystack-define-moc-language' calls at load time.  Do not
+modify directly.  File reload is safe: each macro call uses `setf
+(alist-get ...)' which updates existing entries in place rather than
+accumulating duplicates.")
 
 (cl-defmacro haystack-define-moc-language (name &key comment open entry
                                                       (separator "\n") close
@@ -2625,7 +2623,6 @@ Use `haystack-yank-moc' to insert the links into a target buffer."
             (haystack--descriptor-chain-string haystack--search-descriptor)))
     (message "Haystack: copied %d file link%s" n (if (= 1 n) "" "s"))))
 
-;;;###autoload
 (defun haystack--format-moc-text (loci chain ext)
   "Return a formatted MOC string for LOCI using CHAIN label and file extension EXT.
 Format is determined by EXT via `haystack--moc-format-for-extension'.
@@ -2638,6 +2635,7 @@ For code targets, respects `haystack-moc-code-style' (\\='comment or \\='data)."
                  loci
                  "\n"))))
 
+;;;###autoload
 (defun haystack-yank-moc ()
   "Insert MOC links at point, formatted for the current buffer's file type.
 Uses the loci stored by the last `haystack-copy-moc'.  Format is
@@ -2719,17 +2717,6 @@ without affecting the window layout.")
 
 (defvar haystack--frecency-timer nil
   "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
-
-;;;; Demo mode state
-
-(defvar haystack--demo-active nil
-  "Non-nil while Haystack demo mode is active.")
-
-(defvar haystack--demo-temp-dir nil
-  "Absolute path to the temporary demo notes directory.")
-
-(defvar haystack--demo-saved-state nil
-  "Plist of state saved before demo start; restored by `haystack-demo-stop'.")
 
 (defun haystack--frecency-file ()
   "Return the absolute path of the frecency data file."
@@ -2832,7 +2819,11 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
       (haystack--frecency-flush))))
 
 (defun haystack--frecency-score (entry)
-  "Return the frecency score for ENTRY: count / max(days-since-access, 1)."
+  "Return the frecency score for ENTRY: count / max(days-since-access, 1).
+This is a recency-weighted count rather than a true exponential-decay
+frecency formula.  The simpler formula was chosen because it stays
+interpretable (score ≈ visits per day) and degrades gracefully as notes
+age without requiring tuning parameters."
   (let* ((props   (cdr entry))
          (count   (plist-get props :count))
          (last-ts (plist-get props :last-access))
@@ -2841,7 +2832,8 @@ Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
 
 (defun haystack--frecent-leaf-p (entry all-entries)
   "Return non-nil if ENTRY is a leaf among ALL-ENTRIES.
-Thin wrapper over `haystack--frecent-leaves' for single-entry queries."
+Used in tests; not called by production code directly.  Callers must
+ensure frecency data is loaded before invoking this."
   (not (null (memq entry (haystack--frecent-leaves all-entries)))))
 
 (defun haystack--frecent-leaves (entries)
@@ -3103,7 +3095,8 @@ intermediate step toward a more-visited deeper search.  With a prefix
 argument ALL, show every recorded chain."
   (interactive "P")
   (haystack--frecency-ensure)
-  (haystack--load-frecency)
+  (unless haystack--frecency-data
+    (haystack--load-frecency))
   (unless haystack--frecency-data
     (user-error "Haystack: no frecent searches recorded yet"))
   (let* ((pool        (if all
@@ -3160,6 +3153,15 @@ and kills the entire mentions tree."
          t)))
     buf))
 
+(defun haystack--append-to-origin-file (origin content ext)
+  "Append a mentions separator and CONTENT to ORIGIN and save.
+EXT determines the separator style."
+  (let ((sep (haystack--mentions-separator ext)))
+    (with-current-buffer (find-file-noselect origin)
+      (goto-char (point-max))
+      (insert "\n" sep "\n" content "\n")
+      (save-buffer))))
+
 ;;;###autoload
 (defun haystack-insert-mentions ()
   "Search for mentions of this note and prompt to insert them directly.
@@ -3192,15 +3194,11 @@ links.  The current buffer must be visiting a file."
          (let* ((chain   (with-current-buffer buf
                            (when (bound-and-true-p haystack--search-descriptor)
                              (haystack--descriptor-chain-string haystack--search-descriptor))))
-                (sep     (haystack--mentions-separator ext))
                 (content (if (null loci)
                              (haystack--mentions-no-ref-comment slug ext)
                            (haystack--format-moc-text loci chain ext))))
            (kill-buffer buf)
-           (with-current-buffer (find-file-noselect origin)
-             (goto-char (point-max))
-             (insert "\n" sep "\n" content "\n")
-             (save-buffer))
+           (haystack--append-to-origin-file origin content ext)
            (message "Haystack: inserted %d mention%s into %s"
                     n (if (= 1 n) "" "s") (file-name-nondirectory origin))))
         (?\s
@@ -3226,22 +3224,18 @@ then kills the entire mentions tree via `haystack-kill-whole-tree'."
   (interactive)
   (haystack--assert-results-buffer)
   (unless (bound-and-true-p haystack--mentions-origin)
-    (user-error "Haystack: not in a mentions results buffer (haystack--mentions-origin is nil)"))
+    (user-error "Haystack: this command is only available in a mentions results buffer — run `haystack-find-mentions' first"))
   (let* ((origin  haystack--mentions-origin)
          (loci    (haystack--extract-file-loci (buffer-string)))
          (chain   (when (bound-and-true-p haystack--search-descriptor)
                     (haystack--descriptor-chain-string haystack--search-descriptor)))
          (ext     (file-name-extension origin))
-         (sep     (haystack--mentions-separator ext))
          (content (if (null loci)
                       (haystack--mentions-no-ref-comment
                        (haystack--note-slug origin) ext)
                     (haystack--format-moc-text loci chain ext)))
          (n       (length loci)))
-    (with-current-buffer (find-file-noselect origin)
-      (goto-char (point-max))
-      (insert "\n" sep "\n" content "\n")
-      (save-buffer))
+    (haystack--append-to-origin-file origin content ext)
     (message "Haystack: inserted %d mention%s into %s"
              n (if (= 1 n) "" "s") (file-name-nondirectory origin))
     (haystack-kill-whole-tree)))
@@ -3408,6 +3402,15 @@ Returns ?s (search literally), ?r (remove from list and search), or ?q (quit)."
 
 ;;;; Demo mode
 
+(defvar haystack--demo-active nil
+  "Non-nil while Haystack demo mode is active.")
+
+(defvar haystack--demo-temp-dir nil
+  "Absolute path to the temporary demo notes directory.")
+
+(defvar haystack--demo-saved-state nil
+  "Plist of state saved before demo start; restored by `haystack-demo-stop'.")
+
 (defun haystack--demo-package-dir ()
   "Return the directory containing haystack.el."
   (file-name-directory (or load-file-name
@@ -3481,21 +3484,21 @@ previous `haystack-notes-directory'."
           (let ((fname (buffer-file-name buf)))
             (when (and fname (string-prefix-p prefix (expand-file-name fname)))
               (kill-buffer buf)))))))
-  ;; Restore saved state.
+  ;; Delete the temp dir before clearing state so that a deletion failure
+  ;; leaves haystack--demo-active non-nil and the function retryable.
+  (when (and haystack--demo-temp-dir (file-directory-p haystack--demo-temp-dir))
+    (delete-directory haystack--demo-temp-dir t))
+  ;; Restore saved state and mark demo as stopped.
   (let ((saved haystack--demo-saved-state))
-    (setq haystack-notes-directory     (plist-get saved :notes-dir)
-          haystack--frecency-data      (plist-get saved :frecency)
-          haystack--expansion-groups   (plist-get saved :exp-groups)))
-  ;; Clean up.
-  (let ((temp-dir haystack--demo-temp-dir))
-    (setq haystack--demo-active               nil
-          haystack--demo-temp-dir             nil
-          haystack--demo-saved-state          nil
-          haystack--expansion-groups-loaded   nil
-          haystack--stop-words-loaded         nil
-          haystack--stop-words                nil)
-    (when (and temp-dir (file-directory-p temp-dir))
-      (delete-directory temp-dir t)))
+    (setq haystack-notes-directory           (plist-get saved :notes-dir)
+          haystack--frecency-data            (plist-get saved :frecency)
+          haystack--expansion-groups         (plist-get saved :exp-groups)
+          haystack--demo-active              nil
+          haystack--demo-temp-dir            nil
+          haystack--demo-saved-state         nil
+          haystack--expansion-groups-loaded  nil
+          haystack--stop-words-loaded        nil
+          haystack--stop-words               nil))
   (message "Haystack demo stopped.  Your notes directory has been restored."))
 
 ;;;; Composite notes
@@ -3607,12 +3610,15 @@ the pair only when at least one segment actually changed."
          (files    (file-expand-wildcards (concat dir "@comp__*"))))
     (delq nil
           (mapcar (lambda (path)
-                    (let* ((base     (file-name-nondirectory path))
-                           (ext      (file-name-extension base))
-                           ;; Slug portion sits between the "@comp__" prefix (7 chars)
-                           ;; and the ".EXT" suffix.
-                           (slug-part (substring base 7
-                                                 (- (length base) (1+ (length ext)))))
+                    (let* ((base      (file-name-nondirectory path))
+                           (ext       (file-name-extension base))
+                           (prefix-len (length "@comp__"))
+                           ;; Slug portion sits between the "@comp__" prefix and
+                           ;; the ".EXT" suffix (if any).
+                           (slug-end  (if ext
+                                          (- (length base) (1+ (length ext)))
+                                        (length base)))
+                           (slug-part (substring base prefix-len slug-end))
                            (segments  (split-string slug-part "__"))
                            (new-segs  (mapcar (lambda (s)
                                                (if (string= s old-slug) new-slug s))
@@ -3620,9 +3626,12 @@ the pair only when at least one segment actually changed."
                       (when (cl-some (lambda (s) (string= s old-slug)) segments)
                         (cons path
                               (expand-file-name
-                               (format "@comp__%s.%s"
-                                       (mapconcat #'identity new-segs "__")
-                                       ext)
+                               (if ext
+                                   (format "@comp__%s.%s"
+                                           (mapconcat #'identity new-segs "__")
+                                           ext)
+                                 (format "@comp__%s"
+                                         (mapconcat #'identity new-segs "__")))
                                dir)))))
                   files))))
 
@@ -3666,8 +3675,7 @@ windowed per `haystack-composite-max-lines'.  When
 `haystack-composite-all-matches' is non-nil, files with multiple match
 lines get one section per match.  Returns the compose buffer."
   (interactive)
-  (require 'org)
-  (unless (and (boundp 'haystack--search-descriptor) haystack--search-descriptor)
+  (unless (bound-and-true-p haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
   (let* ((descriptor  haystack--search-descriptor)
          (buf-text    (buffer-string))
@@ -3724,8 +3732,10 @@ file directly."
          "Composite buffers are machine-generated.  Save as a new note instead? ")
         (let ((content (buffer-string)))
           (haystack-new-note)
-          (insert content)
-          (save-buffer))
+          (let ((note-buf (current-buffer)))
+            (with-current-buffer note-buf
+              (insert content)
+              (save-buffer))))
       (message "Haystack: save cancelled"))
     t))
 
@@ -3767,8 +3777,10 @@ full buffer contents as a new note via `haystack-new-note'."
                (y-or-n-p "Buffer has been modified.  Save as a new note? "))
       (let ((content (buffer-string)))
         (haystack-new-note)
-        (insert content)
-        (save-buffer)))))
+        (let ((note-buf (current-buffer)))
+          (with-current-buffer note-buf
+            (insert content)
+            (save-buffer)))))))
 
 (defun haystack-compose-discard ()
   "Kill the composite staging buffer without writing."
@@ -3784,13 +3796,13 @@ full buffer contents as a new note via `haystack-new-note'."
 Terms found in 1 to this many notes fall in the SPARSE tier.
 Terms found in 0 notes are ISOLATED; those found in more notes
 than `haystack-discoverability-ubiquitous-min' are UBIQUITOUS."
-  :type 'integer
+  :type '(integer :min 1)
   :group 'haystack)
 
 (defcustom haystack-discoverability-ubiquitous-min 500
   "Minimum file count for a term to be classified as UBIQUITOUS.
 Terms found in this many or more notes fall in the UBIQUITOUS tier."
-  :type 'integer
+  :type '(integer :min 1)
   :group 'haystack)
 
 (defcustom haystack-discoverability-split-compound-words nil
@@ -3824,7 +3836,10 @@ Splits on whitespace and common punctuation.  Hyphens and underscores
 are treated as word characters unless
 `haystack-discoverability-split-compound-words' is t.  Stop words
 (per `haystack--stop-words') are excluded.  No minimum length is
-enforced — short technical terms like \"c\" and \"go\" are kept."
+enforced — short technical terms like \"c\" and \"go\" are kept.
+
+Precondition: `haystack--ensure-stop-words' must have been called
+before this function so that `haystack--stop-words' is populated."
   (let* ((sep (if haystack-discoverability-split-compound-words
                   "[^a-zA-Z0-9]+"
                 "[^a-zA-Z0-9_-]+"))
@@ -3847,18 +3862,42 @@ enforced — short technical terms like \"c\" and \"go\" are kept."
    ((< count haystack-discoverability-ubiquitous-min)   'connected)
    (t                                                   'ubiquitous)))
 
-(defun haystack--discoverability-count-term (term)
-  "Return the number of notes files containing TERM (literal, case-insensitive)."
-  (with-temp-buffer
-    (let ((args (list "-l" "--ignore-case" "--color=never")))
+(defun haystack--discoverability-count-all-terms (tokens)
+  "Return an alist of (TOKEN . FILE-COUNT) for each token in TOKENS.
+Runs a single rg call with all tokens joined as an alternation pattern.
+Tokens are sorted longest-first so shorter tokens do not shadow longer
+ones at the same position in the text.
+
+Each file is counted at most once per token regardless of how many
+times the token appears in that file."
+  (when tokens
+    (let* ((sorted  (sort (copy-sequence tokens)
+                          (lambda (a b) (> (length a) (length b)))))
+           (pattern (mapconcat #'regexp-quote sorted "|"))
+           (args    (list "--no-heading" "--only-matching" "--ignore-case"
+                          "--color=never" "--no-line-number"))
+           (seen    (make-hash-table :test 'equal))
+           (counts  (make-hash-table :test 'equal)))
+      (dolist (tok tokens)
+        (puthash tok 0 counts))
       (when haystack-file-glob
         (dolist (g haystack-file-glob)
           (setq args (append args (list (concat "--glob=" g))))))
       (setq args (append args (list "--glob=!@*"
-                                    (regexp-quote term)
+                                    pattern
                                     (expand-file-name haystack-notes-directory))))
-      (apply #'call-process "rg" nil t nil args))
-    (length (split-string (string-trim (buffer-string)) "\n" t))))
+      (with-temp-buffer
+        (apply #'call-process "rg" nil t nil args)
+        (dolist (line (split-string (buffer-string) "\n" t))
+          (when (string-match "\\`\\(.*\\):\\([a-z0-9_-]+\\)\\'" line)
+            (let* ((file (match-string 1 line))
+                   (term (downcase (match-string 2 line)))
+                   (key  (cons file term)))
+              (when (and (gethash term counts)
+                         (not (gethash key seen)))
+                (puthash key t seen)
+                (puthash term (1+ (gethash term counts)) counts))))))
+      (mapcar (lambda (tok) (cons tok (gethash tok counts 0))) tokens))))
 
 (defun haystack--discoverability-tier-section (heading tier-symbol range tc-list)
   "Return the org string for one discoverability tier section.
@@ -3887,18 +3926,17 @@ an alist of (TERM . COUNT) pairs for this tier."
 TERM-COUNTS is an alist of (TERM . COUNT); FILE-PATH is the source note."
   (let* ((title    (haystack--discoverability-buffer-name file-path))
          (now      (format-time-string "%Y-%m-%d"))
-         (isolated   (seq-filter (lambda (tc)
-                                   (eq 'isolated (haystack--discoverability-tier (cdr tc))))
-                                 term-counts))
-         (sparse     (seq-filter (lambda (tc)
-                                   (eq 'sparse (haystack--discoverability-tier (cdr tc))))
-                                 term-counts))
-         (connected  (seq-filter (lambda (tc)
-                                   (eq 'connected (haystack--discoverability-tier (cdr tc))))
-                                 term-counts))
-         (ubiquitous (seq-filter (lambda (tc)
-                                   (eq 'ubiquitous (haystack--discoverability-tier (cdr tc))))
-                                 term-counts)))
+         (isolated nil) (sparse nil) (connected nil) (ubiquitous nil))
+    (dolist (tc term-counts)
+      (pcase (haystack--discoverability-tier (cdr tc))
+        ('isolated   (push tc isolated))
+        ('sparse     (push tc sparse))
+        ('connected  (push tc connected))
+        ('ubiquitous (push tc ubiquitous))))
+    (setq isolated   (nreverse isolated)
+          sparse     (nreverse sparse)
+          connected  (nreverse connected)
+          ubiquitous (nreverse ubiquitous))
     (concat
      (format "#+TITLE: %s\n#+DATE: %s\n\n" title now)
      (haystack--discoverability-tier-section
@@ -3916,7 +3954,7 @@ TERM-COUNTS is an alist of (TERM . COUNT); FILE-PATH is the source note."
       "Ubiquitous" 'ubiquitous
       (format "%d+ files" haystack-discoverability-ubiquitous-min) ubiquitous))))
 
-(defun haystack--discoverability-search-at-point ()
+(defun haystack-discoverability-search-at-point ()
   "Launch a haystack search for the term at point.
 On org heading lines (starting with *), show a message instead."
   (interactive)
@@ -3929,7 +3967,7 @@ On org heading lines (starting with *), show a message instead."
             (haystack-run-root-search term)
           (message "Haystack: no term at point"))))))
 
-(defun haystack--discoverability-add-stop-word ()
+(defun haystack-discoverability-add-stop-word ()
   "Add the word at point to the haystack stop word list."
   (interactive)
   (let ((term (haystack--word-at-point)))
@@ -3939,8 +3977,8 @@ On org heading lines (starting with *), show a message instead."
 
 (defvar haystack-discoverability-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "RET") #'haystack--discoverability-search-at-point)
-    (define-key map "a"         #'haystack--discoverability-add-stop-word)
+    (define-key map (kbd "RET") #'haystack-discoverability-search-at-point)
+    (define-key map "a"         #'haystack-discoverability-add-stop-word)
     (define-key map "q"         #'quit-window)
     map)
   "Keymap for `haystack-discoverability-mode'.")
@@ -3973,28 +4011,21 @@ Gate: only works from file-backed buffers whose file is inside
   (unless (haystack--discoverability-in-notes-dir-p (buffer-file-name))
     (user-error "Haystack: current file is not in the notes directory"))
   (haystack--ensure-stop-words)
-  (let* ((file-path (buffer-file-name))
-         (text      (buffer-substring-no-properties (point-min) (point-max)))
-         (tokens    (haystack--discoverability-tokenize text))
-         (total     (length tokens))
-         (term-counts '())
-         (n 0))
-    (dolist (tok tokens)
-      (setq n (1+ n))
-      (message "Haystack discoverability: %d/%d terms..." n total)
-      (push (cons tok (haystack--discoverability-count-term tok)) term-counts))
-    (let* ((buf-name (haystack--discoverability-buffer-name file-path))
-           (old-buf  (get-buffer buf-name)))
-      (when old-buf (kill-buffer old-buf))
-      (let ((buf (get-buffer-create buf-name)))
-        (with-current-buffer buf
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (haystack--discoverability-render term-counts file-path)))
-          (haystack-discoverability-mode)
-          (goto-char (point-min)))
-        (pop-to-buffer buf)
-        buf))))
+  (let* ((file-path   (buffer-file-name))
+         (text        (buffer-substring-no-properties (point-min) (point-max)))
+         (tokens      (haystack--discoverability-tokenize text))
+         (term-counts (haystack--discoverability-count-all-terms tokens))
+         (buf-name    (haystack--discoverability-buffer-name file-path)))
+    (let ((buf (get-buffer-create buf-name)))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (insert (haystack--discoverability-render term-counts file-path)))
+        (haystack-discoverability-mode)
+        (goto-char (point-min)))
+      (message "Haystack: discoverability analysis complete (%d terms)" (length tokens))
+      (pop-to-buffer buf)
+      buf)))
 
 ;;;; Global prefix map
 

@@ -46,13 +46,15 @@ file-visiting buffers inside it, then deletes the temp directory."
           (saved-freq-init     haystack--frecency-initialized)
           (saved-exp-groups    (copy-sequence haystack--expansion-groups))
           (saved-exp-loaded    haystack--expansion-groups-loaded)
-          (saved-stop-words    (copy-sequence haystack--stop-words)))
+          (saved-stop-words    (copy-sequence haystack--stop-words))
+          (saved-stop-loaded   haystack--stop-words-loaded))
      (unwind-protect
          (progn
            (copy-directory src-dir temp-dir nil t t)
            (setq haystack-notes-directory          temp-dir
                  haystack--frecency-dirty          nil
                  haystack--stop-words              nil
+                 haystack--stop-words-loaded       nil
                  haystack--expansion-groups-loaded nil)
            ;; Load corpus data and mark initialized to skip idle-timer setup
            (haystack--load-expansion-groups)
@@ -80,7 +82,8 @@ file-visiting buffers inside it, then deletes the temp directory."
              haystack--frecency-initialized       saved-freq-init
              haystack--expansion-groups           saved-exp-groups
              haystack--expansion-groups-loaded    saved-exp-loaded
-             haystack--stop-words                 saved-stop-words)
+             haystack--stop-words                 saved-stop-words
+             haystack--stop-words-loaded          saved-stop-loaded)
        (when (file-directory-p temp-dir)
          (delete-directory temp-dir t)))))
 

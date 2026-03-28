@@ -3534,6 +3534,24 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/tree-term-label-literal ()
   (should (equal (haystack--tree-term-label "foo" nil nil t nil) "=foo")))
 
+;;;; haystack--descriptor-leaf-label
+
+(ert-deftest haystack-test/descriptor-leaf-label-no-filters ()
+  "Returns root term label when descriptor has no filters."
+  (let ((descriptor '(:root-term "rust" :root-filename nil
+                      :root-literal t :root-regex nil :filters nil)))
+    (should (string= (haystack--descriptor-leaf-label descriptor) "=rust"))))
+
+(ert-deftest haystack-test/descriptor-leaf-label-with-filters ()
+  "Returns last filter label when descriptor has filters."
+  (let ((descriptor `(:root-term "rust" :root-filename nil
+                      :root-literal nil :root-regex nil
+                      :filters ((:term "async" :negated nil
+                                 :filename nil :literal nil :regex nil)
+                                (:term "cargo" :negated t
+                                 :filename nil :literal nil :regex nil)))))
+    (should (string= (haystack--descriptor-leaf-label descriptor) "!cargo"))))
+
 ;;;; Tree view
 
 (ert-deftest haystack-test/tree-roots-finds-root-buffers ()
@@ -4898,6 +4916,42 @@ Cleans up both the results buffer and the compose buffer."
   (haystack-test--with-notes-dir
    (should-not (haystack--discoverability-in-notes-dir-p "/tmp/outsider.org"))))
 
+;;;; haystack--discoverability-count-all-terms
+
+(ert-deftest haystack-test/discoverability-count-all-basic ()
+  "Returns correct per-token file counts from a single rg call."
+  (haystack-test--with-notes-dir
+   (let* ((dir (file-name-as-directory (expand-file-name haystack-notes-directory))))
+     (write-region "rust emacs\n" nil (concat dir "note1.org"))
+     (write-region "emacs python\n" nil (concat dir "note2.org"))
+     (let ((result (haystack--discoverability-count-all-terms
+                    '("rust" "emacs" "python" "missing"))))
+       (should (= (cdr (assoc "rust"    result)) 1))
+       (should (= (cdr (assoc "emacs"   result)) 2))
+       (should (= (cdr (assoc "python"  result)) 1))
+       (should (= (cdr (assoc "missing" result)) 0))))))
+
+(ert-deftest haystack-test/discoverability-count-all-deduplicates-file-matches ()
+  "Each file counted at most once per token even with repeated occurrences."
+  (haystack-test--with-notes-dir
+   (let* ((dir (file-name-as-directory (expand-file-name haystack-notes-directory))))
+     (write-region "rust rust rust\n" nil (concat dir "note1.org"))
+     (let ((result (haystack--discoverability-count-all-terms '("rust"))))
+       (should (= (cdr (assoc "rust" result)) 1))))))
+
+(ert-deftest haystack-test/discoverability-count-all-empty-tokens ()
+  "Returns nil for empty token list without calling rg."
+  (haystack-test--with-notes-dir
+   (should (null (haystack--discoverability-count-all-terms nil)))))
+
+(ert-deftest haystack-test/discoverability-count-all-skips-at-composites ()
+  "Does not count @comp__ files."
+  (haystack-test--with-notes-dir
+   (let* ((dir (file-name-as-directory (expand-file-name haystack-notes-directory))))
+     (write-region "rust\n" nil (concat dir "@comp__rust.org"))
+     (let ((result (haystack--discoverability-count-all-terms '("rust"))))
+       (should (= (cdr (assoc "rust" result)) 0))))))
+
 ;;;; haystack-describe-discoverability (integration)
 
 (ert-deftest haystack-test/discoverability-errors-not-file-backed ()
@@ -4976,8 +5030,8 @@ Cleans up both the results buffer and the compose buffer."
        (kill-buffer buf)
        (when (file-exists-p file) (delete-file file))))))
 
-(ert-deftest haystack-test/discoverability-refresh-kills-old-buffer ()
-  "Re-running replaces the existing discoverability buffer."
+(ert-deftest haystack-test/discoverability-refresh-reuses-buffer ()
+  "Re-running reuses the existing discoverability buffer rather than killing it."
   (haystack-test--with-notes-dir
    (let* ((file (expand-file-name "20241215120000-test-note.org"
                                   haystack-notes-directory))
@@ -4993,7 +5047,7 @@ Cleans up both the results buffer and the compose buffer."
                  (unwind-protect
                      (progn
                        (should (buffer-live-p r2))
-                       (should-not (buffer-live-p r1)))
+                       (should (eq r1 r2)))
                    (when (buffer-live-p r2) (kill-buffer r2)))))))
        (kill-buffer buf)
        (when (file-exists-p file) (delete-file file))))))
@@ -5196,6 +5250,37 @@ Cleans up both the results buffer and the compose buffer."
                    (when (buffer-live-p child) (kill-buffer child)))))
            (kill-buffer root-buf)))))))
 
+;;;; haystack--append-to-origin-file
+
+(ert-deftest haystack-test/append-to-origin-file-appends-separator-and-content ()
+  "Appends separator and content to the origin file and saves."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "origin.org" haystack-notes-directory)))
+     (write-region "initial content\n" nil origin)
+     (haystack--append-to-origin-file origin "links here" "org")
+     (let ((content (with-temp-buffer
+                      (insert-file-contents origin)
+                      (buffer-string))))
+       (should (string-match-p "initial content" content))
+       (should (string-match-p "links here" content))
+       ;; old content precedes new content in the file
+       (should (< (string-match "initial content" content)
+                  (string-match "links here" content)))))))
+
+
+(ert-deftest haystack-test/append-to-origin-file-does-not-clobber-existing ()
+  "Does not remove existing content when appending."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "origin.org" haystack-notes-directory)))
+     (write-region "first line\nsecond line\n" nil origin)
+     (haystack--append-to-origin-file origin "appended" "org")
+     (let ((content (with-temp-buffer
+                      (insert-file-contents origin)
+                      (buffer-string))))
+       (should (string-match-p "first line" content))
+       (should (string-match-p "second line" content))
+       (should (string-match-p "appended" content))))))
+
 ;;;; haystack-mentions-yank-to-origin
 
 (ert-deftest haystack-test/mentions-yank-errors-outside-mentions-tree ()
@@ -5313,6 +5398,52 @@ Cleans up both the results buffer and the compose buffer."
          (haystack-mentions-yank-to-origin))
        (should-not (buffer-live-p root))
        (should-not (buffer-live-p child))))))
+
+;;;; haystack--comment-prefix
+
+(ert-deftest haystack-test/comment-prefix-c-block-style ()
+  "C, H, and CSS use /* to match their frontmatter style."
+  (should (string= (haystack--comment-prefix "c")   "/*"))
+  (should (string= (haystack--comment-prefix "h")   "/*"))
+  (should (string= (haystack--comment-prefix "css") "/*")))
+
+(ert-deftest haystack-test/comment-prefix-slash-unchanged ()
+  "JS, TS, Go, Rust etc. still use //."
+  (should (string= (haystack--comment-prefix "js") "//"))
+  (should (string= (haystack--comment-prefix "go") "//"))
+  (should (string= (haystack--comment-prefix "rs") "//")))
+
+;;;; haystack--composite-rename-pairs
+
+(ert-deftest haystack-test/composite-rename-pairs-basic ()
+  "Returns the correct rename pair when old slug appears in a composite."
+  (haystack-test--with-notes-dir
+   (let* ((dir (file-name-as-directory (expand-file-name haystack-notes-directory)))
+          (old-file (concat dir "@comp__foo__bar.org")))
+     (write-region "" nil old-file)
+     (let ((result (haystack--composite-rename-pairs "foo" "baz")))
+       (should (= (length result) 1))
+       (should (string= (caar result) old-file))
+       (should (string-suffix-p "@comp__baz__bar.org" (cdar result)))))))
+
+(ert-deftest haystack-test/composite-rename-pairs-no-match ()
+  "Returns nil when no composite contains the old slug."
+  (haystack-test--with-notes-dir
+   (let* ((dir (file-name-as-directory (expand-file-name haystack-notes-directory))))
+     (write-region "" nil (concat dir "@comp__foo__bar.org"))
+     (should (null (haystack--composite-rename-pairs "qux" "baz"))))))
+
+(ert-deftest haystack-test/composite-rename-pairs-extensionless ()
+  "Does not crash on an extensionless @comp__ file; produces a clean new path."
+  (haystack-test--with-notes-dir
+   (let* ((dir (file-name-as-directory (expand-file-name haystack-notes-directory)))
+          (old-file (concat dir "@comp__foo__bar")))
+     (write-region "" nil old-file)
+     (let ((result (haystack--composite-rename-pairs "foo" "baz")))
+       (should (= (length result) 1))
+       (should (string= (caar result) old-file))
+       (should (string-suffix-p "@comp__baz__bar" (cdar result)))
+       (should-not (string-match-p "\\.nil\\'" (cdar result)))))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

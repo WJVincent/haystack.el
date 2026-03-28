@@ -93,6 +93,188 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   `@comp__` file.  Serves as continuous verification that every feature is
   meaningfully demonstrable in the demo corpus.
 
+### Fixed
+
+- **`haystack--truncate-content`** now passes `:emacs-pattern` (not `:pattern`) to
+  `string-match` at all three call sites, and wraps the call in `condition-case`
+  for graceful degradation.  Previously, raw ripgrep syntax (`(?i:...)`, `\b`,
+  lookaheads) and bare `|` alternations caused crashes or silently wrong match
+  positions. (CR-1)
+
+- **`haystack--write-filelist`** no longer leaks a temp file when `with-temp-file`
+  signals.  The path is now captured inside the same `unwind-protect` that
+  deletes it, so a mid-write signal cannot strand the file. (CR-2)
+
+- **`haystack-run-root-search`** parses `raw-input` exactly once, after the
+  stop-word gate has settled the input.  The previous code parsed twice (with a
+  mutation between parses) and the AND path parsed a third time at a different
+  site, making the three parse results potentially inconsistent. (CR-3)
+
+- **`haystack--ensure-stop-words`** now uses a separate `haystack--stop-words-loaded`
+  boolean flag (parallel to `haystack--expansion-groups-loaded`) to distinguish an
+  intentionally empty list from "not yet loaded".  Previously, an empty
+  `haystack--stop-words` would always trigger a re-seed from the 182-word
+  default list, making a fully cleared stop-words file impossible. (MJ-1)
+
+- **`haystack--composite-rename-pairs`** no longer signals `wrong-type-argument`
+  for `@comp__` files with no extension.  `(file-name-extension …)` returning
+  `nil` is now handled explicitly. (MJ-2)
+
+- **`haystack-describe-discoverability`** replaced O(N) synchronous `rg` process
+  launches (one per unique token) with a single `rg --count` pass using an
+  alternation of all tokens.  A 400-token note now runs one subprocess instead
+  of 400. (MJ-4)
+
+- **`haystack-frecent`** now checks `haystack--stop-words-loaded` before
+  reloading from disk, matching the pattern of `haystack--frecency-ensure`.
+  Previously, calling `haystack-frecent` after a search but before the idle-timer
+  flush discarded the just-recorded in-memory entry. (MJ-10)
+
+- **`haystack-demo-stop`** now deletes the temp directory before restoring state.
+  Previously, a `delete-directory` failure left `haystack--demo-active` nil while
+  stranding the directory permanently (subsequent `haystack-demo-stop` calls would
+  immediately error "demo is not running"). (MJ-12)
+
+- **Volume gate** is now consistent between the AND path and the single-term path.
+  The AND path previously counted results after intersection; the single-term path
+  counted the full directory, so the gate could silently fail to fire on large AND
+  result sets. (MN-9)
+
+- **`haystack-compose-commit`** and **`haystack--compose-intercept-save`** now
+  `with-current-buffer` explicitly when inserting MOC content into the new note
+  buffer, instead of relying on `haystack-new-note` leaving it current as a side
+  effect. (MN-12)
+
+- **`haystack-discoverability-mode`** now kills the old discoverability buffer
+  only after the new one is fully populated, eliminating the window-shows-nothing
+  gap during analysis. (MN-19)
+
+- **`haystack-go-root`** final `switch-to-buffer` is now guarded: if the root
+  buffer was killed without its descendants, the switch is skipped rather than
+  signaling an error. (NP-4)
+
+- **`boundp` on `defvar-local` variables** replaced with `bound-and-true-p`
+  throughout (`haystack--assert-results-buffer`, `haystack-filter-further`,
+  `haystack-compose`, `haystack-mentions-yank-to-origin`).  `defvar-local` always
+  binds the symbol, so the plain `boundp` check was vacuously true and masked
+  unset variables. (NP-5)
+
+### Internal
+
+- **`(require 'org)`** moved to the top-level require block.  It was previously
+  inside `haystack-compose`, but `define-derived-mode haystack-compose-mode
+  org-mode` runs at load time and fails if `org` has not loaded yet. (MJ-5)
+
+- **`haystack-results-mode-map`** converted to the idiomatic
+  `(let ((map (make-sparse-keymap))) … map)` form, consistent with every other
+  keymap in the file. (MJ-6)
+
+- **`haystack--create-note-file`** helper extracted, de-duplicating the
+  slug-prompt → sanitize → extension-prompt → write → open flow that was
+  copy-pasted between `haystack-new-note` and `haystack-new-note-with-moc`. (MJ-7)
+
+- **`haystack--append-to-origin-file`** helper extracted, de-duplicating the
+  get-ext → get-separator → format → open-file → insert → save flow shared by
+  `haystack-insert-mentions` and `haystack-mentions-yank-to-origin`. (MJ-8)
+
+- **`haystack--descriptor-leaf-label`** helper extracted, replacing three
+  independent copies of "use last filter if filters non-nil, else use root fields,
+  apply `haystack--tree-term-label`". (MJ-9)
+
+- **`haystack--rg-args`** no longer accumulates via repeated
+  `(setq args (append args (list item)))`.  Sections are now built as `(list …)`
+  and merged with a single `append` at the end. (MN-13)
+
+- **`haystack--sanitize-slug`** rewritten with `thread-last` instead of
+  a `let*` chain with repeated `s` rebindings. (MN-14)
+
+- **`haystack--validate-notes-directory`** helper extracted, removing the
+  duplicated preamble shared by `haystack--assert-notes-directory` and
+  `haystack--ensure-notes-directory`. (MN-15)
+
+- **`haystack--discoverability-render`** now partitions entries in a single
+  `dolist` pass, calling `haystack--discoverability-tier` once per entry instead
+  of four `seq-filter` passes. (MN-16)
+
+- **`haystack--extract-filenames`** now delegates to
+  `(mapcar #'car (haystack--extract-file-loci text))`, removing a near-duplicate
+  implementation. (MN-17)
+
+- Dead `first-term` fallback branch in `root-term-str` inside
+  `haystack--run-root-search-and` removed; `(cdr and-tokens)` is always non-nil
+  by precondition. (NP-1)
+
+- **`haystack--show-help-buffer`** helper extracted, removing the three-copy
+  `get-buffer-create` → `erase` → `insert` → `special-mode` → `goto-min` →
+  `display-buffer` pattern. (NP-2)
+
+- Demo state variables (`haystack--demo-active` etc.) moved to the demo section
+  of the file. (NP-3)
+
+### Docs
+
+- Comment added to `haystack--comment-prefixes` and
+  `haystack-frontmatter-functions` explaining the intentional divergence for
+  `c`/`h` files (line comments vs. block-comment frontmatter) and noting the
+  extensions present in only one registry. (MJ-3)
+
+- `;;;###autoload` cookie removed from `haystack--format-moc-text`; it is a
+  private helper with no `interactive` form. (MJ-11)
+
+- Stale "Phase 2; currently falls back" language removed from
+  `haystack-moc-code-style` docstring; the `data` style is fully implemented. (MN-1)
+
+- Error message in `haystack-mentions-yank-to-origin` rewritten to not expose
+  the internal variable name: "This command is only available in a mentions
+  results buffer — run `haystack-find-mentions' first". (MN-2)
+
+- Integer defcustoms `haystack-context-width`, `haystack-composite-max-lines`,
+  `haystack-discoverability-sparse-max`, and
+  `haystack-discoverability-ubiquitous-min` now use `(integer :min 1)` in their
+  `:type` spec, rejecting zero and negative values. (MN-3)
+
+- `haystack--discoverability-search-at-point` and
+  `haystack--discoverability-add-stop-word` wrapped in thin public commands so
+  they appear in `C-h m` under public names. (MN-4)
+
+- **`haystack-yank-moc`** given `;;;###autoload` cookie; it is bound in the
+  global prefix map and must be resolvable before any other haystack command
+  fires. (MN-5)
+
+- Magic literal `7` for `(length "@comp__")` replaced with
+  `(length haystack--composite-prefix)`. (MN-6)
+
+- `haystack--group-all-members` docstring corrected: the claim about what the
+  function replaces was misleading. (MN-7)
+
+- `haystack--frecent-leaf-p` docstring updated to document its test-only status
+  and clarify "backward compatibility wrapper" is for tests, not production
+  callers. (MN-8)
+
+- `haystack--discoverability-tokenize` precondition documented: callers must
+  invoke `haystack--ensure-stop-words` before calling this function directly. (MN-10)
+
+- **`haystack-tree-depth-faces`** converted from `defvar` to `defcustom`. (MN-11)
+
+- Discoverability analysis now emits a "done" completion message after the
+  progress loop. (MN-18)
+
+- `haystack-search-region` docstring documents that prefix characters (`!`, `~`,
+  `/`, `=`) at the start of selected text are interpreted as search modifiers. (NP-6)
+
+- Package `Author:` header updated to a proper `Name <email>` form; `Keywords:`
+  updated to use registered Emacs keyword terms. (NP-7)
+
+- `haystack-run-root-search` prompt updated to include an inline hint for AND
+  queries and prefix modifiers, matching `haystack-filter-further`. (NP-8)
+
+- Comment added to the registry accumulation sites (`haystack--frontmatter-registry`,
+  `haystack--moc-language-registry`) documenting that top-level macro calls update
+  in place via `setf (alist-get …)` and that file reloads accumulate correctly. (NP-9)
+
+- Comment added to the frecency score formula documenting that `count/days` is a
+  deliberate "recency-weighted count" choice rather than exponential decay. (NP-10)
+
 ---
 
 ## [0.11.0] — 2026-03-27
