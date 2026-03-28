@@ -403,5 +403,223 @@ Confirms the filename-filter root path and that the demo corpus contains
                                            (file-name-nondirectory path)))))))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
 
+;;;; Test 13 — Empty results (zero-hit path)
+
+(ert-deftest haystack-io-test/root-search-empty-results ()
+  "Root search for a nonsense term returns a live buffer with zero file hits.
+Confirms the zero-result code path does not error out and that the buffer
+is still grep-mode compatible (header present, no filename:line lines)."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "xyzzy-no-such-term-42")))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               (let ((file-count (car (haystack--count-search-stats (buffer-string)))))
+                 (should (= file-count 0)))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 14 — Regex prefix ~ bypasses regexp-quote
+
+(ert-deftest haystack-io-test/regex-prefix-passes-raw-pattern ()
+  "A ~ prefix sends the pattern to rg unescaped and sets :root-regex t.
+'~zettelkas.en' matches 'zettelkasten' via the regex dot; the descriptor
+records :root-regex t to prove the prefix was parsed correctly."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "~zettelkas.en")))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               (should (plist-get haystack--search-descriptor :root-regex))
+               (should (>= (car (haystack--count-search-stats (buffer-string))) 1))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 15 — Three-term AND query
+
+(ert-deftest haystack-io-test/three-term-and-query ()
+  "AND query 'emacs & lisp & macros' finds a strict subset of 'emacs & lisp'.
+Confirms the multi-pass intersection pipeline handles more than two terms
+and that the demo corpus contains notes at that intersection."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((three-buf (haystack-run-root-search "emacs & lisp & macros"))
+           (two-buf   (haystack-run-root-search "emacs & lisp")))
+       (unwind-protect
+           (let ((three-count (with-current-buffer three-buf
+                                (car (haystack--count-search-stats (buffer-string)))))
+                 (two-count   (with-current-buffer two-buf
+                                (car (haystack--count-search-stats (buffer-string))))))
+             (should (>= three-count 1))
+             (should (<= three-count two-count)))
+         (when (buffer-live-p three-buf) (kill-buffer three-buf))
+         (when (buffer-live-p two-buf)   (kill-buffer two-buf)))))))
+
+;;;; Test 16 — Three-level filter chain
+
+(ert-deftest haystack-io-test/three-level-filter-chain ()
+  "Three-level chain haystack → filtering → stop produces a depth-2-filter buffer.
+Confirms the recursive xargs-rg narrowing works across three levels and
+that the descriptor carries both filter terms in order."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let* ((root-buf   (haystack-run-root-search "haystack"))
+            (child1-buf (with-current-buffer root-buf
+                          (haystack-filter-further "filtering")))
+            (child2-buf (with-current-buffer child1-buf
+                          (haystack-filter-further "stop"))))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p child2-buf))
+             (with-current-buffer child2-buf
+               (let* ((desc    haystack--search-descriptor)
+                      (filters (plist-get desc :filters)))
+                 (should (equal (plist-get desc :root-term) "haystack"))
+                 (should (= (length filters) 2))
+                 (should (equal (plist-get (nth 0 filters) :term) "filtering"))
+                 (should (equal (plist-get (nth 1 filters) :term) "stop"))
+                 (should (>= (car (haystack--count-search-stats (buffer-string))) 1)))))
+         (when (buffer-live-p child2-buf) (kill-buffer child2-buf))
+         (when (buffer-live-p child1-buf) (kill-buffer child1-buf))
+         (when (buffer-live-p root-buf)   (kill-buffer root-buf)))))))
+
+;;;; Test 17 — Negated filename filter
+
+(ert-deftest haystack-io-test/negated-filename-filter-excludes-paths ()
+  "Negated filename filter '!/emacs' removes all files named '*emacs*' from results.
+Confirms the Elisp-side filename negation path: no result path contains
+'emacs' in its base name after applying the negation filter."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let* ((root-buf  (haystack-run-root-search "emacs"))
+            (child-buf (with-current-buffer root-buf
+                         (haystack-filter-further "!/emacs"))))
+       (unwind-protect
+           (with-current-buffer child-buf
+             ;; At least some files remain (emacs content without emacs in name)
+             (should (>= (car (haystack--count-search-stats (buffer-string))) 1))
+             ;; None of the result files have "emacs" in their base name
+             (dolist (path (haystack--extract-filenames (buffer-string)))
+               (should-not (string-match-p "emacs" (file-name-nondirectory path)))))
+         (when (buffer-live-p child-buf) (kill-buffer child-buf))
+         (when (buffer-live-p root-buf)  (kill-buffer root-buf)))))))
+
+;;;; Test 18 — composite-filter 'only with empty composite set
+
+(ert-deftest haystack-io-test/composite-filter-only-empty-corpus ()
+  "composite-filter 'only returns zero results when demo corpus has no composites.
+Confirms the 'only path (--glob=@*) completes without error even when no
+files match the glob — the empty-results path must be graceful."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "haystack" 'only)))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               (should (= (car (haystack--count-search-stats (buffer-string))) 0))
+               (should (eq (plist-get haystack--search-descriptor :composite-filter)
+                           'only))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 19 — Frecency flush writes a readable file to disk
+
+(ert-deftest haystack-io-test/frecency-flush-writes-disk ()
+  "Frecency flush writes a readable elisp file to the notes directory.
+Confirms that haystack--frecency-flush produces a well-formed alist and
+that subsequent haystack--load-frecency can read it back."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     ;; Run a search to create a frecency entry
+     (let ((buf (haystack-run-root-search "emacs")))
+       (when (buffer-live-p buf) (kill-buffer buf)))
+     (should haystack--frecency-dirty)
+     (haystack--frecency-flush)
+     (should-not haystack--frecency-dirty)
+     (let ((ffile (haystack--frecency-file)))
+       (should (file-exists-p ffile))
+       ;; File must be readable as an elisp alist
+       (let ((data (with-temp-buffer
+                     (insert-file-contents ffile)
+                     (read (current-buffer)))))
+         (should (listp data))
+         (should (> (length data) 0))
+         (should (listp (caar data))))))))
+
+;;;; Test 20 — Frecency replay with zero-result chain
+
+(ert-deftest haystack-io-test/frecency-replay-empty-results ()
+  "Frecency replay of a nonsense chain produces a live buffer with zero hits.
+Confirms that haystack--frecency-replay does not error out on zero results
+— the empty-results buffer is valid and has the expected descriptor."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack--frecency-replay '("xyzzy-no-such-term-42"))))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               (should (= (car (haystack--count-search-stats (buffer-string))) 0))
+               (should (equal (plist-get haystack--search-descriptor :root-term)
+                              "xyzzy-no-such-term-42"))
+               ;; Replayed buffer has no parent (it stands alone)
+               (should (null haystack--parent-buffer))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 21 — Compose commit writes composite file to disk
+
+(ert-deftest haystack-io-test/compose-commit-writes-file ()
+  "haystack-compose-commit writes the @comp__ file to the notes directory.
+After commit the file must exist and contain valid org frontmatter.
+Re-running haystack-compose on the same results buffer detects the
+existing composite and mentions it in the staging buffer header."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let* ((root-buf    (haystack-run-root-search "zettelkasten"))
+            (compose-buf (with-current-buffer root-buf (haystack-compose)))
+            (comp-path   (with-current-buffer compose-buf
+                           (haystack--composite-filename haystack--compose-descriptor))))
+       (unwind-protect
+           (progn
+             ;; Commit — file does not yet exist, so no overwrite prompt
+             (with-current-buffer compose-buf
+               (haystack-compose-commit))
+             ;; File must now exist on disk
+             (should (file-exists-p comp-path))
+             ;; File must contain valid org frontmatter
+             (let ((content (with-temp-buffer
+                              (insert-file-contents comp-path)
+                              (buffer-string))))
+               (should (string-match-p "#\\+TITLE:" content))
+               (should (string-match-p "#\\+HAYSTACK-CHAIN:" content)))
+             ;; Re-compose detects the existing composite
+             (let ((compose-buf2 (with-current-buffer root-buf (haystack-compose))))
+               (unwind-protect
+                   (with-current-buffer compose-buf2
+                     (should (string-match-p "Existing composite:" (buffer-string))))
+                 (when (buffer-live-p compose-buf2) (kill-buffer compose-buf2)))))
+         (when (buffer-live-p compose-buf) (kill-buffer compose-buf))
+         (when (buffer-live-p root-buf)    (kill-buffer root-buf)))))))
+
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

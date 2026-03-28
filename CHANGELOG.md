@@ -44,12 +44,16 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   consistent.
 
 ### Added
-- IO test suite (`test/haystack-io-test.el`, 12 tests): end-to-end tests running
+- IO test suite (`test/haystack-io-test.el`, 21 tests): end-to-end tests running
   real `rg` calls against a temp copy of the demo corpus.  Covers root search,
   expansion groups, AND queries, progressive filter, filename filter, negation,
   frecency replay, compose staging, discoverability, stop-word prompts, frecency
-  recording, and filename-prefix root search.  Also serves as a continuous
-  verification that every feature is meaningfully demonstrable in the demo corpus.
+  recording, and filename-prefix root search.  Also covers: zero-result path,
+  regex `~` prefix, three-term AND, three-level filter chain, negated filename
+  filter, `composite-filter 'only` with empty composite set, frecency flush to
+  disk, frecency replay of zero-result chain, and compose commit writing the
+  `@comp__` file.  Serves as continuous verification that every feature is
+  meaningfully demonstrable in the demo corpus.
 
 ---
 
