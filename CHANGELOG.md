@@ -29,6 +29,22 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Internal
 
+- **MOC language registry**: `haystack--moc-language-registry` stores the
+  data representation for each built-in data-style MOC formatter.
+  `haystack-define-moc-language` macro generates `haystack--moc-data-format-NAME`
+  functions from `(:comment :open :entry :separator :close :extensions)` data.
+  The four built-in languages (js, python, elisp, lua) are now macro calls;
+  `haystack-moc-data-formatters` and `haystack--format-moc-data-block` are
+  unchanged.
+
+- **Frontmatter registry**: `haystack--frontmatter-registry` stores the data
+  representation for comment-based frontmatter styles.
+  `haystack-define-frontmatter` macro generates `haystack--frontmatter-NAME`
+  functions from `(:prefix :suffix :extensions)` data.  The seven comment-based
+  styles (slash, hash, semi, dash, c-block, html-block, ml-block) are now macro
+  calls; org and markdown retain hand-written functions due to unique formats.
+  `haystack-frontmatter-functions` and `haystack--frontmatter` are unchanged.
+
 - **Dispatcher decomposition**: `haystack-run-root-search` is now a thin
   dispatcher delegating to `haystack--run-root-search-and` (AND query path)
   and `haystack--run-root-search-filename` (/ prefix path).

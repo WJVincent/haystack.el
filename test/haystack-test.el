@@ -18,7 +18,8 @@
 Also resets `haystack--expansion-groups-loaded' so each test gets a
 clean cache state independent of test execution order."
   `(let ((haystack-notes-directory (make-temp-file "haystack-test-" t))
-         (haystack--expansion-groups-loaded nil))
+         (haystack--expansion-groups-loaded nil)
+         (haystack--stop-words-loaded nil))
      (unwind-protect
          (progn ,@body)
        (delete-directory haystack-notes-directory t))))
@@ -152,6 +153,45 @@ clean cache state independent of test execution order."
     (should (string-match-p "(\\* title: Test Note \\*)" fm))
     (should (haystack-test--has-sentinel fm))
     (should (string-suffix-p "\n\n" fm))))
+
+;;;; haystack--frontmatter-registry
+
+(ert-deftest haystack-test/frontmatter-registry-has-builtin-styles ()
+  "Registry contains entries for all seven macro-defined comment styles."
+  (should (assq 'slash      haystack--frontmatter-registry))
+  (should (assq 'hash       haystack--frontmatter-registry))
+  (should (assq 'semi       haystack--frontmatter-registry))
+  (should (assq 'dash       haystack--frontmatter-registry))
+  (should (assq 'c-block    haystack--frontmatter-registry))
+  (should (assq 'html-block haystack--frontmatter-registry))
+  (should (assq 'ml-block   haystack--frontmatter-registry)))
+
+(ert-deftest haystack-test/frontmatter-registry-entry-has-required-keys ()
+  "A registry entry contains prefix, suffix, and extensions keys."
+  (let ((entry (cdr (assq 'slash haystack--frontmatter-registry))))
+    (should (equal (plist-get entry :prefix) "//"))
+    (should (equal (plist-get entry :suffix) ""))
+    (should (plist-get entry :extensions))))
+
+(ert-deftest haystack-test/frontmatter-registry-block-comment-suffix ()
+  "Block comment styles record a non-empty suffix."
+  (should (equal " */" (plist-get (cdr (assq 'c-block    haystack--frontmatter-registry)) :suffix)))
+  (should (equal " -->" (plist-get (cdr (assq 'html-block haystack--frontmatter-registry)) :suffix)))
+  (should (equal " *)" (plist-get (cdr (assq 'ml-block   haystack--frontmatter-registry)) :suffix))))
+
+(ert-deftest haystack-test/frontmatter-define-macro-registers-and-defines ()
+  "haystack-define-frontmatter creates a registry entry and a callable generator."
+  (let ((haystack--frontmatter-registry haystack--frontmatter-registry))
+    (haystack-define-frontmatter test-style-xyz
+      :prefix "%%"
+      :suffix " END"
+      :extensions ("xyz"))
+    (should (assq 'test-style-xyz haystack--frontmatter-registry))
+    (should (fboundp 'haystack--frontmatter-test-style-xyz))
+    (let ((fm (haystack--frontmatter-test-style-xyz "My Note")))
+      (should (string-match-p "%% title: My Note END" fm))
+      (should (haystack-test--has-sentinel fm))
+      (should (string-suffix-p "\n\n" fm)))))
 
 ;;;; haystack--frontmatter dispatch
 
@@ -1202,6 +1242,42 @@ Writes INITIAL-GROUPS to disk so functions that call
         (line "this is not a grep line"))
     (should (equal (haystack--truncate-output line "grep") line))))
 
+(ert-deftest haystack-test/truncate-content-emacs-alternation-centers-on-match ()
+  "Emacs alternation syntax \\| correctly centers the window on the match."
+  (let* ((haystack-context-width 20)
+         ;; Match term is in the middle; pattern uses Emacs alternation.
+         (content (concat (make-string 40 ?a) "second" (make-string 40 ?b)))
+         (result (haystack--truncate-content content "first\\|second")))
+    (should (string-match-p "second" result))))
+
+(ert-deftest haystack-test/truncate-content-rg-alternation-does-not-center ()
+  "rg-style alternation (foo|bar) is NOT Emacs regexp; window falls back to
+position 0, so the match term is absent from the truncated window."
+  (let* ((haystack-context-width 20)
+         ;; \"second\" is 40 chars in — well outside a 20-char window at pos 0.
+         (content (concat (make-string 40 ?a) "second" (make-string 40 ?b)))
+         (result (haystack--truncate-content content "(first|second)")))
+    ;; rg-style pattern: string-match treats ( as a group anchor producing
+    ;; wrong position; the match term is not in the truncated window.
+    (should-not (string-match-p "second" result))))
+
+(ert-deftest haystack-test/truncate-content-invalid-emacs-regex-no-crash ()
+  "An invalid Emacs regexp (e.g. a raw rg lookahead) does not crash; the
+function degrades gracefully and returns a non-empty string."
+  (let* ((haystack-context-width 20)
+         (content (concat (make-string 40 ?a) "hello" (make-string 40 ?b))))
+    ;; (?i:hello) is valid ripgrep syntax but invalid Emacs regexp.
+    (should (stringp (haystack--truncate-content content "(?i:hello)")))))
+
+(ert-deftest haystack-test/truncate-output-emacs-alternation-preserves-prefix ()
+  "Emacs alternation pattern works end-to-end through truncate-output."
+  (let* ((haystack-context-width 20)
+         (padding (make-string 40 ?x))
+         (line (concat "/notes/foo.org:5:" padding "target" padding)))
+    (let ((result (haystack--truncate-output line "miss\\|target")))
+      (should (string-prefix-p "/notes/foo.org:5:" result))
+      (should (string-match-p "target" result)))))
+
 ;;;; haystack--count-search-stats
 
 (ert-deftest haystack-test/count-stats-empty-output ()
@@ -1327,6 +1403,24 @@ Writes INITIAL-GROUPS to disk so functions that call
                                        "\0" t)
                          files)))
       (delete-file tmp))))
+
+(ert-deftest haystack-test/write-filelist-cleans-up-on-write-error ()
+  "If the write step signals, the temp file is deleted before re-signaling."
+  (let (tmp-path)
+    ;; Intercept make-temp-file to capture the path, then make insert fail.
+    (cl-letf* (((symbol-function 'orig-make-temp-file)
+                (symbol-function 'make-temp-file))
+               ((symbol-function 'make-temp-file)
+                (lambda (prefix &rest args)
+                  (let ((p (apply 'orig-make-temp-file prefix args)))
+                    (setq tmp-path p)
+                    p)))
+               ((symbol-function 'insert)
+                (lambda (&rest _) (error "simulated write failure"))))
+      (should-error (haystack--write-filelist '("/notes/a.org"))))
+    ;; The temp file must not survive the error.
+    (should (stringp tmp-path))
+    (should-not (file-exists-p tmp-path))))
 
 ;;;; haystack--xargs-rg
 
@@ -2411,6 +2505,50 @@ Data style is handled at the block level in haystack-yank-moc."
                    "rb")))
       (should (string-match-p "^# custom: root=ruby" result))
       (should (string-match-p "LINKS" result)))))
+
+;;; haystack--moc-language-registry
+
+(ert-deftest haystack-test/moc-language-registry-has-builtin-languages ()
+  "Registry contains entries for all four built-in languages."
+  (should (assq 'js     haystack--moc-language-registry))
+  (should (assq 'python haystack--moc-language-registry))
+  (should (assq 'elisp  haystack--moc-language-registry))
+  (should (assq 'lua    haystack--moc-language-registry)))
+
+(ert-deftest haystack-test/moc-language-registry-entry-has-required-keys ()
+  "A registry entry contains the expected plist keys."
+  (let ((entry (cdr (assq 'js haystack--moc-language-registry))))
+    (should (plist-get entry :comment))
+    (should (plist-get entry :open))
+    (should (plist-get entry :entry))
+    (should (plist-get entry :separator))
+    (should (plist-get entry :close))
+    (should (plist-get entry :extensions))))
+
+(ert-deftest haystack-test/moc-language-registry-extensions-correct ()
+  "Registry :extensions lists match expected file types."
+  (should (member "ts" (plist-get (cdr (assq 'js     haystack--moc-language-registry)) :extensions)))
+  (should (member "py" (plist-get (cdr (assq 'python haystack--moc-language-registry)) :extensions)))
+  (should (member "el" (plist-get (cdr (assq 'elisp  haystack--moc-language-registry)) :extensions)))
+  (should (member "lua" (plist-get (cdr (assq 'lua    haystack--moc-language-registry)) :extensions))))
+
+(ert-deftest haystack-test/moc-define-language-macro-registers-and-defines ()
+  "haystack-define-moc-language creates a registry entry and a callable formatter."
+  (let ((haystack--moc-language-registry haystack--moc-language-registry))
+    (haystack-define-moc-language test-lang-xyz
+      :comment "##"
+      :open    "OPEN\n"
+      :entry   "  ITEM %s %s %d"
+      :close   "\nCLOSE"
+      :extensions ("xyz"))
+    (should (assq 'test-lang-xyz haystack--moc-language-registry))
+    (should (fboundp 'haystack--moc-data-format-test-lang-xyz))
+    (let ((result (haystack--moc-data-format-test-lang-xyz
+                   '(("/notes/20240101000000-foo.xyz" . 5))
+                   "root=foo")))
+      (should (string-match-p "^## haystack: root=foo" result))
+      (should (string-match-p "OPEN" result))
+      (should (string-match-p "CLOSE" result)))))
 
 ;;; copy-moc stores chain
 
@@ -4482,6 +4620,66 @@ Cleans up both the results buffer and the compose buffer."
        (should (bufferp buf))
        (should (string-match-p "the" (with-current-buffer buf (buffer-string))))
        (kill-buffer buf)))))
+
+;;;; Stop words — loaded flag
+
+(ert-deftest haystack-test/stop-words-load-sets-loaded-flag ()
+  "haystack--load-stop-words sets haystack--stop-words-loaded to t."
+  (haystack-test--with-notes-dir
+   (should-not haystack--stop-words-loaded)
+   (haystack--load-stop-words)
+   (should haystack--stop-words-loaded)))
+
+(ert-deftest haystack-test/stop-words-load-sets-flag-even-when-no-file ()
+  "haystack--load-stop-words sets the flag even when the file is absent."
+  (haystack-test--with-notes-dir
+   (should-not (file-exists-p (haystack--stop-words-file)))
+   (haystack--load-stop-words)
+   (should haystack--stop-words-loaded)
+   (should (null haystack--stop-words))))
+
+(ert-deftest haystack-test/stop-words-ensure-does-not-reseed-empty-list ()
+  "ensure-stop-words leaves nil in place when loaded flag is t — empty list is valid."
+  (haystack-test--with-notes-dir
+   (let ((haystack--stop-words nil)
+         (haystack--stop-words-loaded t))
+     (haystack--ensure-stop-words)
+     (should (null haystack--stop-words)))))
+
+(ert-deftest haystack-test/stop-words-reload-clears-flag-and-reloads ()
+  "haystack-reload-stop-words forces a fresh read from disk."
+  (haystack-test--with-notes-dir
+   (haystack--ensure-stop-words)
+   (should haystack--stop-words-loaded)
+   ;; Mutate in-memory state.
+   (setq haystack--stop-words '("only-word"))
+   ;; Reload must re-read disk (which has the default set).
+   (haystack-reload-stop-words)
+   (should haystack--stop-words-loaded)
+   (should (> (length haystack--stop-words) 50))
+   (should (member "the" haystack--stop-words))))
+
+(ert-deftest haystack-test/stop-words-reset-to-defaults-restores-full-list ()
+  "haystack-reset-stop-words-to-defaults restores all default stop words."
+  (haystack-test--with-notes-dir
+   ;; Start with an empty list.
+   (setq haystack--stop-words nil
+         haystack--stop-words-loaded t)
+   (haystack-reset-stop-words-to-defaults)
+   (should (> (length haystack--stop-words) 50))
+   (should (member "the" haystack--stop-words))
+   (should (member "a" haystack--stop-words))))
+
+(ert-deftest haystack-test/stop-words-reset-to-defaults-persists-to-disk ()
+  "haystack-reset-stop-words-to-defaults saves the default list to disk."
+  (haystack-test--with-notes-dir
+   (haystack-reset-stop-words-to-defaults)
+   (should (file-exists-p (haystack--stop-words-file)))
+   ;; Reload from disk and verify defaults are there.
+   (setq haystack--stop-words nil
+         haystack--stop-words-loaded nil)
+   (haystack--load-stop-words)
+   (should (member "the" haystack--stop-words))))
 
 ;;;; Stop words — check helper
 

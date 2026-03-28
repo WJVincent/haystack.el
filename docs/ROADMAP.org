@@ -161,8 +161,6 @@ Create notes, search them progressively, export links. Ship this and use it dail
 *** DONE README
 - User guide covering setup, note creation, search, filtering, modifier prefixes,
   results buffer keys, tree view, MOC, and customization options
-*** TODO Manual smoke test with real corpus
-
 
 * Phase 2 — Retrieval Memory
 Expansion groups and frecency. Force multipliers that make the most sense once a base corpus exists.
