@@ -93,6 +93,8 @@ See `demo/README.org` for a guided walkthrough.
 | `C-c h w` | Compose a composite note from results |
 | `C-c h C` | Search composite notes only |
 | `C-c h d` | Analyze term discoverability for the current note |
+| `C-c h m` | Open mentions results buffer for the current note |
+| `C-c h M` | Insert mentions directly (with count prompt) |
 | `C-c h D` | Start demo mode |
 
 ## Creating Notes
@@ -281,6 +283,7 @@ instead. This prevents pointless redundant filters.
 | `c` | Copy MOC to kill ring |
 | `N` | Create a new note and insert the current results MOC into it |
 | `D` | Analyze term discoverability for the current note |
+| `Y` | Append mentions MOC to origin note and kill tree (mentions buffers only) |
 | `C-c C-c` | Compose a composite note from this buffer's results |
 | `?`  | Show help |
 
@@ -420,6 +423,26 @@ terms and `=`-prefixed (literal) inputs are never blocked.
 | `haystack-add-stop-word` | Add a word to the stop list |
 | `haystack-remove-stop-word` | Remove a word from the stop list |
 | `haystack-describe-stop-words` | Browse the full stop word list |
+
+## Find Mentions
+
+`haystack-find-mentions` (`C-c h m`) opens a results buffer showing every note
+in your corpus that mentions the current note by its slug — a literal full-text
+search, no expansion groups.  The results buffer is labelled `*haystack-ref:*`
+and supports all the usual filter-further narrowing.
+
+From a mentions results buffer, press `Y` (`haystack-mentions-yank-to-origin`)
+to append a file-type separator + formatted links to the origin note, then kill
+the entire mentions tree.  Filter first to trim the list to what you actually
+want to record.
+
+`haystack-insert-mentions` (`C-c h M`) skips the results buffer entirely:
+it runs the same search, shows you the count ("N mentions found"), and on `y`
+or RET inserts the links directly.  Press SPC to open the full results buffer
+instead, or `q` to abort.  Zero results inserts a boilerplate no-ref comment.
+
+**Separator conventions**: `.org` → `-----`, `.md`/`.markdown` → `---`,
+`.html`/`.htm` → `<hr>`, everything else → `----`.
 
 ## Discoverability
 

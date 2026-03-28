@@ -155,6 +155,12 @@ Each filter plist:
    :regex     BOOL
    :expansion LIST — group members if expansion fired, nil otherwise)")
 
+(defvar-local haystack--mentions-origin nil
+  "Absolute path of the note that triggered this mentions search.
+Non-nil only in results buffers created by `haystack-find-mentions' and
+their `haystack-filter-further' descendants.  This is the canonical flag
+for mentions trees; the *haystack-ref: buffer-name prefix is cosmetic.")
+
 (defvar-local haystack--compose-descriptor nil
   "Search descriptor for the current composite staging buffer.")
 
@@ -334,6 +340,15 @@ hyphen.  Always strips the file extension."
                        (substring base (match-end 0))
                      base)))
     (replace-regexp-in-string "-" " " stripped)))
+
+(defun haystack--note-slug (filename)
+  "Return the slug component of FILENAME: basename minus timestamp and extension.
+Unlike `haystack--pretty-title', hyphens are preserved (not converted to
+spaces), making this suitable for use as a search term."
+  (let* ((base (file-name-sans-extension (file-name-nondirectory filename))))
+    (if (string-match "\\`[0-9]\\{14\\}-" base)
+        (substring base (match-end 0))
+      base)))
 
 (defun haystack--timestamp ()
   "Return the current time as a YYYYMMDDHHMMSS string."
@@ -1450,8 +1465,16 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
            (header         (haystack--format-header chain-str (car stats) (cdr stats)
                                                     composite-path)))
       (haystack--frecency-record new-descriptor)
-      (let ((buf (haystack--setup-results-buffer
-                  buf-name header output new-descriptor parent-buf composite-path)))
+      (let* ((parent-origin haystack--mentions-origin)
+             (buf (haystack--setup-results-buffer
+                   buf-name header output new-descriptor parent-buf composite-path)))
+        ;; Propagate mentions origin and rename buffer when inside a mentions tree.
+        (when parent-origin
+          (with-current-buffer buf
+            (setq-local haystack--mentions-origin parent-origin)
+            (rename-buffer
+             (replace-regexp-in-string "\\`\\*haystack:" "*haystack-ref:" (buffer-name))
+             t)))
         (unless haystack--suppress-display
           (switch-to-buffer buf))
         buf))))
@@ -1775,6 +1798,7 @@ Like `haystack-run-root-search' with composite-filter set to \\='only."
 (define-key haystack-results-mode-map "." #'haystack-run-root-search-at-point)
 (define-key haystack-results-mode-map "t" #'haystack-show-tree)
 (define-key haystack-results-mode-map "D" #'haystack-describe-discoverability)
+(define-key haystack-results-mode-map "Y" #'haystack-mentions-yank-to-origin)
 (define-key haystack-results-mode-map "?" #'haystack-help)
 
 (define-minor-mode haystack-results-mode
@@ -1861,8 +1885,9 @@ columns a two-column layout is used to reduce the required height."
                      (haystack--help-entry 'haystack-kill-whole-tree "kill whole tree")
                      ""
                      (haystack--help-section "MOC")
-                     (haystack--help-entry 'haystack-copy-moc            "copy moc")
-                     (haystack--help-entry 'haystack-new-note-with-moc   "new note + insert moc")
+                     (haystack--help-entry 'haystack-copy-moc                 "copy moc")
+                     (haystack--help-entry 'haystack-new-note-with-moc        "new note + insert moc")
+                     (haystack--help-entry 'haystack-mentions-yank-to-origin  "yank to origin note (mentions tree)")
                      ""
                      (haystack--help-section "Composite")
                      (haystack--help-entry 'haystack-compose             "compose composite note")
@@ -1891,8 +1916,9 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
                       (haystack--help-entry 'haystack-kill-subtree    "kill subtree")
                       (haystack--help-entry 'haystack-kill-whole-tree "kill whole tree")))
          (right (list (haystack--help-section "MOC")
-                      (haystack--help-entry 'haystack-copy-moc          "copy moc")
-                      (haystack--help-entry 'haystack-new-note-with-moc "new note + moc")
+                      (haystack--help-entry 'haystack-copy-moc                "copy moc")
+                      (haystack--help-entry 'haystack-new-note-with-moc       "new note + moc")
+                      (haystack--help-entry 'haystack-mentions-yank-to-origin "yank to origin (mentions)")
                       ""
                       (haystack--help-section "Composite")
                       (haystack--help-entry 'haystack-compose           "compose composite")
@@ -2567,6 +2593,35 @@ kill ring."
     (kill-new text)
     (insert text "\n")))
 
+;;;; Mentions (find-references) engine
+
+(defun haystack--mentions-separator (ext)
+  "Return the horizontal-rule separator string for a file with extension EXT.
+Follows the same conventions as frontmatter sentinel comments:
+  org        → -----
+  md/markdown → ---
+  html/htm   → <hr>
+  anything else → ----"
+  (pcase (and ext (downcase ext))
+    ("org"      "-----")
+    ("md"       "---")
+    ("markdown" "---")
+    ("html"     "<hr>")
+    ("htm"      "<hr>")
+    (_          "----")))
+
+(defun haystack--mentions-no-ref-comment (slug ext)
+  "Return a boilerplate comment noting no references were found for SLUG.
+Format is chosen by EXT using the same conventions as
+`haystack--mentions-separator': org and fallback use # comments; md,
+markdown, html, and htm use HTML comment syntax."
+  (let ((msg (format "No references found for: %s" slug)))
+    (pcase (and ext (downcase ext))
+      ((or "md" "markdown" "html" "htm")
+       (format "<!-- %s -->" msg))
+      (_
+       (format "# %s" msg)))))
+
 ;;;; Frecency engine
 
 (defcustom haystack-frecency-save-interval 60
@@ -3014,6 +3069,120 @@ argument ALL, show every recorded chain."
          (prompt      (if all "Haystack frecent (all): " "Haystack frecent: "))
          (choice      (completing-read prompt table nil t)))
     (haystack--frecency-replay (gethash choice display-map))))
+
+;;;; Find mentions commands
+
+;;;###autoload
+(defun haystack-find-mentions ()
+  "Open a results buffer showing all notes that mention this note by its slug.
+The current buffer must be visiting a file.  The slug is derived from the
+filename: the 14-digit timestamp prefix (if any) and extension are stripped,
+leaving the bare hyphenated slug.  A literal search (`=' prefix) is run so
+expansion groups do not widen the results.
+
+The resulting buffer is renamed to use the `*haystack-ref:' prefix (cosmetic)
+and has `haystack--mentions-origin' set (canonical).  From that buffer the
+extra key `haystack-mentions-yank-to-origin' appends the MOC to this note
+and kills the entire mentions tree."
+  (interactive)
+  (unless (buffer-file-name)
+    (user-error "Haystack: not visiting a file"))
+  (let* ((origin (buffer-file-name))
+         (slug   (haystack--note-slug origin))
+         (buf    (haystack-run-root-search (concat "=" slug))))
+    (when buf
+      (with-current-buffer buf
+        (setq-local haystack--mentions-origin origin)
+        (rename-buffer
+         (replace-regexp-in-string "\\`\\*haystack:" "*haystack-ref:" (buffer-name))
+         t)))
+    buf))
+
+;;;###autoload
+(defun haystack-insert-mentions ()
+  "Search for mentions of this note and prompt to insert them directly.
+Like `haystack-find-mentions' but skips the results buffer.  Shows the
+match count and offers three choices:
+  y / RET  — append separator + MOC links to this note immediately
+  SPC      — open the standard mentions results buffer instead
+  q        — abort without inserting anything
+
+When there are zero matches a boilerplate comment is inserted instead of
+links.  The current buffer must be visiting a file."
+  (interactive)
+  (unless (buffer-file-name)
+    (user-error "Haystack: not visiting a file"))
+  (let* ((origin (buffer-file-name))
+         (slug   (haystack--note-slug origin))
+         (haystack--suppress-display t)
+         (buf    (haystack-run-root-search (concat "=" slug))))
+    (unless buf
+      (user-error "Haystack: search returned nil"))
+    (let* ((loci  (with-current-buffer buf (haystack--extract-file-loci (buffer-string))))
+           (n     (length loci))
+           (ext   (file-name-extension origin))
+           (choice (read-char-choice
+                    (format "Haystack: %d mention%s found.  (y)insert  (SPC)open buffer  (q)abort "
+                            n (if (= 1 n) "" "s"))
+                    '(?y ?\r ?\s ?q))))
+      (pcase choice
+        ((or ?y ?\r)
+         (let* ((chain   (with-current-buffer buf
+                           (when (bound-and-true-p haystack--search-descriptor)
+                             (haystack--descriptor-chain-string haystack--search-descriptor))))
+                (sep     (haystack--mentions-separator ext))
+                (content (if (null loci)
+                             (haystack--mentions-no-ref-comment slug ext)
+                           (haystack--format-moc-text loci chain ext))))
+           (kill-buffer buf)
+           (with-current-buffer (find-file-noselect origin)
+             (goto-char (point-max))
+             (insert "\n" sep "\n" content "\n")
+             (save-buffer))
+           (message "Haystack: inserted %d mention%s into %s"
+                    n (if (= 1 n) "" "s") (file-name-nondirectory origin))))
+        (?\s
+         ;; Open the full mentions buffer instead
+         (with-current-buffer buf
+           (setq-local haystack--mentions-origin origin)
+           (rename-buffer
+            (replace-regexp-in-string "\\`\\*haystack:" "*haystack-ref:" (buffer-name))
+            t))
+         (pop-to-buffer buf))
+        (_
+         (kill-buffer buf)
+         (message "Haystack: mentions insert aborted"))))))
+
+;;;###autoload
+(defun haystack-mentions-yank-to-origin ()
+  "Append MOC links to the origin note and kill the mentions tree.
+Only valid in buffers that belong to a `haystack-find-mentions' tree
+\(i.e. `haystack--mentions-origin' is non-nil).  Appends a file-type
+separator followed by formatted MOC links — or a boilerplate no-ref
+comment when there are no results — to the origin note, saves the file,
+then kills the entire mentions tree via `haystack-kill-whole-tree'."
+  (interactive)
+  (haystack--assert-results-buffer)
+  (unless (bound-and-true-p haystack--mentions-origin)
+    (user-error "Haystack: not in a mentions results buffer (haystack--mentions-origin is nil)"))
+  (let* ((origin  haystack--mentions-origin)
+         (loci    (haystack--extract-file-loci (buffer-string)))
+         (chain   (when (bound-and-true-p haystack--search-descriptor)
+                    (haystack--descriptor-chain-string haystack--search-descriptor)))
+         (ext     (file-name-extension origin))
+         (sep     (haystack--mentions-separator ext))
+         (content (if (null loci)
+                      (haystack--mentions-no-ref-comment
+                       (haystack--note-slug origin) ext)
+                    (haystack--format-moc-text loci chain ext)))
+         (n       (length loci)))
+    (with-current-buffer (find-file-noselect origin)
+      (goto-char (point-max))
+      (insert "\n" sep "\n" content "\n")
+      (save-buffer))
+    (message "Haystack: inserted %d mention%s into %s"
+             n (if (= 1 n) "" "s") (file-name-nondirectory origin))
+    (haystack-kill-whole-tree)))
 
 ;;;; Stop words
 
@@ -3742,6 +3911,8 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "w" #'haystack-compose)
 (define-key haystack-prefix-map "C" #'haystack-search-composites)
 (define-key haystack-prefix-map "d" #'haystack-describe-discoverability)
+(define-key haystack-prefix-map "m" #'haystack-find-mentions)
+(define-key haystack-prefix-map "M" #'haystack-insert-mentions)
 (define-key haystack-prefix-map "D" #'haystack-demo)
 
 (provide 'haystack)

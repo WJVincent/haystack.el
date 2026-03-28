@@ -63,7 +63,9 @@ Performance ceiling (asserted by `test/haystack-bench.el`):
   unless `~` prefix or expansion fires.
 - **Buffer-local state is canonical**: `haystack--search-descriptor`
   is the source of truth. Buffer names are UI convenience for
-  Vertico/Orderless.
+  Vertico/Orderless.  Similarly, `haystack--mentions-origin` (absolute
+  path of the origin note) is the canonical flag for mentions trees; the
+  `*haystack-ref:` buffer-name prefix is cosmetic only.
 - **`xargs -0` always**: No conditional branching on file count. One
   code path, no `ARG_MAX` concerns. Filenames are written
   null-separated to a temp file and piped via `xargs -0 rg ARGS <

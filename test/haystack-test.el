@@ -4824,5 +4824,297 @@ Cleans up both the results buffer and the compose buffer."
        (kill-buffer buf)
        (when (file-exists-p file) (delete-file file))))))
 
+;;;; haystack--note-slug
+
+(ert-deftest haystack-test/note-slug-strips-timestamp ()
+  "Strips 14-digit timestamp prefix and file extension, keeps hyphens."
+  (should (equal (haystack--note-slug "20240315142233-my-rust-notes.org")
+                 "my-rust-notes")))
+
+(ert-deftest haystack-test/note-slug-no-timestamp ()
+  "Returns base name without extension when no timestamp is present."
+  (should (equal (haystack--note-slug "my-rust-notes.org") "my-rust-notes")))
+
+(ert-deftest haystack-test/note-slug-strips-directory ()
+  "Only the basename is used; directory components are ignored."
+  (should (equal (haystack--note-slug "/path/to/20240315142233-foo-bar.md")
+                 "foo-bar")))
+
+(ert-deftest haystack-test/note-slug-no-extension ()
+  "Works when there is no file extension."
+  (should (equal (haystack--note-slug "my-note") "my-note")))
+
+;;;; haystack--mentions-separator
+
+(ert-deftest haystack-test/mentions-separator-org ()
+  (should (equal (haystack--mentions-separator "org") "-----")))
+
+(ert-deftest haystack-test/mentions-separator-md ()
+  (should (equal (haystack--mentions-separator "md") "---")))
+
+(ert-deftest haystack-test/mentions-separator-markdown ()
+  (should (equal (haystack--mentions-separator "markdown") "---")))
+
+(ert-deftest haystack-test/mentions-separator-html ()
+  (should (equal (haystack--mentions-separator "html") "<hr>")))
+
+(ert-deftest haystack-test/mentions-separator-htm ()
+  (should (equal (haystack--mentions-separator "htm") "<hr>")))
+
+(ert-deftest haystack-test/mentions-separator-fallback ()
+  (should (equal (haystack--mentions-separator "txt") "----")))
+
+(ert-deftest haystack-test/mentions-separator-nil ()
+  (should (equal (haystack--mentions-separator nil) "----")))
+
+;;;; haystack--mentions-no-ref-comment
+
+(ert-deftest haystack-test/mentions-no-ref-comment-org ()
+  "Org comment starts with # and includes the slug."
+  (let ((result (haystack--mentions-no-ref-comment "my-note" "org")))
+    (should (string-prefix-p "# " result))
+    (should (string-match-p "my-note" result))))
+
+(ert-deftest haystack-test/mentions-no-ref-comment-md ()
+  "Markdown comment uses HTML comment syntax and includes the slug."
+  (let ((result (haystack--mentions-no-ref-comment "my-note" "md")))
+    (should (string-prefix-p "<!-- " result))
+    (should (string-suffix-p " -->" result))
+    (should (string-match-p "my-note" result))))
+
+(ert-deftest haystack-test/mentions-no-ref-comment-html ()
+  "HTML comment uses HTML comment syntax and includes the slug."
+  (let ((result (haystack--mentions-no-ref-comment "my-note" "html")))
+    (should (string-prefix-p "<!-- " result))
+    (should (string-suffix-p " -->" result))
+    (should (string-match-p "my-note" result))))
+
+(ert-deftest haystack-test/mentions-no-ref-comment-fallback ()
+  "Unknown extension falls back to # comment style."
+  (let ((result (haystack--mentions-no-ref-comment "my-note" "txt")))
+    (should (string-prefix-p "# " result))
+    (should (string-match-p "my-note" result))))
+
+;;;; haystack-find-mentions
+
+(ert-deftest haystack-test/find-mentions-errors-without-file ()
+  "Signal user-error when called from a buffer not visiting a file."
+  (with-temp-buffer
+    (should-error (haystack-find-mentions) :type 'user-error)))
+
+(ert-deftest haystack-test/find-mentions-sets-mentions-origin ()
+  "Result buffer has haystack--mentions-origin set to the origin file path."
+  (haystack-test--with-notes-dir
+   (haystack-test--with-file-buffer "org"
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+       (let ((origin (buffer-file-name))
+             (result-buf (haystack-find-mentions)))
+         (unwind-protect
+             (should (equal (buffer-local-value 'haystack--mentions-origin result-buf)
+                            origin))
+           (when (buffer-live-p result-buf) (kill-buffer result-buf))))))))
+
+(ert-deftest haystack-test/find-mentions-renames-buffer ()
+  "Result buffer name starts with *haystack-ref: prefix."
+  (haystack-test--with-notes-dir
+   (haystack-test--with-file-buffer "org"
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+       (let ((result-buf (haystack-find-mentions)))
+         (unwind-protect
+             (should (string-prefix-p "*haystack-ref:" (buffer-name result-buf)))
+           (when (buffer-live-p result-buf) (kill-buffer result-buf))))))))
+
+;;;; filter-further mentions tree inheritance
+
+(ert-deftest haystack-test/filter-further-inherits-mentions-origin ()
+  "Child buffer inherits haystack--mentions-origin from a mentions-tree parent."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory))
+         (origin "/path/to/origin.org"))
+     (with-temp-file note (insert "rust async content\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:=rust*")))
+         ;; Fall back to the unescaped name if expansion groups are absent
+         (unless root-buf (setq root-buf (get-buffer "*haystack:1:rust*")))
+         (should root-buf)
+         (with-current-buffer root-buf
+           (setq-local haystack--mentions-origin origin))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (let ((child (haystack-filter-further "async")))
+                 (unwind-protect
+                     (should (equal (buffer-local-value 'haystack--mentions-origin child)
+                                    origin))
+                   (when (buffer-live-p child) (kill-buffer child)))))
+           (kill-buffer root-buf)))))))
+
+(ert-deftest haystack-test/filter-further-renames-child-in-mentions-tree ()
+  "Child buffer name uses *haystack-ref: prefix when parent is a mentions buffer."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory))
+         (origin "/path/to/origin.org"))
+     (with-temp-file note (insert "rust async content\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:=rust*")))
+         (unless root-buf (setq root-buf (get-buffer "*haystack:1:rust*")))
+         (should root-buf)
+         (with-current-buffer root-buf
+           (setq-local haystack--mentions-origin origin))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (let ((child (haystack-filter-further "async")))
+                 (unwind-protect
+                     (should (string-prefix-p "*haystack-ref:" (buffer-name child)))
+                   (when (buffer-live-p child) (kill-buffer child)))))
+           (kill-buffer root-buf)))))))
+
+(ert-deftest haystack-test/filter-further-no-rename-outside-mentions ()
+  "Child buffer keeps standard *haystack: name when parent is not a mentions buffer."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust async content\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:=rust*")))
+         (unless root-buf (setq root-buf (get-buffer "*haystack:1:rust*")))
+         (should root-buf)
+         ;; Ensure no mentions-origin is set (normal search, not mentions)
+         (with-current-buffer root-buf
+           (setq-local haystack--mentions-origin nil))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (let ((child (haystack-filter-further "async")))
+                 (unwind-protect
+                     (should (string-prefix-p "*haystack:" (buffer-name child)))
+                   (when (buffer-live-p child) (kill-buffer child)))))
+           (kill-buffer root-buf)))))))
+
+;;;; haystack-mentions-yank-to-origin
+
+(ert-deftest haystack-test/mentions-yank-errors-outside-mentions-tree ()
+  "Signal user-error when called from a non-mentions results buffer."
+  (haystack-test--with-notes-dir
+   (let ((buf (haystack-test--make-results-buf " *hs-not-mentions*" nil
+                                               '(:root-term "rust"))))
+     (unwind-protect
+         (with-current-buffer buf
+           (setq-local haystack--buffer-notes-dir
+                       (expand-file-name haystack-notes-directory))
+           (should-error (haystack-mentions-yank-to-origin) :type 'user-error))
+       (kill-buffer buf)))))
+
+(ert-deftest haystack-test/mentions-yank-appends-separator-and-content ()
+  "Appends separator and MOC links to the origin file."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "origin.org" haystack-notes-directory))
+          (note   (expand-file-name "20240101000000-ref.org" haystack-notes-directory)))
+     (write-region "initial content\n" nil origin)
+     (write-region "ref content here\n" nil note)
+     (let ((buf (haystack-test--make-results-buf " *hs-mentions-yank*" nil
+                                                 '(:root-term "ref"
+                                                   :root-expanded "ref"
+                                                   :root-literal t
+                                                   :root-regex nil
+                                                   :root-filename nil
+                                                   :root-expansion nil
+                                                   :filters nil
+                                                   :composite-filter exclude))))
+       (unwind-protect
+           (with-current-buffer buf
+             (setq-local haystack--buffer-notes-dir
+                         (expand-file-name haystack-notes-directory))
+             (setq-local haystack--mentions-origin origin)
+             (setq-local default-directory
+                         (file-name-as-directory
+                          (expand-file-name haystack-notes-directory)))
+             (insert (format "%s:1:ref content here\n" note))
+             (haystack-mentions-yank-to-origin)
+             ;; Buffer should be killed by yank
+             (let ((file-content (with-temp-buffer
+                                   (insert-file-contents origin)
+                                   (buffer-string))))
+               (should (string-match-p "-----" file-content))
+               (should (string-match-p "initial content" file-content))
+               (should (string-match-p "ref" file-content))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/mentions-yank-empty-inserts-boilerplate ()
+  "When no results exist, appends separator and a no-ref comment to origin file."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "origin.org" haystack-notes-directory)))
+     (write-region "initial content\n" nil origin)
+     (let ((buf (haystack-test--make-results-buf " *hs-mentions-empty*" nil
+                                                 '(:root-term "xyzzy"
+                                                   :root-expanded "xyzzy"
+                                                   :root-literal t
+                                                   :root-regex nil
+                                                   :root-filename nil
+                                                   :root-expansion nil
+                                                   :filters nil
+                                                   :composite-filter exclude))))
+       (unwind-protect
+           (with-current-buffer buf
+             (setq-local haystack--buffer-notes-dir
+                         (expand-file-name haystack-notes-directory))
+             (setq-local haystack--mentions-origin origin)
+             (setq-local default-directory
+                         (file-name-as-directory
+                          (expand-file-name haystack-notes-directory)))
+             ;; No result lines inserted — empty buffer
+             (haystack-mentions-yank-to-origin)
+             (let ((file-content (with-temp-buffer
+                                   (insert-file-contents origin)
+                                   (buffer-string))))
+               (should (string-match-p "-----" file-content))
+               (should (string-match-p "No references" file-content))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/mentions-yank-kills-whole-tree ()
+  "haystack-mentions-yank-to-origin kills the entire mentions tree."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "origin.org" haystack-notes-directory)))
+     (write-region "content\n" nil origin)
+     (let* ((root  (haystack-test--make-results-buf " *hs-mref-root*" nil
+                                                    '(:root-term "x"
+                                                      :root-expanded "x"
+                                                      :root-literal t
+                                                      :root-regex nil
+                                                      :root-filename nil
+                                                      :root-expansion nil
+                                                      :filters nil
+                                                      :composite-filter exclude)))
+            (child (haystack-test--make-results-buf " *hs-mref-child*" root
+                                                    '(:root-term "x"
+                                                      :root-expanded "x"
+                                                      :root-literal t
+                                                      :root-regex nil
+                                                      :root-filename nil
+                                                      :root-expansion nil
+                                                      :filters ((:term "y" :negated nil
+                                                                 :filename nil :literal t
+                                                                 :regex nil :expansion nil))
+                                                      :composite-filter exclude))))
+       (with-current-buffer root
+         (setq-local haystack--buffer-notes-dir
+                     (expand-file-name haystack-notes-directory))
+         (setq-local haystack--mentions-origin origin))
+       (with-current-buffer child
+         (setq-local haystack--buffer-notes-dir
+                     (expand-file-name haystack-notes-directory))
+         (setq-local haystack--mentions-origin origin))
+       (with-current-buffer child
+         (haystack-mentions-yank-to-origin))
+       (should-not (buffer-live-p root))
+       (should-not (buffer-live-p child))))))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

@@ -346,7 +346,14 @@ Not in scope for 1.0. Recorded so they don't get lost.
 ** TODO Boolean DSL (=|=, =()= operators — =&= already done)
 ** TODO Search scope modes (body-only, frontmatter-only via sentinel)
 ** TODO Discoverability save-hook mode
-** TODO Backlink support (=rg= for slug on =find-file=)
+** DONE Find mentions (=haystack-find-mentions=, =haystack-insert-mentions=)
+- Implemented as a slug-literal root search (=haystack-find-mentions=, prefix key =m=)
+- Direct-insert variant with count prompt (=haystack-insert-mentions=, prefix key =M=)
+- Results buffers use =*haystack-ref:= cosmetic prefix; =haystack--mentions-origin= is canonical
+- =haystack-mentions-yank-to-origin= (=Y= in results) appends separator + MOC to origin note,
+  then kills the entire mentions tree
+- File-type-aware separator: =org= → =-----=, =md=/=markdown= → =---=, =html=/=htm= → =<hr>=, fallback =----=
+- Zero results inserts a boilerplate no-ref comment instead of links
 ** TODO Date-range filtering via =DATE:= metadata
 ** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
 ** DONE Capture from search (=haystack-capture-from-search=)

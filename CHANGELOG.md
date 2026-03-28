@@ -5,6 +5,28 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`haystack-find-mentions`** (`C-c h m`): opens a results buffer showing every
+  note that mentions the current note by its slug (literal root search for the
+  slug, suppressing expansion groups).  The buffer carries
+  `haystack--mentions-origin` (canonical flag) and is cosmetically renamed to
+  the `*haystack-ref:` prefix to distinguish it in the buffer list.
+
+- **`haystack-insert-mentions`** (`C-c h M`): direct-insert variant — runs the
+  same search internally, shows a count prompt ("N mentions found. (y)insert
+  (SPC)open buffer (q)abort"), and appends the content immediately on `y`/RET.
+  Opens the full results buffer on SPC.  Zero results inserts a boilerplate
+  no-ref comment rather than nothing.
+
+- **`haystack-mentions-yank-to-origin`** (`Y` in results buffers): appends a
+  file-type separator + formatted MOC links to the origin note, then kills the
+  entire mentions tree.  Only active when `haystack--mentions-origin` is set.
+  File-type-aware separator: `.org` → `-----`, `.md`/`.markdown` → `---`,
+  `.html`/`.htm` → `<hr>`, fallback `----`.  Zero results appends a boilerplate
+  no-ref comment.  Child buffers created by `haystack-filter-further` inside a
+  mentions tree inherit the origin and the `*haystack-ref:` rename automatically.
+
 ### Internal
 
 - **Dispatcher decomposition**: `haystack-run-root-search` is now a thin

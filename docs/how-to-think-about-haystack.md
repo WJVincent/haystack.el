@@ -64,10 +64,10 @@ That's it. There is no special mode to learn, no custom keybindings to
 memorize for basic use. The results are standard grep-mode buffers —
 if you know how to use `*grep*`, you know how to use Haystack.
 
-## The Four Things Haystack Adds Beyond Grep
+## The Five Things Haystack Adds Beyond Grep
 
 Raw `rg` in a shell could do step 1 above. Haystack earns its
-existence with four additions:
+existence with five additions:
 
 **Progressive state.** Each filter remembers its parent. You can
 narrow in any direction, backtrack, branch, and explore — all without
@@ -91,6 +91,15 @@ a composite. Think of it as "git commit for retrieval": the chain
 machine-generated document that concatenates excerpts from every note
 in the results. Structure emerges from what you actually look for,
 not from a filing system you planned upfront.
+
+**Find mentions.** Given any note you're visiting, Haystack can find
+every other note that mentions it by its slug — no link syntax required.
+This is not traditional backlink tracking (no database, no explicit
+links); it is a content search for the slug string. The result is often
+richer than explicit backlinks: notes that discuss the same idea without
+formally linking to it surface too. You can narrow the mentions list
+with the usual filter-further commands, then commit the curated set
+directly to the origin note with one keystroke.
 
 ## Who This Is For
 
