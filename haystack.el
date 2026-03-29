@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.11.0
+;; Version: 0.12.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, files, outlines
 ;; URL: https://github.com/WJVincent/haystack.el

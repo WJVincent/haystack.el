@@ -5,6 +5,46 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-03-28
+
+### Fixed
+
+- **`haystack--frecency-replay`** no longer crashes when replaying a chain whose
+  root term was later added to the stop-word list.  A new
+  `haystack--suppress-stop-word` flag bypasses the stop-word prompt during replay
+  (DWIM).  The function now wraps the chain in `unwind-protect` to clean up
+  intermediate buffers on error.
+
+- **Stop-word prompt `?r` branch** now adds the `=` literal prefix, matching the
+  `?s` branch.  Previously, choosing "remove from list" on a term that was also
+  an expansion-group root would silently widen the search via group expansion.
+
+- **`haystack--rename-composites-atomic`** rollback now runs in correct LIFO
+  order.  The `nreverse` call on the `done` list was converting the already-LIFO
+  `push`-built list to FIFO, causing mid-sequence failures to leave the
+  filesystem in an inconsistent state.
+
+- **`haystack-demo`** now uses `copy-tree` instead of `copy-sequence` when saving
+  frecency and expansion-group state, preventing nested mutations from leaking
+  across the demo boundary.
+
+- **`haystack--run-root-search-filename`** now runs `haystack--volume-gate`
+  before returning results, matching the behavior of content searches.  Previously,
+  `/filename` root searches could produce arbitrarily large result buffers without
+  prompting.
+
+### Docs
+
+- **`demo/README.org`** steps 6 and 7 rewritten to guide users through live
+  discoverability and compose features (previously described as "not yet
+  implemented").
+
+- **`docs/how-to-think-about-haystack.md`** corrected nonexistent command names:
+  `haystack-search` → `haystack-run-root-search`, `haystack-filter` →
+  `haystack-filter-further`.
+
+- **`CHANGELOG.md`** merged duplicate `### Added` sections in [Unreleased].
+
 ### Added
 
 - **`haystack-find-mentions`** (`C-c h m`): opens a results buffer showing every

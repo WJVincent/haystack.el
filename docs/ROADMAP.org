@@ -341,7 +341,8 @@ Not in scope for 1.0. Recorded so they don't get lost.
 - =haystack-io-test--with-corpus= macro: copies corpus, saves/restores all globals,
   kills scoped buffers on exit
 - Edge-case brainstorm in =docs/io-test-brainstorm.md=
-** TODO Boolean DSL (=|=, =()= operators — =&= already done)
+** TODO Boolean DSL / query parser (=|=, =()= operators — =&= already done)
+** TODO Human-readable date parser for time queries (date expressions like "today", "-7d", "last friday")
 ** TODO Search scope modes (body-only, frontmatter-only via sentinel)
 ** TODO Discoverability save-hook mode
 ** DONE Find mentions (=haystack-find-mentions=, =haystack-insert-mentions=)
