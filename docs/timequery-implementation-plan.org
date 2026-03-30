@@ -6,6 +6,15 @@ Implement greppable Haystack-specific timestamps plus a date-range
 search command that composes cleanly with the existing search tree,
 grep-mode output, and frecency replay.
 
+Current status as of 2026-03-29:
+- Core timestamp formatting/insertion, date-bound parsing, timestamp
+  extraction, date filtering, date-root search backend, interactive
+  command, and prefix bindings are implemented and covered by unit
+  tests.
+- Unit, IO, and bench suites pass in the current tree.
+- Remaining work is concentrated in frecency replay/key refactoring,
+  date-search IO coverage, demo corpus seeding, and documentation.
+
 ** Goals
 - Preserve grep-mode compatibility: results remain
   =filename:line:content=
@@ -17,22 +26,22 @@ grep-mode output, and frecency replay.
 - Use float-time (seconds since epoch) as the canonical comparable
   representation in the inner filter loop; validate with bench suite
 
-** TODO Finalize timestamp format
-- [ ] Confirm active format: =hs: <YYYY-MM-DD Dow HH:MM>=
-- [ ] Confirm inactive format: =hs: [YYYY-MM-DD Dow HH:MM]=
-- [ ] Confirm date-only format: =hs: <YYYY-MM-DD Dow>=
-- [ ] Confirm that bare org timestamps without =hs: = are intentionally
+** DONE Finalize timestamp format
+- [X] Confirm active format: =hs: <YYYY-MM-DD Dow HH:MM>=
+- [X] Confirm inactive format: =hs: [YYYY-MM-DD Dow HH:MM]=
+- [X] Confirm date-only format: =hs: <YYYY-MM-DD Dow>=
+- [X] Confirm that bare org timestamps without =hs: = are intentionally
   ignored
 
-** TODO Add timestamp formatter
-- [ ] Add unit tests for active/inactive and with-time/without-time
+** DONE Add timestamp formatter
+- [X] Add unit tests for active/inactive and with-time/without-time
   cases (failing)
-- [ ] Add =haystack--format-hs-timestamp (time &optional inactive
+- [X] Add =haystack--format-hs-timestamp (time &optional inactive
   no-time)=
-- [ ] Place it near the existing timestamp helpers in =haystack.el=
-- [ ] Run unit, IO, and bench suites
+- [X] Place it near the existing timestamp helpers in =haystack.el=
+- [X] Run unit, IO, and bench suites
 
-** TODO Add insertion commands
+** DONE Add insertion commands
 Two commands with distinct behaviors:
 - =haystack-insert-timestamp-now= inserts the current exact time with
   no prompt.
@@ -42,44 +51,44 @@ Two commands with distinct behaviors:
   input precision determines the output format.  Does not use the
   query parser's range-expansion logic.
 
-- [ ] Add unit tests for insertion output (failing)
-- [ ] Add =haystack-insert-timestamp-now=
-- [ ] Add =haystack-insert-timestamp= with minibuffer prompt
-- [ ] Support =C-u= for inactive brackets on both commands
-- [ ] Add keybindings under the prefix map
-- [ ] Run unit, IO, and bench suites
+- [X] Add unit tests for insertion output (failing)
+- [X] Add =haystack-insert-timestamp-now=
+- [X] Add =haystack-insert-timestamp= with minibuffer prompt
+- [X] Support =C-u= for inactive brackets on both commands
+- [X] Add keybindings under the prefix map
+- [X] Run unit, IO, and bench suites
 
-** TODO Implement specificity-aware date-bound parsing
+** DONE Implement specificity-aware date-bound parsing
 Parsing is specificity-aware, not natural-language aware.  Invalid
 bounds must fail closed with explicit user errors, not rely on
 =encode-time= normalization.
 
-*** TODO Parse supported bound shapes
-- [ ] Year only: =YYYY=
-- [ ] Year and month: =YYYY-MM=
-- [ ] Full date: =YYYY-MM-DD=
-- [ ] Exact point: =YYYY-MM-DD HH:MM=
-- [ ] Empty input returns nil
+*** DONE Parse supported bound shapes
+- [X] Year only: =YYYY=
+- [X] Year and month: =YYYY-MM=
+- [X] Full date: =YYYY-MM-DD=
+- [X] Exact point: =YYYY-MM-DD HH:MM=
+- [X] Empty input returns nil
 
-*** TODO Test specificity-aware parser behavior
-- [ ] Add unit tests for year, month, day, and exact time (failing)
-- [ ] Add unit tests for February in leap and non-leap years (failing)
-- [ ] Add unit tests for empty start/end combinations (failing)
-- [ ] Add unit tests for malformed month/day/time values (failing)
-- [ ] Add unit tests for whitespace-only input (failing)
-- [ ] Add unit tests for reversed ranges (failing)
+*** DONE Test specificity-aware parser behavior
+- [X] Add unit tests for year, month, day, and exact time (failing)
+- [X] Add unit tests for February in leap and non-leap years (failing)
+- [X] Add unit tests for empty start/end combinations (failing)
+- [X] Add unit tests for malformed month/day/time values (failing)
+- [X] Add unit tests for whitespace-only input (failing)
+- [X] Add unit tests for reversed ranges (failing)
 
-*** TODO Resolve date ranges
-- [ ] Add =haystack--parse-date-bound=
-- [ ] Add =haystack--resolve-date-range=
-- [ ] Use =encode-time= for month-end handling, including leap years
-- [ ] Year-only upper bound resolves to December 31st at 23:59:59
-- [ ] Treat empty start as unbounded low end
-- [ ] Treat empty end as unbounded high end
-- [ ] Represent unbounded ends as float sentinels (=-1.0e+INF= / =1.0e+INF=) to prevent nil math in the inner loop
-- [ ] Run unit, IO, and bench suites
+*** DONE Resolve date ranges
+- [X] Add =haystack--parse-date-bound=
+- [X] Add =haystack--resolve-date-range=
+- [X] Use =encode-time= for month-end handling, including leap years
+- [X] Year-only upper bound resolves to December 31st at 23:59:59
+- [X] Treat empty start as unbounded low end
+- [X] Treat empty end as unbounded high end
+- [X] Represent unbounded ends as float sentinels (=-1.0e+INF= / =1.0e+INF=) to prevent nil math in the inner loop
+- [X] Run unit, IO, and bench suites
 
-** TODO Implement timestamp extraction and date filtering
+** DONE Implement timestamp extraction and date filtering
 The inner loop uses float-time (seconds since epoch) as the canonical
 comparable representation. Bounds are resolved once via
 =encode-time= + =float-time=; per-line comparison is then a simple
@@ -89,33 +98,33 @@ timestamps and day-expanded bounds (midnight to 23:59:59) for
 date-only timestamps.  The inner loop selects the bound set based on
 timestamp type and performs a pure float comparison.
 
-*** TODO Test and benchmark filtering behavior
-- [ ] Add mixed in-range/out-of-range/no-timestamp unit tests (failing)
-- [ ] Add boundary-inclusivity unit tests (failing)
-- [ ] Add date-only timestamp whole-day match unit tests (failing)
-- [ ] Add empty-result unit tests (failing)
-- [ ] Verify the chosen comparison strategy against the bench suite
+*** DONE Test and benchmark filtering behavior
+- [X] Add mixed in-range/out-of-range/no-timestamp unit tests (failing)
+- [X] Add boundary-inclusivity unit tests (failing)
+- [X] Add date-only timestamp whole-day match unit tests (failing)
+- [X] Add empty-result unit tests (failing)
+- [X] Verify the chosen comparison strategy against the bench suite
 
-*** TODO Extract Haystack timestamps from grep lines
-- [ ] Add =haystack--parse-hs-timestamp= or equivalent extractor
-- [ ] Match =hs: = timestamps only
-- [ ] Ignore bare org timestamps
-- [ ] Handle active and inactive forms
-- [ ] Handle date-only timestamps
+*** DONE Extract Haystack timestamps from grep lines
+- [X] Add =haystack--parse-hs-timestamp= or equivalent extractor
+- [X] Match =hs: = timestamps only
+- [X] Ignore bare org timestamps
+- [X] Handle active and inactive forms
+- [X] Handle date-only timestamps
 
-*** TODO Filter grep output by resolved range
-- [ ] Add =haystack--filter-lines-by-date-range=
-- [ ] Drop lines without Haystack timestamps
-- [ ] Keep boundaries inclusive
-- [ ] Date-only timestamps match the full day: include if the date falls
+*** DONE Filter grep output by resolved range
+- [X] Add =haystack--filter-lines-by-date-range=
+- [X] Drop lines without Haystack timestamps
+- [X] Keep boundaries inclusive
+- [X] Date-only timestamps match the full day: include if the date falls
   within the range's date span, regardless of any time component on
   the bounds
-- [ ] Pre-calculate two float bound sets at search start: strict for
+- [X] Pre-calculate two float bound sets at search start: strict for
   time-point timestamps, day-expanded (midnight–23:59:59) for date-only
-- [ ] Convert each extracted timestamp to float-time for comparison
-- [ ] Run unit, IO, and bench suites
+- [X] Convert each extracted timestamp to float-time for comparison
+- [X] Run unit, IO, and bench suites
 
-** TODO Add structured date-root state
+** DONE Add structured date-root state
 Date-root buffers follow the same project rule as normal search
 buffers: the display label is for UI, while behavior is driven by
 structured buffer-local metadata.  A buffer created by
@@ -124,39 +133,39 @@ root creation — date parsing affects only how the initial file set is
 built; =haystack-filter-further= semantics are identical to every
 other Haystack results buffer.
 
-*** TODO Test structured date-root state
-- [ ] Verify root descriptor stores typed date metadata (failing)
-- [ ] Verify buffer name/header show a readable date label (failing)
-- [ ] Verify results still use standard grep-mode output (failing)
-- [ ] Verify =haystack-filter-further= composes from a date-root buffer
+*** DONE Test structured date-root state
+- [X] Verify root descriptor stores typed date metadata (failing)
+- [X] Verify buffer name/header show a readable date label (failing)
+- [X] Verify results still use standard grep-mode output (failing)
+- [X] Verify =haystack-filter-further= composes from a date-root buffer
   (failing)
 
-*** TODO Add a date-root descriptor shape
-- [ ] Use descriptor shape =(:root (:kind date-range :start RAW :end RAW) :filters ())= for both buffer-local state and frecency keys
-- [ ] =:start= and =:end= store the raw user input strings for display and replay
-- [ ] Keep a human-readable display label such as =date:START..END=
+*** DONE Add a date-root descriptor shape
+- [X] Use descriptor shape =(:root (:kind date-range :start RAW :end RAW) :filters ())= for both buffer-local state and frecency keys
+- [X] =:start= and =:end= store the raw user input strings for display and replay
+- [X] Keep a human-readable display label such as =date:START..END=
 
-*** TODO Add a noninteractive backend
-- [ ] Add =haystack--search-date-range-internal=
-- [ ] Have it resolve bounds, run the broad rg search, post-filter,
+*** DONE Add a noninteractive backend
+- [X] Add =haystack--search-date-range-internal=
+- [X] Have it resolve bounds, run the broad rg search, post-filter,
   count stats, and prepare buffer setup data
-- [ ] Make the interactive command a thin wrapper around the backend
-- [ ] Run unit, IO, and bench suites
+- [X] Make the interactive command a thin wrapper around the backend
+- [X] Run unit, IO, and bench suites
 
-** TODO Add the interactive date-range search command
-- [ ] Add =haystack-search-date-range=
-- [ ] Prompt for start bound
-- [ ] Prompt for end bound
-- [ ] Build a broad rg prefilter using pattern =hs: [<\[]= to narrow
+** DONE Add the interactive date-range search command
+- [X] Add =haystack-search-date-range=
+- [X] Prompt for start bound
+- [X] Prompt for end bound
+- [X] Build a broad rg prefilter using pattern =hs: [<\[]= to narrow
   candidate files before elisp post-filtering
-- [ ] Post-filter results by resolved date range
-- [ ] Run the volume gate on the post-filter result count, not the
+- [X] Post-filter results by resolved date range
+- [X] Run the volume gate on the post-filter result count, not the
   prefilter count
-- [ ] Truncate output and strip notes prefix like other root searches
-- [ ] Bind the command to =R= in the prefix map
-- [ ] Run unit, IO, and bench suites
+- [X] Truncate output and strip notes prefix like other root searches
+- [X] Bind the command to =R= in the prefix map
+- [X] Run unit, IO, and bench suites
 
-** TODO Refactor frecency key to descriptor-shaped structure
+** DONE Refactor frecency key to descriptor-shaped structure
 The current chain key is a list of prefixed strings — a serialization
 that loses structure and requires reparsing at replay time.  Replace
 it with a descriptor-shaped plist key for all root types so replay
@@ -172,55 +181,55 @@ Date root key shape: =(:root (:kind date-range :start "2024-01" :end
 comparison.  Replay dispatch becomes =(plist-get root :kind)= with no
 special-casing.
 
-*** TODO Test frecency and replay behavior
-- [ ] Verify frecency entry shape for text-root searches (failing)
-- [ ] Verify frecency entry shape for date-root searches (failing)
-- [ ] Verify frecency UI renders a readable label for both kinds
+*** DONE Test frecency and replay behavior
+- [X] Verify frecency entry shape for text-root searches (failing)
+- [X] Verify frecency entry shape for date-root searches (failing)
+- [X] Verify frecency UI renders a readable label for both kinds
   (failing)
-- [ ] Verify replay of a text-root search still works after key refactor
+- [X] Verify replay of a text-root search still works after key refactor
   (failing)
-- [ ] Verify replay of a date-root search dispatches to the date backend
+- [X] Verify replay of a date-root search dispatches to the date backend
   (failing)
-- [ ] Verify replayed results match the original result set (failing)
+- [X] Verify replayed results match the original result set (failing)
 
-*** TODO Refactor chain key and replay dispatch
-- [ ] Rewrite =haystack--frecency-chain-key= to produce a
+*** DONE Refactor chain key and replay dispatch
+- [X] Rewrite =haystack--frecency-chain-key= to produce a
   descriptor-shaped plist for all root types
-- [ ] Update all callers of =haystack--frecency-chain-key=
-- [ ] Rewrite replay dispatch to branch on =:kind= in the root plist
-- [ ] Keep text roots on the existing =haystack-run-root-search= path
-- [ ] Dispatch date roots to the date backend using stored bounds
-- [ ] Preserve filter-chain replay after a date root
-- [ ] Keep UI labels readable in completion and diagnostics
-- [ ] Run unit, IO, and bench suites
+- [X] Update all callers of =haystack--frecency-chain-key=
+- [X] Rewrite replay dispatch to branch on =:kind= in the root plist
+- [X] Keep text roots on the existing =haystack-run-root-search= path
+- [X] Dispatch date roots to the date backend using stored bounds
+- [X] Preserve filter-chain replay after a date root
+- [X] Keep UI labels readable in completion and diagnostics
+- [X] Run unit, IO, and bench suites
 
-** TODO Seed the demo corpus and add IO coverage
-- [ ] Add 3-5 dedicated demo notes containing =hs: = timestamps
-- [ ] Spread demo dates across multiple months
-- [ ] Keep demo examples useful for new users reading the corpus
-- [ ] Add IO test for end-to-end date-range search against demo corpus
+** DONE Seed the demo corpus and add IO coverage
+- [X] Add 3-5 dedicated demo notes containing =hs: = timestamps
+- [X] Spread demo dates across multiple months
+- [X] Keep demo examples useful for new users reading the corpus
+- [X] Add IO test for end-to-end date-range search against demo corpus
   (failing)
-- [ ] Add IO coverage for a partial date-range hit set
-- [ ] Add IO coverage for =haystack-filter-further= after a date-root
+- [X] Add IO coverage for a partial date-range hit set
+- [X] Add IO coverage for =haystack-filter-further= after a date-root
   search
-- [ ] Add IO coverage for frecency replay of a date-root search
-- [ ] Run unit, IO, and bench suites
+- [X] Add IO coverage for frecency replay of a date-root search
+- [X] Run unit, IO, and bench suites
 
-** TODO Update documentation
-- [ ] Replace the roadmap TODO for =DATE:= metadata with the shipped
+** DONE Update documentation
+- [X] Replace the roadmap TODO for =DATE:= metadata with the shipped
   timestamp-search feature
-- [ ] Update =CHANGELOG.md=
-- [ ] Update =README.md=
-- [ ] Update relevant docstrings in =haystack.el=
-- [ ] Update =CLAUDE.md= if workflow or shortcuts need to mention the
+- [X] Update =CHANGELOG.md=
+- [X] Update =README.md=
+- [X] Update relevant docstrings in =haystack.el=
+- [X] Update =CLAUDE.md= if workflow or shortcuts need to mention the
   feature
-- [ ] Update =docs/how-to-think-about-haystack.md= if the feature
+- [X] Update =docs/how-to-think-about-haystack.md= if the feature
   changes the mental model
 
-** TODO Final verification
-- [ ] Run the unit suite
-- [ ] Run the IO suite
-- [ ] Run the bench suite
+** PARTIAL Final verification
+- [X] Run the unit suite
+- [X] Run the IO suite
+- [X] Run the bench suite
 - [ ] Manually verify grep-mode navigation on date-root results
 - [ ] Manually verify frecency replay for a date-root search
 - [ ] Confirm no invariant violations remain

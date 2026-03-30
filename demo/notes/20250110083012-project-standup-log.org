@@ -1,0 +1,17 @@
+#+TITLE: Project Standup Log
+#+DATE: 2025-01-10
+# %%% haystack-end-frontmatter %%%
+Running log of brief project standup notes. Haystack makes it easy to
+search across these by date range using hs: timestamps.
+
+hs: <2025-01-10 Fri 09:00>
+Sprint planning for Q1 search improvements. Decided to prioritise the
+incremental filter-further path. Next review in two weeks.
+
+hs: <2025-01-17 Fri 09:00>
+Reviewed filter-chain performance on large corpora. The rg --count pass
+is the main bottleneck; volume-gate threshold set to 2000.
+
+hs: <2025-01-24 Fri 09:00>
+Demo of frecency replay to the team. Well received. Will document the
+timestamp-search feature once it lands.

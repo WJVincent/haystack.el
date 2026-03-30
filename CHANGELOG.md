@@ -3,7 +3,76 @@
 All notable changes to Haystack are documented here.  Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.13.0] — 2026-03-29
+
+### Added
+
+- **`haystack-search-date-range`** — search notes by `hs:` timestamp range.
+  Prompts for start and end bounds (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`, or
+  `YYYY-MM-DD HH:MM`; either end may be blank for an open range).  Uses a
+  broad ripgrep prefilter followed by Elisp post-filtering; the volume gate
+  runs against the post-filter count.  Results use standard grep-mode format
+  and `haystack-filter-further` composes normally.  Bound to `R` in
+  `haystack-prefix-map`.
+
+- **`haystack-insert-timestamp-now`** — insert an `hs:` active timestamp for
+  the current time at point.  `C-u` produces an inactive (square-bracket) form.
+
+- **`haystack-insert-timestamp`** — prompt for `YYYY-MM-DD` or
+  `YYYY-MM-DD HH:MM` and insert an `hs:` timestamp at the given precision.
+  `C-u` for inactive form.  Bound under the prefix map.
+
+- **`haystack--frecency-key-display`** — converts a descriptor-shaped frecency
+  key to a human-readable string.  Used by the `*haystack-frecent*` buffer,
+  completing-read UI, and kill-entry confirmation prompts.
+
+- **Demo corpus timestamp notes** — three new notes in `demo/notes/` covering
+  January, February, and March 2025, each containing multiple `hs:` timestamps.
+  Used by the new IO tests (Tests 27–30).
+
+### Changed
+
+- **Frecency key format** changed from a list of prefixed strings
+  (`("rust" "async" "!cargo")`) to a descriptor-shaped plist
+  (`(:root (:kind text :term "rust") :filters ((:term "async") (:negated t :term "cargo")))`).
+  Date-range roots use `(:kind date-range :start S :end E)`.  `assoc` continues
+  to work via structural `equal` comparison.  Existing frecency data on disk
+  written before this change will not be replayed correctly.
+
+- **`haystack--frecency-replay`** now dispatches on `:kind` in the root plist.
+  Date-range roots call `haystack-search-date-range`; text roots continue on
+  the `haystack-run-root-search` path.
+
+- **`haystack-volume-gate-threshold`** defcustom (default 2000, nil to disable).
+  Replaces the hardcoded 500-line ceiling.  The new default is better calibrated
+  to real usage: 1,700 results on the benchmark machine felt instant.
+
+- **`haystack-volume-gate-style`** defcustom (`exact` / `fast`, default `exact`).
+  In `fast` mode the count pass uses `rg --count --max-count=1` piped through
+  `head -N`, bounding peak memory to the threshold line count rather than the
+  full corpus match count.  The prompt says "at least N matches" when the output
+  is capped.  `exact` preserves the informative "N lines across M files" prompt.
+
+- **`haystack-max-columns`** defcustom (default 500).  Replaces the hardcoded
+  `--max-columns=500` rg flag.  Increase for corpora with long prose lines;
+  decrease to reduce memory use on very wide content.
+
+- **`haystack-tree-help`** command and **`haystack--tree-help-content`** — a
+  tree-buffer-specific help popup bound to `?` in `haystack-tree-mode-map`.
+  Previously `?` fell through to `special-mode`'s `describe-mode`.  The new
+  popup lists the tree buffer's own keybindings (visit, next/prev, siblings, q).
+
+### Changed
+
+- **`haystack--strip-notes-prefix`** rewritten as a single
+  `replace-regexp-in-string` call.  Eliminates the intermediate `split-string` /
+  `mapconcat` / lambda allocation passes.  At 123k matches this reduces
+  allocation from ~227 MB to a single pass with no intermediate strings.
+
+- **Search chain header** now renders each term on its own `;;;;` line, broken
+  at `>` separators (via `haystack--format-chain-lines`).  A four-step chain
+  that previously wrapped mid-line at standard frame width now reads as a
+  scannable vertical list with indented continuation lines.
 
 ## [0.12.0] — 2026-03-28
 

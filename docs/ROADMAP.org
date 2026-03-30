@@ -14,6 +14,9 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - [X] Vertico/Orderless buffer switching works with the naming scheme (free from =*haystack:N:term*= convention)
 - [X] Tree view and header navigation buttons complete
 - [X] Manually tested against a 100+ note corpus
+- [X] Stress-tested against 100k-entry arXiv corpus (2026-03-29).  System
+  handles degenerate queries with minor latency; realistic personal corpora
+  are well within limits.  See =review_docs/benchmark-findings-2026-03-29.md=.
 
 ** Package Scaffolding
 *** DONE Set up haystack.el package skeleton
@@ -155,6 +158,8 @@ Create notes, search them progressively, export links. Ship this and use it dail
 - =*haystack-help*= buffer in =special-mode=, displayed below results window
 - Key bindings read live from =haystack-results-mode-map= via =where-is-internal=
 - Focus moves to help window on open; =q= closes and returns to results buffer
+- =haystack-tree-help= provides a parallel tree-specific popup bound to =?= in
+  =haystack-tree-mode-map= (tree navigation commands only)
 *** DONE Modifier prefixes in buffer and tree names
 - Buffer names encode modifiers: =*haystack:2:rust:/cargo*=, =*haystack:2:rust:!/async*=
 - Tree labels match: negation (=!=), filename (=/=), literal (==), regex (=~=) all shown
@@ -353,8 +358,30 @@ Not in scope for 1.0. Recorded so they don't get lost.
   then kills the entire mentions tree
 - File-type-aware separator: =org= → =-----=, =md=/=markdown= → =---=, =html=/=htm= → =<hr>=, fallback =----=
 - Zero results inserts a boilerplate no-ref comment instead of links
-** TODO Date-range filtering via =DATE:= metadata
+** DONE Date-range filtering via =hs:= timestamps
+- =haystack-insert-timestamp-now= inserts an active =hs: <YYYY-MM-DD Dow HH:MM>= timestamp at point
+- =haystack-insert-timestamp= prompts for =YYYY-MM-DD= or =YYYY-MM-DD HH:MM= and inserts at the appropriate precision
+- Both commands accept =C-u= for inactive (square-bracket) form
+- =haystack-search-date-range= searches notes containing =hs:= timestamps within a user-supplied date range
+- Range bounds accept =YYYY=, =YYYY-MM=, =YYYY-MM-DD=, or =YYYY-MM-DD HH:MM=; either end may be blank for open ranges
+- Results use standard grep-mode format; =haystack-filter-further= works normally from a date-root buffer
+- Frecency records and replays date-range searches via the descriptor-shaped key =(:root (:kind date-range :start S :end E) :filters ...)=
+- Bound under =R= in =haystack-prefix-map=
 ** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
+** TODO Results view mode toggle (Full / Compact / Files)
+Three-state display toggle for the results buffer.  Full = current
+behavior.  Compact = replace raw filepath with =haystack--pretty-title=
+output via overlays (shorter, still meaningful; navigation unaffected
+since overlay leaves underlying =file:line:content= text intact).
+Files = deduplicated one-line-per-file view with no content.
+View mode is buffer-local; toggling is clearing/re-applying overlays.
+** TODO Match-centered content windowing
+Post-process the content column so the displayed window is centered on
+the match position rather than starting from the line start.  rg
+provides match offset data in its output; the centering is an Elisp
+post-processing step.  Addresses long-line corpora (and any note with
+a match late in a paragraph) where the current truncation hides the
+match.
 ** DONE Capture from search (=haystack-capture-from-search=)
 - Covered by =haystack-new-note-with-moc=: creates a note and inserts
   the results MOC in one step.  Org-capture integration is left to user

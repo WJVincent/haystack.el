@@ -257,7 +257,9 @@ the demo corpus's pre-built frecency data is coherent."
    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
              ((symbol-function 'switch-to-buffer) #'ignore)
              ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
-     (let ((buf (haystack--frecency-replay '("haystack" "filtering"))))
+     (let ((buf (haystack--frecency-replay
+                 (list :root (list :kind 'text :term "haystack")
+                       :filters (list (list :term "filtering"))))))
        (unwind-protect
            (progn
              (should (buffer-live-p buf))
@@ -377,7 +379,9 @@ output (the record call fires after a successful search)."
            (progn
              (should haystack--frecency-dirty)
              (should (cl-some (lambda (entry)
-                                (equal (car entry) '("emacs")))
+                                (equal (car entry)
+                                       '(:root (:kind text :term "emacs")
+                                         :filters nil)))
                               haystack--frecency-data)))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
 
@@ -575,7 +579,9 @@ Confirms that haystack--frecency-replay does not error out on zero results
    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
              ((symbol-function 'switch-to-buffer) #'ignore)
              ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
-     (let ((buf (haystack--frecency-replay '("xyzzy-no-such-term-42"))))
+     (let ((buf (haystack--frecency-replay
+                 (list :root (list :kind 'text :term "xyzzy-no-such-term-42")
+                       :filters nil))))
        (unwind-protect
            (progn
              (should (buffer-live-p buf))
@@ -641,7 +647,9 @@ with `wrong-type-argument' because `haystack-run-root-search' returns nil."
        ;; Add the root term as a stop word (after ensure has loaded)
        (haystack--ensure-stop-words)
        (push "haystack" haystack--stop-words)
-       (let ((buf (haystack--frecency-replay '("haystack" "filtering"))))
+       (let ((buf (haystack--frecency-replay
+                   (list :root (list :kind 'text :term "haystack")
+                         :filters (list (list :term "filtering"))))))
          (unwind-protect
              (progn
                (should-not prompt-called)
@@ -672,7 +680,11 @@ haystack buffers remain after a failed replay."
                           (error "Simulated mid-chain failure")
                         (funcall orig term))))))
          (condition-case nil
-             (haystack--frecency-replay '("haystack" "filtering" "search" "extra"))
+             (haystack--frecency-replay
+              (list :root (list :kind 'text :term "haystack")
+                    :filters (list (list :term "filtering")
+                                   (list :term "search")
+                                   (list :term "extra"))))
            (error nil)))
        ;; No orphan haystack buffers should remain
        (let ((orphans (cl-remove-if-not
@@ -719,6 +731,140 @@ the [a-z0-9_-]+ parsing regex that previously dropped uppercase matches."
      (let ((results (haystack--discoverability-count-all-terms '("xyloquartz"))))
        (should (assoc "xyloquartz" results))
        (should (>= (cdr (assoc "xyloquartz" results)) 1))))))
+
+;;;; Test 27 — Date-range search end-to-end against demo corpus
+
+(ert-deftest haystack-io-test/date-range-search-finds-stamped-notes ()
+  "Date-range search returns notes with hs: timestamps within the range.
+Verifies that the broad rg prefilter, elisp post-filter, and buffer setup
+all produce grep-mode output from the demo corpus timestamp notes."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-search-date-range "2025-01" "2025-03")))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               ;; Output must contain results from all three timestamp notes.
+               (should (string-match-p "standup-log" (buffer-string)))
+               (should (string-match-p "reading-log" (buffer-string)))
+               (should (string-match-p "weekly-review" (buffer-string)))
+               ;; Every non-header output line must be in grep-mode format.
+               (let ((content-lines
+                      (cl-remove-if
+                       (lambda (l) (or (string-match-p "\\`;;;;" l)
+                                       (string= l "")))
+                       (split-string (buffer-string) "\n" t))))
+                 (should content-lines)
+                 (dolist (line content-lines)
+                   (should (string-match-p "\\`.+:[0-9]+:" line))))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 28 — Date-range partial hit (single month)
+
+(ert-deftest haystack-io-test/date-range-search-partial-hit ()
+  "Date-range search scoped to January 2025 finds only January notes.
+The February and March timestamp notes must not appear."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-search-date-range "2025-01" "2025-01")))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               (should     (string-match-p "standup-log"   (buffer-string)))
+               (should-not (string-match-p "reading-log"   (buffer-string)))
+               (should-not (string-match-p "weekly-review" (buffer-string)))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 29 — Filter-further after date-root
+
+(ert-deftest haystack-io-test/date-range-filter-further ()
+  "haystack-filter-further works correctly on a date-root results buffer.
+A keyword filter applied after a date-range search must narrow to only
+notes matching both the date range and the keyword."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((root-buf (haystack-search-date-range "2025-01" "2025-03")))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p root-buf))
+             (with-current-buffer root-buf
+               (haystack-filter-further "zettelkasten"))
+             (let ((child-buf
+                    (car (seq-filter
+                          (lambda (b)
+                            (and (string-match-p "haystack:" (buffer-name b))
+                                 (string-match-p "zettelkasten" (buffer-name b))))
+                          (buffer-list)))))
+               (unwind-protect
+                   (progn
+                     (should child-buf)
+                     (with-current-buffer child-buf
+                       ;; Only the reading-log note mentions zettelkasten.
+                       (should (string-match-p "reading-log" (buffer-string)))
+                       (should-not (string-match-p "standup-log" (buffer-string)))))
+                 (when (and child-buf (buffer-live-p child-buf))
+                   (kill-buffer child-buf)))))
+         (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
+
+;;;; Test 30 — Frecency replay of a date-root search
+
+(ert-deftest haystack-io-test/frecency-replay-date-root ()
+  "Frecency replay of a date-root key dispatches to haystack-search-date-range.
+The replayed buffer must contain the same hs: timestamp results as a
+fresh date-range search."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let* ((key (list :root (list :kind 'date-range :start "2025-02" :end "2025-02")
+                       :filters nil))
+            (buf (haystack--frecency-replay key)))
+       (unwind-protect
+           (progn
+             (should (buffer-live-p buf))
+             (with-current-buffer buf
+               ;; Replayed date search must find February notes.
+               (should (string-match-p "reading-log" (buffer-string)))
+               ;; January/March notes must not appear.
+               (should-not (string-match-p "standup-log"   (buffer-string)))
+               (should-not (string-match-p "weekly-review" (buffer-string)))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test 31 — haystack-filter-further-by-date narrows a results buffer by date
+
+(ert-deftest haystack-io-test/filter-further-by-date-narrows-results ()
+  "filter-further-by-date applied to a text-root buffer keeps only dated matches."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     ;; Root search finds all demo notes containing hs: timestamps.
+     (let ((root-buf (haystack-run-root-search "hs:")))
+       (unwind-protect
+           (progn
+             (should (bufferp root-buf))
+             ;; Filter the results buffer to only January 2025.
+             (let ((child-buf (with-current-buffer root-buf
+                                (haystack-filter-further-by-date "2025-01" "2025-01"))))
+               (unwind-protect
+                   (progn
+                     (should (bufferp child-buf))
+                     (with-current-buffer child-buf
+                       ;; January standup note should appear.
+                       (should (string-match-p "standup-log" (buffer-string)))
+                       ;; February and March notes must not appear.
+                       (should-not (string-match-p "reading-log"  (buffer-string)))
+                       (should-not (string-match-p "weekly-review" (buffer-string)))))
+                 (when (buffer-live-p child-buf) (kill-buffer child-buf)))))
+         (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
 
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

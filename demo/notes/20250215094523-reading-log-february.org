@@ -1,0 +1,17 @@
+#+TITLE: Reading Log — February 2025
+#+DATE: 2025-02-15
+# %%% haystack-end-frontmatter %%%
+Books and articles read in February. The hs: timestamps mark when each
+reading was logged so date-range search can surface recent reads.
+
+hs: <2025-02-03 Mon>
+Started "How to Take Smart Notes" by Sönke Ahrens. Core idea: capture
+fleeting notes immediately, then process into permanent notes the same day.
+
+hs: <2025-02-10 Mon>
+Finished the Ahrens book. The zettelkasten method maps well onto
+Haystack's search-first design — retrieval beats rigid categorisation.
+
+hs: <2025-02-20 Thu>
+Read several blog posts on plain-text knowledge management. Common theme:
+portability and longevity matter more than features.

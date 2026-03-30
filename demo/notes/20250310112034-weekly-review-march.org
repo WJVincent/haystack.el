@@ -1,0 +1,17 @@
+#+TITLE: Weekly Review — March 2025
+#+DATE: 2025-03-10
+# %%% haystack-end-frontmatter %%%
+Weekly review entries. Using inactive hs: timestamps here so they don't
+appear as scheduled agenda items — just log entries for searching.
+
+hs: [2025-03-03 Mon]
+Week of 3 March. Completed the timestamp extraction module. All unit
+tests green. Inactive form works for journaling without polluting org-agenda.
+
+hs: [2025-03-10 Mon]
+Week of 10 March. Integrated date-range search into the main command map.
+The search uses a broad rg prefilter followed by elisp post-filtering.
+
+hs: [2025-03-17 Mon]
+Week of 17 March. Frecency replay now dispatches to the date backend for
+date-range roots. The key format refactor touched most frecency tests.

@@ -34,6 +34,13 @@ clean cache state independent of test execution order."
        (kill-buffer buf)
        (delete-file tmpfile))))
 
+(defun haystack-test--tkey (term &rest filter-terms)
+  "Return a text-root frecency key for TERM with plain string FILTER-TERMS.
+Each element of FILTER-TERMS becomes a filter plist (:term ELEM).
+For tests that only need simple unmodified filter terms."
+  (list :root (list :kind 'text :term term)
+        :filters (mapcar (lambda (ft) (list :term ft)) filter-terms)))
+
 (defun haystack-test--has-sentinel (str)
   "Return non-nil if STR contains the haystack-end-frontmatter sentinel."
   (string-match-p (regexp-quote haystack--sentinel-string) str))
@@ -43,6 +50,481 @@ clean cache state independent of test execution order."
 (ert-deftest haystack-test/timestamp-is-14-digits ()
   "Timestamp returns a string of exactly 14 digits."
   (should (string-match-p "\\`[0-9]\\{14\\}\\'" (haystack--timestamp))))
+
+;;;; haystack--format-hs-timestamp
+
+(ert-deftest haystack-test/format-hs-timestamp-active-with-time ()
+  "Active timestamp with time uses angle brackets and includes HH:MM."
+  (let* ((time   (encode-time 0 30 14 15 6 2024))
+         (result (haystack--format-hs-timestamp time)))
+    (should (equal result "hs: <2024-06-15 Sat 14:30>"))))
+
+(ert-deftest haystack-test/format-hs-timestamp-inactive-with-time ()
+  "Inactive timestamp with time uses square brackets."
+  (let* ((time   (encode-time 0 30 14 15 6 2024))
+         (result (haystack--format-hs-timestamp time t)))
+    (should (equal result "hs: [2024-06-15 Sat 14:30]"))))
+
+(ert-deftest haystack-test/format-hs-timestamp-active-date-only ()
+  "Active date-only timestamp omits time component."
+  (let* ((time   (encode-time 0 30 14 15 6 2024))
+         (result (haystack--format-hs-timestamp time nil t)))
+    (should (equal result "hs: <2024-06-15 Sat>"))))
+
+(ert-deftest haystack-test/format-hs-timestamp-inactive-date-only ()
+  "Inactive date-only timestamp uses square brackets with no time."
+  (let* ((time   (encode-time 0 30 14 15 6 2024))
+         (result (haystack--format-hs-timestamp time t t)))
+    (should (equal result "hs: [2024-06-15 Sat]"))))
+
+;;;; haystack-insert-timestamp-now
+
+(ert-deftest haystack-test/insert-timestamp-now-active-pattern ()
+  "`haystack-insert-timestamp-now' inserts an active hs: timestamp."
+  (with-temp-buffer
+    (haystack-insert-timestamp-now)
+    (should (string-match-p
+             "\\`hs: <[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\} [A-Z][a-z]\\{2\\} [0-9]\\{2\\}:[0-9]\\{2\\}>\\'"
+             (buffer-string)))))
+
+(ert-deftest haystack-test/insert-timestamp-now-inactive ()
+  "`haystack-insert-timestamp-now' with non-nil arg uses square brackets."
+  (with-temp-buffer
+    (haystack-insert-timestamp-now t)
+    (should (string-match-p
+             "\\`hs: \\[[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\} [A-Z][a-z]\\{2\\} [0-9]\\{2\\}:[0-9]\\{2\\}\\]\\'"
+             (buffer-string)))))
+
+;;;; haystack-insert-timestamp
+
+(ert-deftest haystack-test/insert-timestamp-date-only ()
+  "`haystack-insert-timestamp' with YYYY-MM-DD produces a date-only stamp."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "2024-06-15")))
+      (haystack-insert-timestamp))
+    (should (equal (buffer-string) "hs: <2024-06-15 Sat>"))))
+
+(ert-deftest haystack-test/insert-timestamp-with-time ()
+  "`haystack-insert-timestamp' with YYYY-MM-DD HH:MM produces a full stamp."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "2024-06-15 14:30")))
+      (haystack-insert-timestamp))
+    (should (equal (buffer-string) "hs: <2024-06-15 Sat 14:30>"))))
+
+(ert-deftest haystack-test/insert-timestamp-inactive-date-only ()
+  "`haystack-insert-timestamp' with inactive prefix uses square brackets."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "2024-06-15")))
+      (haystack-insert-timestamp t))
+    (should (equal (buffer-string) "hs: [2024-06-15 Sat]"))))
+
+(ert-deftest haystack-test/insert-timestamp-inactive-with-time ()
+  "`haystack-insert-timestamp' inactive with time uses square brackets."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "2024-06-15 14:30")))
+      (haystack-insert-timestamp t))
+    (should (equal (buffer-string) "hs: [2024-06-15 Sat 14:30]"))))
+
+(ert-deftest haystack-test/insert-timestamp-invalid-input ()
+  "`haystack-insert-timestamp' signals user-error on bad input."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "not-a-date")))
+      (should-error (haystack-insert-timestamp) :type 'user-error))))
+
+;;;; haystack--parse-date-bound
+
+;; Empty / whitespace
+
+(ert-deftest haystack-test/parse-date-bound-empty-nil ()
+  "Empty string returns nil for both start and end."
+  (should (null (haystack--parse-date-bound "" nil)))
+  (should (null (haystack--parse-date-bound "" t))))
+
+(ert-deftest haystack-test/parse-date-bound-whitespace-nil ()
+  "Whitespace-only string returns nil."
+  (should (null (haystack--parse-date-bound "   " nil))))
+
+;; Year only
+
+(ert-deftest haystack-test/parse-date-bound-year-start ()
+  "YYYY lower bound resolves to Jan 1 at midnight."
+  (should (= (haystack--parse-date-bound "2024" nil)
+             (float-time (encode-time 0 0 0 1 1 2024)))))
+
+(ert-deftest haystack-test/parse-date-bound-year-end ()
+  "YYYY upper bound resolves to Dec 31 at 23:59:59."
+  (should (= (haystack--parse-date-bound "2024" t)
+             (float-time (encode-time 59 59 23 31 12 2024)))))
+
+;; Year and month
+
+(ert-deftest haystack-test/parse-date-bound-month-start ()
+  "YYYY-MM lower bound resolves to first of month at midnight."
+  (should (= (haystack--parse-date-bound "2024-06" nil)
+             (float-time (encode-time 0 0 0 1 6 2024)))))
+
+(ert-deftest haystack-test/parse-date-bound-month-end ()
+  "YYYY-MM upper bound resolves to last day of month at 23:59:59."
+  (should (= (haystack--parse-date-bound "2024-06" t)
+             (float-time (encode-time 59 59 23 30 6 2024)))))
+
+(ert-deftest haystack-test/parse-date-bound-feb-leap-end ()
+  "Feb in a leap year ends on the 29th."
+  (should (= (haystack--parse-date-bound "2024-02" t)
+             (float-time (encode-time 59 59 23 29 2 2024)))))
+
+(ert-deftest haystack-test/parse-date-bound-feb-nonleap-end ()
+  "Feb in a non-leap year ends on the 28th."
+  (should (= (haystack--parse-date-bound "2023-02" t)
+             (float-time (encode-time 59 59 23 28 2 2023)))))
+
+;; Full date
+
+(ert-deftest haystack-test/parse-date-bound-day-start ()
+  "YYYY-MM-DD lower bound resolves to midnight."
+  (should (= (haystack--parse-date-bound "2024-06-15" nil)
+             (float-time (encode-time 0 0 0 15 6 2024)))))
+
+(ert-deftest haystack-test/parse-date-bound-day-end ()
+  "YYYY-MM-DD upper bound resolves to 23:59:59."
+  (should (= (haystack--parse-date-bound "2024-06-15" t)
+             (float-time (encode-time 59 59 23 15 6 2024)))))
+
+;; Exact point
+
+(ert-deftest haystack-test/parse-date-bound-exact-start ()
+  "YYYY-MM-DD HH:MM is exact when upper-p is nil."
+  (should (= (haystack--parse-date-bound "2024-06-15 14:30" nil)
+             (float-time (encode-time 0 30 14 15 6 2024)))))
+
+(ert-deftest haystack-test/parse-date-bound-exact-upper ()
+  "YYYY-MM-DD HH:MM is exact even when upper-p is t."
+  (should (= (haystack--parse-date-bound "2024-06-15 14:30" t)
+             (float-time (encode-time 0 30 14 15 6 2024)))))
+
+;; Malformed month / day / time
+
+(ert-deftest haystack-test/parse-date-bound-bad-month-high ()
+  "Month 13 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-13" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-bad-month-zero ()
+  "Month 0 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-00" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-bad-day-high ()
+  "Day 32 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-06-32" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-bad-day-zero ()
+  "Day 0 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-06-00" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-feb30 ()
+  "Feb 30 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-02-30" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-feb29-nonleap ()
+  "Feb 29 in a non-leap year signals user-error."
+  (should-error (haystack--parse-date-bound "2023-02-29" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-feb29-leap-ok ()
+  "Feb 29 in a leap year does not signal an error."
+  (should (haystack--parse-date-bound "2024-02-29" nil)))
+
+(ert-deftest haystack-test/parse-date-bound-bad-hour ()
+  "Hour 24 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-06-15 24:00" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-bad-minute ()
+  "Minute 60 signals user-error."
+  (should-error (haystack--parse-date-bound "2024-06-15 10:60" nil) :type 'user-error))
+
+(ert-deftest haystack-test/parse-date-bound-malformed ()
+  "Completely malformed input signals user-error."
+  (should-error (haystack--parse-date-bound "not-a-date" nil) :type 'user-error))
+
+;;;; haystack--resolve-date-range
+
+(ert-deftest haystack-test/resolve-date-range-empty-start ()
+  "Empty start resolves lo to -infinity."
+  (should (= (car (haystack--resolve-date-range "" "2024")) -1.0e+INF)))
+
+(ert-deftest haystack-test/resolve-date-range-empty-end ()
+  "Empty end resolves hi to +infinity."
+  (should (= (cdr (haystack--resolve-date-range "2024" "")) 1.0e+INF)))
+
+(ert-deftest haystack-test/resolve-date-range-both-empty ()
+  "Both bounds empty gives (-inf . +inf)."
+  (let ((r (haystack--resolve-date-range "" "")))
+    (should (= (car r) -1.0e+INF))
+    (should (= (cdr r)  1.0e+INF))))
+
+(ert-deftest haystack-test/resolve-date-range-normal ()
+  "Normal year range lo/hi are correct float-times."
+  (let* ((r  (haystack--resolve-date-range "2024-01" "2024-03"))
+         (lo (car r))
+         (hi (cdr r)))
+    (should (= lo (float-time (encode-time 0 0 0 1 1 2024))))
+    (should (= hi (float-time (encode-time 59 59 23 31 3 2024))))))
+
+(ert-deftest haystack-test/resolve-date-range-reversed ()
+  "Start after end signals user-error."
+  (should-error (haystack--resolve-date-range "2024-06" "2024-01") :type 'user-error))
+
+(ert-deftest haystack-test/resolve-date-range-same-day ()
+  "Start and end on same day spans the full day."
+  (let* ((r  (haystack--resolve-date-range "2024-06-15" "2024-06-15"))
+         (lo (car r))
+         (hi (cdr r)))
+    (should (= lo (float-time (encode-time 0 0 0 15 6 2024))))
+    (should (= hi (float-time (encode-time 59 59 23 15 6 2024))))))
+
+;;;; haystack--parse-hs-timestamp
+
+(ert-deftest haystack-test/parse-hs-timestamp-active-with-time ()
+  "Active hs: timestamp with time returns correct float and date-only=nil."
+  (let* ((line   "notes/test.org:5:some text hs: <2024-06-15 Sat 14:30> end")
+         (result (haystack--parse-hs-timestamp line)))
+    (should result)
+    (should (= (plist-get result :time)
+               (float-time (encode-time 0 30 14 15 6 2024))))
+    (should-not (plist-get result :date-only))))
+
+(ert-deftest haystack-test/parse-hs-timestamp-inactive-with-time ()
+  "Inactive hs: timestamp with time is matched correctly."
+  (let* ((line   "notes/test.org:5:hs: [2024-06-15 Sat 14:30]")
+         (result (haystack--parse-hs-timestamp line)))
+    (should result)
+    (should (= (plist-get result :time)
+               (float-time (encode-time 0 30 14 15 6 2024))))
+    (should-not (plist-get result :date-only))))
+
+(ert-deftest haystack-test/parse-hs-timestamp-active-date-only ()
+  "Active date-only hs: timestamp sets date-only=t."
+  (let* ((line   "notes/test.org:3:hs: <2024-06-15 Sat>")
+         (result (haystack--parse-hs-timestamp line)))
+    (should result)
+    (should (= (plist-get result :time)
+               (float-time (encode-time 0 0 0 15 6 2024))))
+    (should (plist-get result :date-only))))
+
+(ert-deftest haystack-test/parse-hs-timestamp-inactive-date-only ()
+  "Inactive date-only hs: timestamp sets date-only=t."
+  (let* ((line   "notes/test.org:3:hs: [2024-06-15 Sat]")
+         (result (haystack--parse-hs-timestamp line)))
+    (should result)
+    (should (plist-get result :date-only))))
+
+(ert-deftest haystack-test/parse-hs-timestamp-no-match-returns-nil ()
+  "Line with no hs: timestamp returns nil."
+  (should-not (haystack--parse-hs-timestamp "notes/test.org:1:plain text")))
+
+(ert-deftest haystack-test/parse-hs-timestamp-bare-org-ignored ()
+  "Bare org timestamp without hs: prefix is ignored."
+  (should-not (haystack--parse-hs-timestamp
+               "notes/test.org:1:<2024-06-15 Sat 14:30>")))
+
+(ert-deftest haystack-test/parse-hs-timestamp-embedded-in-grep-line ()
+  "Timestamp embedded in a full grep-format line is found correctly."
+  (let* ((line "notes/foo.org:10:created hs: <2024-02-29 Thu> in leap year")
+         (result (haystack--parse-hs-timestamp line)))
+    (should result)
+    (should (plist-get result :date-only))))
+
+;;;; haystack--filter-lines-by-date-range
+
+(defun haystack-test--make-line (date-str)
+  "Return a synthetic grep-format line embedding an hs: timestamp for DATE-STR."
+  (format "notes/test.org:1:entry hs: <%s>" date-str))
+
+(ert-deftest haystack-test/filter-lines-keeps-in-range ()
+  "Lines whose timestamps fall within [lo, hi] are kept."
+  (let* ((lo  (float-time (encode-time 0 0 0 1 6 2024)))
+         (hi  (float-time (encode-time 59 59 23 30 6 2024)))
+         (in  (haystack-test--make-line "2024-06-15 Sat 12:00"))
+         (out (haystack-test--make-line "2024-07-01 Mon 00:00")))
+    (let ((result (haystack--filter-lines-by-date-range (list in out) lo hi)))
+      (should (equal result (list in))))))
+
+(ert-deftest haystack-test/filter-lines-drops-no-timestamp ()
+  "Lines without an hs: timestamp are dropped."
+  (let* ((lo (float-time (encode-time 0 0 0 1 1 2024)))
+         (hi (float-time (encode-time 59 59 23 31 12 2024))))
+    (should (null (haystack--filter-lines-by-date-range
+                   (list "notes/test.org:1:no stamp here") lo hi)))))
+
+(ert-deftest haystack-test/filter-lines-boundary-inclusive ()
+  "Boundaries are inclusive: timestamps exactly at lo and hi are kept."
+  (let* ((lo (float-time (encode-time 0 0 14 15 6 2024)))
+         (hi (float-time (encode-time 0 0 18 15 6 2024)))
+         (at-lo (haystack-test--make-line "2024-06-15 Sat 14:00"))
+         (at-hi (haystack-test--make-line "2024-06-15 Sat 18:00")))
+    (let ((result (haystack--filter-lines-by-date-range (list at-lo at-hi) lo hi)))
+      (should (member at-lo result))
+      (should (member at-hi result)))))
+
+(ert-deftest haystack-test/filter-lines-date-only-whole-day ()
+  "Date-only stamp matches the full day regardless of time components on bounds."
+  (let* (;; Bounds have time components: 10:00 to 18:00 on June 15
+         (lo (float-time (encode-time 0 0 10 15 6 2024)))
+         (hi (float-time (encode-time 0 0 18 15 6 2024)))
+         ;; Date-only stamp for the same day — should match even though
+         ;; its midnight is before lo's 10:00
+         (stamp (haystack-test--make-line "2024-06-15 Sat")))
+    (should (haystack--filter-lines-by-date-range (list stamp) lo hi))))
+
+(ert-deftest haystack-test/filter-lines-date-only-outside-day-span ()
+  "Date-only stamp for a day outside the range's day span is dropped."
+  (let* ((lo (float-time (encode-time 0 0 0 15 6 2024)))
+         (hi (float-time (encode-time 59 59 23 15 6 2024)))
+         (stamp (haystack-test--make-line "2024-06-16 Sun")))
+    (should (null (haystack--filter-lines-by-date-range (list stamp) lo hi)))))
+
+(ert-deftest haystack-test/filter-lines-empty-result ()
+  "Returns nil when no lines match."
+  (let* ((lo (float-time (encode-time 0 0 0 1 1 2024)))
+         (hi (float-time (encode-time 59 59 23 31 1 2024)))
+         (lines (list (haystack-test--make-line "2024-06-15 Sat 12:00")
+                      (haystack-test--make-line "2024-07-01 Mon 00:00"))))
+    (should (null (haystack--filter-lines-by-date-range lines lo hi)))))
+
+(ert-deftest haystack-test/filter-lines-unbounded-lo ()
+  "Open lo (-inf) keeps all lines before hi."
+  (let* ((hi   (float-time (encode-time 59 59 23 31 12 2023)))
+         (line (haystack-test--make-line "2023-01-01 Sun 00:00")))
+    (should (haystack--filter-lines-by-date-range (list line) -1.0e+INF hi))))
+
+(ert-deftest haystack-test/filter-lines-unbounded-hi ()
+  "Open hi (+inf) keeps all lines after lo."
+  (let* ((lo   (float-time (encode-time 0 0 0 1 1 2025)))
+         (line (haystack-test--make-line "2025-06-15 Sun 10:00")))
+    (should (haystack--filter-lines-by-date-range (list line) lo 1.0e+INF))))
+
+;;;; haystack--date-root-label
+
+(ert-deftest haystack-test/date-root-label-full-range ()
+  "Both bounds non-empty produce START..END."
+  (should (equal (haystack--date-root-label "2024-01" "2024-03")
+                 "2024-01..2024-03")))
+
+(ert-deftest haystack-test/date-root-label-empty-start ()
+  "Empty start produces ..END."
+  (should (equal (haystack--date-root-label "" "2024-03") "..2024-03")))
+
+(ert-deftest haystack-test/date-root-label-empty-end ()
+  "Empty end produces START.. with no trailing wildcard."
+  (should (equal (haystack--date-root-label "2024-01" "") "2024-01..")))
+
+(ert-deftest haystack-test/date-root-label-both-empty ()
+  "Both empty produces \"all\"."
+  (should (equal (haystack--date-root-label "" "") "all")))
+
+(ert-deftest haystack-test/date-root-label-whitespace-treated-as-empty ()
+  "Whitespace-only bounds are treated as empty."
+  (should (equal (haystack--date-root-label "  " "  ") "all")))
+
+;;;; haystack--date-root-descriptor
+
+(ert-deftest haystack-test/date-root-descriptor-has-kind ()
+  "Date-root descriptor has :root-kind set to 'date-range."
+  (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
+    (should (eq (plist-get d :root-kind) 'date-range))))
+
+(ert-deftest haystack-test/date-root-descriptor-stores-raw-bounds ()
+  "Descriptor stores raw start/end strings in :root-date-start/:root-date-end."
+  (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
+    (should (equal (plist-get d :root-date-start) "2024-01"))
+    (should (equal (plist-get d :root-date-end)   "2024-03"))))
+
+(ert-deftest haystack-test/date-root-descriptor-root-term-is-label ()
+  ":root-term equals the display label."
+  (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
+    (should (equal (plist-get d :root-term) "2024-01..2024-03"))))
+
+(ert-deftest haystack-test/date-root-descriptor-root-expanded-set ()
+  ":root-expanded is set to the broad hs: prefilter pattern."
+  (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
+    (should (stringp (plist-get d :root-expanded)))
+    (should (string-prefix-p "hs: " (plist-get d :root-expanded)))))
+
+(ert-deftest haystack-test/date-root-descriptor-literal-flag ()
+  ":root-literal is t so the label is not treated as a search term."
+  (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
+    (should (plist-get d :root-literal))))
+
+(ert-deftest haystack-test/date-root-descriptor-empty-filters ()
+  ":filters is nil for a fresh date-root descriptor."
+  (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
+    (should (null (plist-get d :filters)))))
+
+;;;; haystack--chain-parts with date root
+
+(ert-deftest haystack-test/chain-parts-date-root-uses-date-label ()
+  "chain-parts uses \"date\" as the root label for date-range descriptors."
+  (let* ((d     (haystack--date-root-descriptor "2024-01" "2024-03"))
+         (parts (haystack--chain-parts d)))
+    (should (string-prefix-p "date=" (car parts)))))
+
+(ert-deftest haystack-test/chain-parts-renders-date-filter-in-chain ()
+  "chain-parts renders a date-range filter entry as date=LABEL."
+  (let* ((desc (list :root-term "rust" :root-filename nil :root-literal nil
+                     :root-regex nil :root-kind 'text :root-expansion nil
+                     :filters (list (list :kind 'date-range
+                                          :start "2025-01" :end "2025-03"))
+                     :composite-filter nil))
+         (parts (haystack--chain-parts desc)))
+    (should (= (length parts) 2))
+    (should (string-prefix-p "date=" (cadr parts)))))
+
+;;;; haystack--search-date-range-internal — output format
+
+(ert-deftest haystack-test/date-search-output-is-grep-format ()
+  "date-range search output lines are in filename:line:content format."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-timestamped.org"
+                                 haystack-notes-directory)))
+     (with-temp-file note
+       (insert "A line with hs: <2024-06-15 Sat 10:00> in it\n")))
+   (let* ((result (haystack--search-date-range-internal "2024-06" "2024-06"))
+          (output (plist-get result :output)))
+     (should (not (string= output "")))
+     (dolist (line (split-string output "\n" t))
+       (should (string-match-p "\\`.+:[0-9]+:" line))))))
+
+;;;; haystack-filter-further from a date-root buffer
+
+(ert-deftest haystack-test/date-root-filter-further-composes ()
+  "haystack-filter-further creates a child buffer from a date-root results buffer."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-rust-timestamped.org"
+                                 haystack-notes-directory)))
+     (with-temp-file note
+       (insert "rust hs: <2024-06-15 Sat 10:00> ownership\n")))
+   (haystack-test--with-frecency nil
+     (cl-letf (((symbol-function 'haystack--load-frecency) #'ignore)
+               ((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (let ((root-buf (haystack-search-date-range "2024-06" "2024-06")))
+         (should root-buf)
+         (unwind-protect
+             (with-current-buffer root-buf
+               (haystack-filter-further "rust")
+               ;; Child buffer name encodes the date label and filter term.
+               (let ((child-buf (car (seq-filter
+                                      (lambda (b)
+                                        (and (string-match-p "haystack:2" (buffer-name b))
+                                             (string-match-p "rust" (buffer-name b))))
+                                      (buffer-list)))))
+                 (unwind-protect
+                     (progn
+                       (should child-buf)
+                       (with-current-buffer child-buf
+                         (should (string-match-p "date=" (buffer-string)))))
+                   (when (and child-buf (buffer-live-p child-buf))
+                     (kill-buffer child-buf)))))
+           (when (buffer-live-p root-buf)
+             (kill-buffer root-buf))))))))
 
 ;;;; haystack--sanitize-slug
 
@@ -724,63 +1206,83 @@ Writes INITIAL-GROUPS to disk so functions that call
 
 (ert-deftest haystack-test/frecency-rewrite-term-root-position ()
   "Rewrites the old root term when it appears in the root position."
-  (should (equal (haystack--frecency-rewrite-term '("programming" "rust") "programming" "coding")
-                 '("coding" "rust"))))
+  (let* ((key    (list :root '(:kind text :term "programming") :filters '((:term "rust"))))
+         (result (haystack--frecency-rewrite-term key "programming" "coding")))
+    (should (equal (plist-get (plist-get result :root) :term) "coding"))
+    (should (equal (plist-get (car (plist-get result :filters)) :term) "rust"))))
 
 (ert-deftest haystack-test/frecency-rewrite-term-filter-position ()
   "Rewrites the old root term when it appears in a filter position."
-  (should (equal (haystack--frecency-rewrite-term '("rust" "programming") "programming" "coding")
-                 '("rust" "coding"))))
+  (let* ((key    (list :root '(:kind text :term "rust") :filters '((:term "programming"))))
+         (result (haystack--frecency-rewrite-term key "programming" "coding")))
+    (should (equal (plist-get (plist-get result :root) :term) "rust"))
+    (should (equal (plist-get (car (plist-get result :filters)) :term) "coding"))))
 
 (ert-deftest haystack-test/frecency-rewrite-term-preserves-prefix ()
-  "Prefix characters on a matched term are preserved after rewriting."
-  (should (equal (haystack--frecency-rewrite-term '("rust" "!programming") "programming" "coding")
-                 '("rust" "!coding"))))
+  "Flag fields on a matched filter are preserved after rewriting."
+  (let* ((key    (list :root '(:kind text :term "rust")
+                       :filters '((:term "programming" :negated t))))
+         (result (haystack--frecency-rewrite-term key "programming" "coding")))
+    (should (equal (plist-get (car (plist-get result :filters)) :term) "coding"))
+    (should (plist-get (car (plist-get result :filters)) :negated))))
 
 (ert-deftest haystack-test/frecency-rewrite-term-compound-prefix ()
-  "Compound prefix (e.g. !=) is preserved after rewriting."
-  (should (equal (haystack--frecency-rewrite-term '("rust" "!=programming") "programming" "coding")
-                 '("rust" "!=coding"))))
+  "Multiple flag fields (:negated and :literal) are preserved after rewriting."
+  (let* ((key    (list :root '(:kind text :term "rust")
+                       :filters '((:term "programming" :negated t :literal t))))
+         (result (haystack--frecency-rewrite-term key "programming" "coding")))
+    (should (equal (plist-get (car (plist-get result :filters)) :term) "coding"))
+    (should (plist-get (car (plist-get result :filters)) :negated))
+    (should (plist-get (car (plist-get result :filters)) :literal))))
 
 (ert-deftest haystack-test/frecency-rewrite-term-non-matching-unchanged ()
   "Terms that do not match old-root are returned unchanged."
-  (should (equal (haystack--frecency-rewrite-term '("rust" "async") "programming" "coding")
-                 '("rust" "async"))))
+  (let* ((key    (haystack-test--tkey "rust" "async"))
+         (result (haystack--frecency-rewrite-term key "programming" "coding")))
+    (should (equal result key))))
 
 (ert-deftest haystack-test/frecency-rewrite-term-case-insensitive ()
   "Matching is case-insensitive."
-  (should (equal (haystack--frecency-rewrite-term '("Programming" "rust") "programming" "coding")
-                 '("coding" "rust"))))
+  (let* ((key    (list :root '(:kind text :term "Programming") :filters '((:term "rust"))))
+         (result (haystack--frecency-rewrite-term key "programming" "coding")))
+    (should (equal (plist-get (plist-get result :root) :term) "coding"))))
 
 ;;; haystack--frecency-rename-in-data
 
 (ert-deftest haystack-test/frecency-rename-in-data-single-entry ()
   "Rewrites the matching term in a single frecency entry."
-  (let* ((data '((("programming" "rust") :count 3 :last-access 1000.0)))
+  (let* ((key    (list :root '(:kind text :term "programming") :filters '((:term "rust"))))
+         (data   (list (cons key '(:count 3 :last-access 1000.0))))
          (result (haystack--frecency-rename-in-data data "programming" "coding")))
-    (should (equal (caar result) '("coding" "rust")))))
+    (should (equal (plist-get (plist-get (caar result) :root) :term) "coding"))
+    (should (equal (plist-get (car (plist-get (caar result) :filters)) :term) "rust"))))
 
 (ert-deftest haystack-test/frecency-rename-in-data-multiple-entries ()
   "Rewrites matching terms across multiple entries."
-  (let* ((data '((("programming") :count 2 :last-access 1000.0)
-                 (("rust" "programming") :count 1 :last-access 900.0)))
+  (let* ((k1 (haystack-test--tkey "programming"))
+         (k2 (haystack-test--tkey "rust" "programming"))
+         (data (list (cons k1 '(:count 2 :last-access 1000.0))
+                     (cons k2 '(:count 1 :last-access 900.0))))
          (result (haystack--frecency-rename-in-data data "programming" "coding")))
-    (should (assoc '("coding") result))
-    (should (assoc '("rust" "coding") result))))
+    (should (assoc (haystack-test--tkey "coding") result))
+    (should (assoc (haystack-test--tkey "rust" "coding") result))))
 
 (ert-deftest haystack-test/frecency-rename-in-data-non-matching-unchanged ()
   "Entries without the old term are returned unchanged."
-  (let* ((data '((("rust" "async") :count 5 :last-access 1000.0)))
+  (let* ((k      (haystack-test--tkey "rust" "async"))
+         (data   (list (cons k '(:count 5 :last-access 1000.0))))
          (result (haystack--frecency-rename-in-data data "programming" "coding")))
-    (should (assoc '("rust" "async") result))))
+    (should (assoc k result))))
 
 (ert-deftest haystack-test/frecency-rename-in-data-collision-merges ()
   "When rename would produce a duplicate key, entries are merged (counts summed, latest timestamp kept)."
-  (let* ((data '((("coding")       :count 4 :last-access 2000.0)
-                 (("programming")  :count 3 :last-access 1000.0)))
+  (let* ((k1 (haystack-test--tkey "coding"))
+         (k2 (haystack-test--tkey "programming"))
+         (data (list (cons k1 '(:count 4 :last-access 2000.0))
+                     (cons k2 '(:count 3 :last-access 1000.0))))
          (result (haystack--frecency-rename-in-data data "programming" "coding")))
     (should (= (length result) 1))
-    (let ((entry (assoc '("coding") result)))
+    (let ((entry (assoc k1 result)))
       (should (= (plist-get (cdr entry) :count) 7))
       (should (= (plist-get (cdr entry) :last-access) 2000.0)))))
 
@@ -883,13 +1385,15 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
 (ert-deftest haystack-test/rename-group-root-updates-frecency ()
   "rename-group-root rewrites matching frecency chain keys."
   (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
-    (haystack-test--with-frecency
-     '((("programming" "rust") :count 2 :last-access 1000.0)
-       (("rust" "programming") :count 1 :last-access 900.0))
-     (haystack-rename-group-root "programming" "dev")
-     (should (assoc '("dev" "rust") haystack--frecency-data))
-     (should (assoc '("rust" "dev") haystack--frecency-data))
-     (should-not (assoc '("programming" "rust") haystack--frecency-data)))))
+    (let* ((k-prog-rust (haystack-test--tkey "programming" "rust"))
+           (k-rust-prog (haystack-test--tkey "rust" "programming")))
+      (haystack-test--with-frecency
+       (list (cons k-prog-rust '(:count 2 :last-access 1000.0))
+             (cons k-rust-prog '(:count 1 :last-access 900.0)))
+       (haystack-rename-group-root "programming" "dev")
+       (should (assoc (haystack-test--tkey "dev" "rust") haystack--frecency-data))
+       (should (assoc (haystack-test--tkey "rust" "dev") haystack--frecency-data))
+       (should-not (assoc k-prog-rust haystack--frecency-data))))))
 
 (ert-deftest haystack-test/rename-group-root-renames-composites ()
   "rename-group-root renames composite files containing the old slug."
@@ -1133,6 +1637,12 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
   (let ((haystack-notes-directory "/notes"))
     (should (equal (haystack--strip-notes-prefix "/other/foo.org:1:content")
                    "/other/foo.org:1:content"))))
+
+(ert-deftest haystack-test/strip-notes-prefix-trailing-newline-preserved ()
+  "A trailing newline in the output string is preserved."
+  (let ((haystack-notes-directory "/notes"))
+    (should (equal (haystack--strip-notes-prefix "/notes/foo.org:1:content\n")
+                   "foo.org:1:content\n"))))
 
 ;;;; haystack--rg-args
 
@@ -1393,17 +1903,19 @@ function degrades gracefully and returns a non-empty string."
 ;;;; haystack--volume-gate
 
 (ert-deftest haystack-test/volume-gate-no-prompt-under-threshold ()
-  "Does not prompt when total lines < 500."
+  "Does not prompt when total lines < threshold."
   ;; 10 files × 49 lines = 490 < 500
-  (let ((out (mapconcat (lambda (i) (format "/notes/f%d.org:49" i))
+  (let ((haystack-volume-gate-threshold 500)
+        (out (mapconcat (lambda (i) (format "/notes/f%d.org:49" i))
                         (number-sequence 1 10) "\n")))
     (cl-letf (((symbol-function 'yes-or-no-p)
                (lambda (&rest _) (error "Should not have prompted"))))
       (should-not (haystack--volume-gate out)))))
 
 (ert-deftest haystack-test/volume-gate-prompts-at-threshold ()
-  "Prompts when total = 500."
-  (let ((prompted nil))
+  "Prompts when total = threshold."
+  (let ((haystack-volume-gate-threshold 500)
+        (prompted nil))
     (cl-letf (((symbol-function 'yes-or-no-p)
                (lambda (&rest _) (setq prompted t) t)))
       (haystack--volume-gate "/notes/f.org:500\n"))
@@ -1411,13 +1923,15 @@ function degrades gracefully and returns a non-empty string."
 
 (ert-deftest haystack-test/volume-gate-user-approves ()
   "Returns normally when user confirms."
-  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
-    (should-not (haystack--volume-gate "/notes/f.org:501\n"))))
+  (let ((haystack-volume-gate-threshold 500))
+    (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+      (should-not (haystack--volume-gate "/notes/f.org:501\n")))))
 
 (ert-deftest haystack-test/volume-gate-user-declines ()
   "Signals user-error when user declines."
-  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
-    (should-error (haystack--volume-gate "/notes/f.org:501\n") :type 'user-error)))
+  (let ((haystack-volume-gate-threshold 500))
+    (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
+      (should-error (haystack--volume-gate "/notes/f.org:501\n") :type 'user-error))))
 
 ;;;; haystack--write-filelist
 
@@ -1624,6 +2138,17 @@ function degrades gracefully and returns a non-empty string."
     (should (equal (haystack--child-buffer-name descriptor "notes" nil t nil nil)
                    "*haystack:2:rust:/notes*"))))
 
+(ert-deftest haystack-test/child-buffer-name-handles-date-filter-in-existing-filters ()
+  "child-buffer-name renders a date-range entry in :filters without nil/crash."
+  (let ((descriptor (list :root-term "rust" :root-filename nil
+                          :root-literal nil :root-regex nil
+                          :filters (list (list :kind 'date-range
+                                               :start "2025-01" :end "2025-03")))))
+    (let ((name (haystack--child-buffer-name descriptor "async" nil nil nil nil)))
+      (should (stringp name))
+      (should (string-match-p "haystack:3" name))
+      (should (string-match-p "async" name)))))
+
 ;;;; haystack-filter-further
 
 (ert-deftest haystack-test/filter-further-errors-outside-haystack-buffer ()
@@ -1659,8 +2184,8 @@ function degrades gracefully and returns a non-empty string."
                (should child-buf)
                (unwind-protect
                    (with-current-buffer child-buf
-                     (should (string-match-p "root=rust > filter=async"
-                                             (buffer-string)))
+                     (should (string-match-p "root=rust" (buffer-string)))
+                     (should (string-match-p "> filter=async" (buffer-string)))
                      (should (eq haystack--parent-buffer root-buf)))
                  (kill-buffer child-buf))))
          (kill-buffer root-buf))))))
@@ -1880,45 +2405,47 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
               (kill-buffer "*haystack:2:programming:coding in detail*"))))))))
 
 (ert-deftest haystack-test/filter-further-volume-gate-prompts ()
-  "Prompts when a content filter would return >= 500 lines."
-  (haystack-test--with-notes-dir
-   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
-     (with-temp-file note
-       (insert (mapconcat (lambda (_) "rust hit\n") (make-list 500 nil) ""))))
-   (let ((prompted nil))
+  "Prompts when a content filter would return >= threshold lines."
+  (let ((haystack-volume-gate-threshold 500))
+    (haystack-test--with-notes-dir
+     (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+       (with-temp-file note
+         (insert (mapconcat (lambda (_) "rust hit\n") (make-list 500 nil) ""))))
+     (let ((prompted nil))
+       (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+                 ((symbol-function 'switch-to-buffer) #'ignore)
+                 ;; let the root search volume gate pass silently
+                 ((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+         (haystack-run-root-search "rust")
+         (let ((root-buf (get-buffer "*haystack:1:rust*")))
+           (unwind-protect
+               (with-current-buffer root-buf
+                 (setq prompted nil)
+                 (cl-letf (((symbol-function 'yes-or-no-p)
+                            (lambda (&rest _) (setq prompted t) t)))
+                   (haystack-filter-further "hit"))
+                 (should prompted))
+             (kill-buffer root-buf)
+             (when (get-buffer "*haystack:2:rust:hit*")
+               (kill-buffer (get-buffer "*haystack:2:rust:hit*"))))))))))
+
+(ert-deftest haystack-test/filter-further-volume-gate-cancels ()
+  "Signals user-error when user declines at the filter volume gate."
+  (let ((haystack-volume-gate-threshold 500))
+    (haystack-test--with-notes-dir
+     (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+       (with-temp-file note
+         (insert (mapconcat (lambda (_) "rust hit\n") (make-list 500 nil) ""))))
      (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
                ((symbol-function 'switch-to-buffer) #'ignore)
-               ;; let the root search volume gate pass silently
-               ((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+               ((symbol-function 'yes-or-no-p)      (lambda (&rest _) t)))
        (haystack-run-root-search "rust")
        (let ((root-buf (get-buffer "*haystack:1:rust*")))
          (unwind-protect
              (with-current-buffer root-buf
-               (setq prompted nil)
-               (cl-letf (((symbol-function 'yes-or-no-p)
-                          (lambda (&rest _) (setq prompted t) t)))
-                 (haystack-filter-further "hit"))
-               (should prompted))
-           (kill-buffer root-buf)
-           (when (get-buffer "*haystack:2:rust:hit*")
-             (kill-buffer (get-buffer "*haystack:2:rust:hit*")))))))))
-
-(ert-deftest haystack-test/filter-further-volume-gate-cancels ()
-  "Signals user-error when user declines at the filter volume gate."
-  (haystack-test--with-notes-dir
-   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
-     (with-temp-file note
-       (insert (mapconcat (lambda (_) "rust hit\n") (make-list 500 nil) ""))))
-   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
-             ((symbol-function 'switch-to-buffer) #'ignore)
-             ((symbol-function 'yes-or-no-p)      (lambda (&rest _) t)))
-     (haystack-run-root-search "rust")
-     (let ((root-buf (get-buffer "*haystack:1:rust*")))
-       (unwind-protect
-           (with-current-buffer root-buf
-             (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
-               (should-error (haystack-filter-further "hit") :type 'user-error)))
-         (kill-buffer root-buf))))))
+               (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
+                 (should-error (haystack-filter-further "hit") :type 'user-error)))
+           (kill-buffer root-buf)))))))
 
 ;;;; haystack--parse-and-tokens
 
@@ -2104,41 +2631,44 @@ C++ without = prefix should not cause an rg error — the + chars are escaped."
          (kill-buffer buf))))))
 
 (ert-deftest haystack-test/run-root-search-volume-gate-prompts ()
-  "Prompts when rg --count returns >= 500 total lines."
-  (haystack-test--with-notes-dir
-   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
-     (with-temp-file note
-       (insert (mapconcat (lambda (_) "hit\n") (make-list 500 nil) ""))))
-   (let ((prompted nil))
-     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
-               ((symbol-function 'yes-or-no-p)
-                (lambda (&rest _) (setq prompted t) t)))
-       (haystack-run-root-search "hit")
-       (should prompted)
-       (when (get-buffer "*haystack:1:hit*")
-         (kill-buffer (get-buffer "*haystack:1:hit*")))))))
+  "Prompts when rg --count returns >= threshold total lines."
+  (let ((haystack-volume-gate-threshold 500))
+    (haystack-test--with-notes-dir
+     (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+       (with-temp-file note
+         (insert (mapconcat (lambda (_) "hit\n") (make-list 500 nil) ""))))
+     (let ((prompted nil))
+       (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+                 ((symbol-function 'yes-or-no-p)
+                  (lambda (&rest _) (setq prompted t) t)))
+         (haystack-run-root-search "hit")
+         (should prompted)
+         (when (get-buffer "*haystack:1:hit*")
+           (kill-buffer (get-buffer "*haystack:1:hit*"))))))))
 
 (ert-deftest haystack-test/run-root-search-volume-gate-cancels ()
   "Signals user-error when user declines at the volume gate."
-  (haystack-test--with-notes-dir
-   (let ((note (expand-file-name "big.org" haystack-notes-directory)))
-     (with-temp-file note
-       (insert (mapconcat (lambda (_) "hit\n") (make-list 500 nil) ""))))
-   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
-             ((symbol-function 'yes-or-no-p)   (lambda (&rest _) nil)))
-     (should-error (haystack-run-root-search "hit") :type 'user-error))))
+  (let ((haystack-volume-gate-threshold 500))
+    (haystack-test--with-notes-dir
+     (let ((note (expand-file-name "big.org" haystack-notes-directory)))
+       (with-temp-file note
+         (insert (mapconcat (lambda (_) "hit\n") (make-list 500 nil) ""))))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p)   (lambda (&rest _) nil)))
+       (should-error (haystack-run-root-search "hit") :type 'user-error)))))
 
 (ert-deftest haystack-test/run-root-search-volume-gate-no-prompt-under-threshold ()
-  "Does not prompt when total lines < 500."
-  (haystack-test--with-notes-dir
-   (let ((note (expand-file-name "small.org" haystack-notes-directory)))
-     (with-temp-file note (insert "hit\nhit\n")))
-   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
-             ((symbol-function 'yes-or-no-p)
-              (lambda (&rest _) (error "Should not have prompted"))))
-     (haystack-run-root-search "hit")
-     (when (get-buffer "*haystack:1:hit*")
-       (kill-buffer (get-buffer "*haystack:1:hit*"))))))
+  "Does not prompt when total lines < threshold."
+  (let ((haystack-volume-gate-threshold 500))
+    (haystack-test--with-notes-dir
+     (let ((note (expand-file-name "small.org" haystack-notes-directory)))
+       (with-temp-file note (insert "hit\nhit\n")))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p)
+                (lambda (&rest _) (error "Should not have prompted"))))
+       (haystack-run-root-search "hit")
+       (when (get-buffer "*haystack:1:hit*")
+         (kill-buffer (get-buffer "*haystack:1:hit*")))))))
 
 ;;;; haystack-run-root-search AND queries
 
@@ -3119,39 +3649,199 @@ Saves and restores the global and the dirty flag."
 ;;; haystack--frecency-chain-key
 
 (ert-deftest haystack-test/frecency-chain-key-root-only ()
-  "Root-only descriptor produces a single-element list."
-  (should (equal (haystack--frecency-chain-key
-                  '(:root-term "rust" :root-filename nil :root-literal nil
-                    :root-regex nil :filters nil))
-                 '("rust"))))
+  "Root-only descriptor produces a plist with :root kind=text and empty :filters."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :filters nil :root-kind nil))))
+    (should (equal key (haystack-test--tkey "rust")))))
 
 (ert-deftest haystack-test/frecency-chain-key-with-filters ()
-  "Filters are appended with their prefix characters."
-  (should (equal (haystack--frecency-chain-key
-                  '(:root-term "rust" :root-filename nil :root-literal nil
-                    :root-regex nil
-                    :filters ((:term "async" :negated nil :filename nil
-                                :literal nil :regex nil)
-                               (:term "cargo" :negated t :filename nil
-                                :literal nil :regex nil))))
-                 '("rust" "async" "!cargo"))))
+  "Filters produce :filters list with :term and flag plists."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :root-kind nil
+                :filters ((:term "async" :negated nil :filename nil
+                            :literal nil :regex nil)
+                           (:term "cargo" :negated t :filename nil
+                            :literal nil :regex nil))))))
+    (should (equal (plist-get (plist-get key :root) :term) "rust"))
+    (should (equal (plist-get (car (plist-get key :filters)) :term) "async"))
+    (should (null (plist-get (car (plist-get key :filters)) :negated)))
+    (should (equal (plist-get (cadr (plist-get key :filters)) :term) "cargo"))
+    (should (plist-get (cadr (plist-get key :filters)) :negated))))
 
 (ert-deftest haystack-test/frecency-chain-key-filename-prefix ()
-  "Filename filters get the / prefix."
-  (should (equal (haystack--frecency-chain-key
-                  '(:root-term "notes" :root-filename nil :root-literal nil
-                    :root-regex nil
-                    :filters ((:term "cargo" :negated nil :filename t
-                                :literal nil :regex nil))))
-                 '("notes" "/cargo"))))
+  "Filename filters produce :filename t in the filter plist."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "notes" :root-filename nil :root-literal nil
+                :root-regex nil :root-kind nil
+                :filters ((:term "cargo" :negated nil :filename t
+                            :literal nil :regex nil))))))
+    (should (equal (plist-get (plist-get key :root) :term) "notes"))
+    (should (plist-get (car (plist-get key :filters)) :filename))))
 
 (ert-deftest haystack-test/frecency-chain-key-root-modifiers ()
-  "Root modifier flags are encoded as prefix characters."
-  (should (equal (car (haystack--frecency-chain-key
-                       '(:root-term "cargo" :root-filename t :root-literal nil
-                         :root-regex nil :filters nil)))
-                 "/cargo")))
+  "Root modifier flags produce :filename t in the root plist."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "cargo" :root-filename t :root-literal nil
+                :root-regex nil :filters nil :root-kind nil))))
+    (should (plist-get (plist-get key :root) :filename))
+    (should (equal (plist-get (plist-get key :root) :term) "cargo"))))
 
+;;; frecency key shape (refactored plist format)
+
+(ert-deftest haystack-test/frecency-chain-key-text-root-plist-shape ()
+  "Text root key is a plist with :root kind=text and :filters ()."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :filters nil :root-kind nil))))
+    (should (equal (plist-get (plist-get key :root) :kind) 'text))
+    (should (equal (plist-get (plist-get key :root) :term) "rust"))
+    (should (null (plist-get key :filters)))))
+
+(ert-deftest haystack-test/frecency-chain-key-date-root-plist-shape ()
+  "Date-range root key is a plist with :root kind=date-range, :start, :end."
+  (let* ((desc (haystack--date-root-descriptor "2024-01" "2024-03"))
+         (key (haystack--frecency-chain-key desc)))
+    (should (equal (plist-get (plist-get key :root) :kind) 'date-range))
+    (should (equal (plist-get (plist-get key :root) :start) "2024-01"))
+    (should (equal (plist-get (plist-get key :root) :end) "2024-03"))))
+
+(ert-deftest haystack-test/frecency-chain-key-filters-plist-shape ()
+  "Filter terms are plists with at least :term; :negated and :filename when set."
+  (let* ((key (haystack--frecency-chain-key
+               '(:root-term "rust" :root-filename nil :root-literal nil
+                 :root-regex nil :root-kind nil
+                 :filters ((:term "async" :negated nil :filename nil
+                             :literal nil :regex nil)
+                            (:term "cargo" :negated t :filename nil
+                             :literal nil :regex nil))))))
+    (let ((f1 (car (plist-get key :filters)))
+          (f2 (cadr (plist-get key :filters))))
+      (should (equal (plist-get f1 :term) "async"))
+      (should (null (plist-get f1 :negated)))
+      (should (equal (plist-get f2 :term) "cargo"))
+      (should (plist-get f2 :negated)))))
+
+(ert-deftest haystack-test/frecency-chain-key-date-filter-in-filters ()
+  "A date-range filter entry passes through as :kind date-range in the key."
+  (let* ((key (haystack--frecency-chain-key
+               (list :root-term "rust" :root-filename nil :root-literal nil
+                     :root-regex nil :root-kind 'text :root-expansion nil
+                     :filters (list (list :kind 'date-range
+                                          :start "2025-01" :end "2025-03")))))
+         (f (car (plist-get key :filters))))
+    (should (eq (plist-get f :kind) 'date-range))
+    (should (equal (plist-get f :start) "2025-01"))
+    (should (equal (plist-get f :end) "2025-03"))))
+
+;;; frecency UI label for plist keys
+
+(ert-deftest haystack-test/frecency-key-display-text-root ()
+  "haystack--frecency-key-display produces a readable string for text roots."
+  (let* ((key (haystack--frecency-chain-key
+               '(:root-term "rust" :root-filename nil :root-literal nil
+                 :root-regex nil :root-kind nil :filters nil))))
+    (should (equal (haystack--frecency-key-display key) "rust"))))
+
+(ert-deftest haystack-test/frecency-key-display-date-root ()
+  "haystack--frecency-key-display shows date: prefix for date-range roots."
+  (let* ((desc (haystack--date-root-descriptor "2024-01" "2024-03"))
+         (key (haystack--frecency-chain-key desc)))
+    (should (string-prefix-p "date:" (haystack--frecency-key-display key)))))
+
+(ert-deftest haystack-test/frecency-key-display-with-filters ()
+  "haystack--frecency-key-display includes filters separated by \" > \"."
+  (let* ((key (haystack--frecency-chain-key
+               '(:root-term "rust" :root-filename nil :root-literal nil
+                 :root-regex nil :root-kind nil
+                 :filters ((:term "async" :negated nil :filename nil
+                             :literal nil :regex nil))))))
+    (should (string-match-p " > async" (haystack--frecency-key-display key)))))
+
+(ert-deftest haystack-test/frecency-key-display-date-filter-in-filters ()
+  "haystack--frecency-key-display renders a date filter entry as date:LABEL."
+  (let* ((key (list :root (list :kind 'text :term "rust")
+                    :filters (list (list :kind 'date-range
+                                         :start "2025-01" :end "2025-03"))))
+         (display (haystack--frecency-key-display key)))
+    (should (string-match-p "rust" display))
+    (should (string-match-p "date:" display))
+    (should (string-match-p " > " display))))
+
+;;; frecency replay with plist keys
+
+(ert-deftest haystack-test/frecency-replay-text-root ()
+  "Replaying a text-root plist key runs haystack-run-root-search."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-replay-test.org"
+                                 haystack-notes-directory)))
+     (with-temp-file note (insert "replay-unique-keyword\n")))
+   (haystack-test--with-frecency nil
+     (cl-letf (((symbol-function 'haystack--load-frecency) #'ignore)
+               ((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (let* ((key (haystack--frecency-chain-key
+                    '(:root-term "replay-unique-keyword"
+                      :root-filename nil :root-literal nil
+                      :root-regex nil :root-kind nil :filters nil)))
+              (buf (haystack--frecency-replay key)))
+         (unwind-protect
+             (progn
+               (should (bufferp buf))
+               (with-current-buffer buf
+                 (should (string-match-p "replay-unique" (buffer-string)))))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+(ert-deftest haystack-test/frecency-replay-date-root ()
+  "Replaying a date-root plist key dispatches to haystack-search-date-range."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-date-replay.org"
+                                 haystack-notes-directory)))
+     (with-temp-file note
+       (insert "date replay hs: <2024-06-15 Sat 10:00>\n")))
+   (haystack-test--with-frecency nil
+     (cl-letf (((symbol-function 'haystack--load-frecency) #'ignore)
+               ((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (let* ((desc (haystack--date-root-descriptor "2024-06" "2024-06"))
+              (key  (haystack--frecency-chain-key desc))
+              (buf  (haystack--frecency-replay key)))
+         (unwind-protect
+             (progn
+               (should (bufferp buf))
+               (with-current-buffer buf
+                 (should (string-match-p "hs: " (buffer-string)))))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+(ert-deftest haystack-test/frecency-replay-dispatches-date-filter ()
+  "Replaying a key with a date-range filter applies the date filter correctly.
+A note within the range must appear; a note outside the range must not."
+  (haystack-test--with-notes-dir
+   (let ((jan-note (expand-file-name "20250115090000-jan-replay.org"
+                                     haystack-notes-directory))
+         (mar-note (expand-file-name "20250310110000-mar-replay.org"
+                                     haystack-notes-directory)))
+     (with-temp-file jan-note
+       (insert "rustlang hs: <2025-01-15 Wed 09:00>\n"))
+     (with-temp-file mar-note
+       (insert "rustlang hs: <2025-03-10 Mon 11:00>\n")))
+   (haystack-test--with-frecency nil
+     (cl-letf (((symbol-function 'haystack--load-frecency) #'ignore)
+               ((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (let* ((key (list :root (list :kind 'text :term "rustlang")
+                         :filters (list (list :kind 'date-range
+                                              :term "2025-01..2025-01"
+                                              :start "2025-01" :end "2025-01"))))
+              (buf (haystack--frecency-replay key)))
+         (unwind-protect
+             (progn
+               (should (bufferp buf))
+               (with-current-buffer buf
+                 (should     (string-match-p "jan-replay" (buffer-string)))
+                 (should-not (string-match-p "mar-replay" (buffer-string)))))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
 ;;; haystack--frecency-record
 
 (ert-deftest haystack-test/frecency-record-creates-entry ()
@@ -3159,8 +3849,8 @@ Saves and restores the global and the dirty flag."
   (haystack-test--with-frecency nil
     (haystack--frecency-record
      '(:root-term "rust" :root-filename nil :root-literal nil
-       :root-regex nil :filters nil))
-    (let ((entry (assoc '("rust") haystack--frecency-data)))
+       :root-regex nil :filters nil :root-kind nil))
+    (let ((entry (assoc (haystack-test--tkey "rust") haystack--frecency-data)))
       (should entry)
       (should (= 1 (plist-get (cdr entry) :count))))))
 
@@ -3168,10 +3858,10 @@ Saves and restores the global and the dirty flag."
   "Recording the same descriptor a second time increments the count."
   (haystack-test--with-frecency nil
     (let ((desc '(:root-term "rust" :root-filename nil :root-literal nil
-                  :root-regex nil :filters nil)))
+                  :root-regex nil :filters nil :root-kind nil)))
       (haystack--frecency-record desc)
       (haystack--frecency-record desc)
-      (let ((entry (assoc '("rust") haystack--frecency-data)))
+      (let ((entry (assoc (haystack-test--tkey "rust") haystack--frecency-data)))
         (should (= 2 (plist-get (cdr entry) :count)))))))
 
 (ert-deftest haystack-test/frecency-record-sets-dirty ()
@@ -3209,14 +3899,14 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecent-leaf-p-standalone-is-leaf ()
   "An entry with no deeper chain is always a leaf."
   (let* ((now (float-time))
-         (entries (list (cons '("rust") (list :count 5 :last-access now)))))
+         (entries (list (cons (haystack-test--tkey "rust") (list :count 5 :last-access now)))))
     (should (haystack--frecent-leaf-p (car entries) entries))))
 
 (ert-deftest haystack-test/frecent-leaf-p-dominated-is-not-leaf ()
   "An entry dominated by a deeper higher-scored chain is not a leaf."
   (let* ((now (float-time))
-         (root  (cons '("rust")         (list :count 2 :last-access now)))
-         (child (cons '("rust" "async") (list :count 5 :last-access now)))
+         (root  (cons (haystack-test--tkey "rust")         (list :count 2 :last-access now)))
+         (child (cons (haystack-test--tkey "rust" "async") (list :count 5 :last-access now)))
          (entries (list root child)))
     (should-not (haystack--frecent-leaf-p root entries))
     (should     (haystack--frecent-leaf-p child entries))))
@@ -3224,8 +3914,8 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecent-leaf-p-higher-scored-root-is-leaf ()
   "A root with higher score than its child is still a leaf."
   (let* ((now (float-time))
-         (root  (cons '("rust")         (list :count 5 :last-access now)))
-         (child (cons '("rust" "async") (list :count 2 :last-access now)))
+         (root  (cons (haystack-test--tkey "rust")         (list :count 5 :last-access now)))
+         (child (cons (haystack-test--tkey "rust" "async") (list :count 2 :last-access now)))
          (entries (list root child)))
     (should (haystack--frecent-leaf-p root  entries))
     (should (haystack--frecent-leaf-p child entries))))
@@ -3233,9 +3923,9 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecent-leaves-filters-correctly ()
   "`haystack--frecent-leaves' keeps only leaf entries."
   (let* ((now (float-time))
-         (root  (cons '("rust")         (list :count 2 :last-access now)))
-         (child (cons '("rust" "async") (list :count 5 :last-access now)))
-         (other (cons '("python")       (list :count 3 :last-access now)))
+         (root  (cons (haystack-test--tkey "rust")         (list :count 2 :last-access now)))
+         (child (cons (haystack-test--tkey "rust" "async") (list :count 5 :last-access now)))
+         (other (cons (haystack-test--tkey "python")       (list :count 3 :last-access now)))
          (entries (list root child other)))
     (let ((leaves (haystack--frecent-leaves entries)))
       (should     (member child leaves))
@@ -3246,14 +3936,14 @@ Saves and restores the global and the dirty flag."
 
 (ert-deftest haystack-test/frecency-score-recent-entry ()
   "An entry accessed just now has score ≈ count (days ≈ 0 → clamped to 1)."
-  (let ((entry (cons '("rust")
+  (let ((entry (cons (haystack-test--tkey "rust")
                      (list :count 5 :last-access (float-time)))))
     (should (= 5.0 (haystack--frecency-score entry)))))
 
 (ert-deftest haystack-test/frecency-score-old-entry ()
   "An entry accessed 5 days ago has score ≈ count / 5."
   (let* ((five-days-ago (- (float-time) (* 5 86400)))
-         (entry (cons '("rust")
+         (entry (cons (haystack-test--tkey "rust")
                       (list :count 10 :last-access five-days-ago))))
     (should (< (abs (- 2.0 (haystack--frecency-score entry))) 0.01))))
 
@@ -3268,7 +3958,7 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-flush-writes-file ()
   "Flush writes data to disk and clears the dirty flag."
   (haystack-test--with-notes-dir
-    (haystack-test--with-frecency (list (cons '("rust") '(:count 1 :last-access 0.0)))
+    (haystack-test--with-frecency (list (cons (haystack-test--tkey "rust") '(:count 1 :last-access 0.0)))
       (setq haystack--frecency-dirty t)
       (haystack--frecency-flush)
       (should (file-exists-p (haystack--frecency-file)))
@@ -3286,13 +3976,14 @@ Saves and restores the global and the dirty flag."
   "Data written by flush is read back correctly by load."
   (haystack-test--with-notes-dir
     (let* ((now   (float-time))
-           (data  (list (cons '("rust" "async") (list :count 3 :last-access now)))))
+           (key   (haystack-test--tkey "rust" "async"))
+           (data  (list (cons key (list :count 3 :last-access now)))))
       (haystack-test--with-frecency data
         (setq haystack--frecency-dirty t)
         (haystack--frecency-flush))
       (haystack-test--with-frecency nil
         (haystack--load-frecency)
-        (let ((entry (assoc '("rust" "async") haystack--frecency-data)))
+        (let ((entry (assoc key haystack--frecency-data)))
           (should entry)
           (should (= 3 (plist-get (cdr entry) :count))))))))
 
@@ -3309,7 +4000,39 @@ Saves and restores the global and the dirty flag."
                    (lambda (buf &rest _) (setq created-buf buf))))
           (haystack-run-root-search "rust"))
         (when (buffer-live-p created-buf) (kill-buffer created-buf)))
-      (should (assoc '("rust") haystack--frecency-data)))))
+      (should (assoc (haystack-test--tkey "rust") haystack--frecency-data)))))
+
+(ert-deftest haystack-test/search-date-range-records-frecency ()
+  "haystack-search-date-range records an entry in haystack--frecency-data."
+  (haystack-test--with-frecency nil
+    (haystack-test--with-notes-dir
+      (let ((note (expand-file-name "20240101000000-ts.org" haystack-notes-directory)))
+        (with-temp-file note (insert "hs: <2024-06-15 Sat 10:00>\n")))
+      (let (created-buf)
+        (cl-letf (((symbol-function 'pop-to-buffer)
+                   (lambda (buf &rest _) (setq created-buf buf))))
+          (haystack-search-date-range "2024-06" "2024-06"))
+        (when (buffer-live-p created-buf) (kill-buffer created-buf)))
+      (let* ((desc (haystack--date-root-descriptor "2024-06" "2024-06"))
+             (key  (haystack--frecency-chain-key desc)))
+        (should (assoc key haystack--frecency-data))))))
+
+(ert-deftest haystack-test/search-date-range-no-bounds-records-frecency ()
+  "haystack-search-date-range with empty bounds records frecency."
+  (haystack-test--with-frecency nil
+    (haystack-test--with-notes-dir
+      (let ((note (expand-file-name "20240101000000-ts.org" haystack-notes-directory)))
+        (with-temp-file note (insert "hs: <2024-06-15 Sat 10:00>\n")))
+      (let (created-buf)
+        (cl-letf (((symbol-function 'pop-to-buffer)
+                   (lambda (buf &rest _) (setq created-buf buf))))
+          (haystack-search-date-range "" ""))
+        (when (buffer-live-p created-buf) (kill-buffer created-buf)))
+      (let* ((desc (haystack--date-root-descriptor "" ""))
+             (key  (haystack--frecency-chain-key desc)))
+        (should (assoc key haystack--frecency-data))
+        (should (equal "date:all"
+                       (haystack--frecency-key-display key)))))))
 
 ;;; haystack-describe-frecent / haystack-frecent-mode
 
@@ -3339,8 +4062,8 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/describe-frecent-shows-entries ()
   "Each recorded chain appears in the buffer."
   (let* ((now  (float-time))
-         (data (list (cons '("rust") (list :count 5 :last-access now))
-                     (cons '("python") (list :count 2 :last-access now)))))
+         (data (list (cons (haystack-test--tkey "rust")   (list :count 5 :last-access now))
+                     (cons (haystack-test--tkey "python") (list :count 2 :last-access now)))))
     (haystack-test--with-frecent-buf data
       (should (string-match-p "rust" (buffer-string)))
       (should (string-match-p "python" (buffer-string))))))
@@ -3348,7 +4071,7 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/describe-frecent-chain-text-property ()
   "Entry lines carry a `haystack-frecent-chain' text property."
   (let* ((now  (float-time))
-         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+         (data (list (cons (haystack-test--tkey "rust") (list :count 5 :last-access now)))))
     (haystack-test--with-frecent-buf data
       (goto-char (point-min))
       (let (found)
@@ -3394,7 +4117,8 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecent-kill-entry-removes-from-data ()
   "k removes the entry from haystack--frecency-data."
   (let* ((now  (float-time))
-         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+         (key  (haystack-test--tkey "rust"))
+         (data (list (cons key (list :count 5 :last-access now)))))
     (haystack-test--with-frecent-buf data
       (goto-char (point-min))
       (while (and (not (get-text-property (point) 'haystack-frecent-chain))
@@ -3402,12 +4126,12 @@ Saves and restores the global and the dirty flag."
         (forward-line 1))
       (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
         (haystack-frecent-kill-entry))
-      (should (null (assoc '("rust") haystack--frecency-data))))))
+      (should (null (assoc key haystack--frecency-data))))))
 
 (ert-deftest haystack-test/frecent-kill-entry-sets-dirty ()
   "k sets the frecency dirty flag."
   (let* ((now  (float-time))
-         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+         (data (list (cons (haystack-test--tkey "rust") (list :count 5 :last-access now)))))
     (haystack-test--with-frecent-buf data
       (goto-char (point-min))
       (while (and (not (get-text-property (point) 'haystack-frecent-chain))
@@ -3420,7 +4144,8 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecent-kill-entry-aborts-on-no ()
   "k leaves data intact when user answers no."
   (let* ((now  (float-time))
-         (data (list (cons '("rust") (list :count 5 :last-access now)))))
+         (key  (haystack-test--tkey "rust"))
+         (data (list (cons key (list :count 5 :last-access now)))))
     (haystack-test--with-frecent-buf data
       (goto-char (point-min))
       (while (and (not (get-text-property (point) 'haystack-frecent-chain))
@@ -3428,7 +4153,7 @@ Saves and restores the global and the dirty flag."
         (forward-line 1))
       (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) nil)))
         (haystack-frecent-kill-entry))
-      (should (assoc '("rust") haystack--frecency-data)))))
+      (should (assoc key haystack--frecency-data)))))
 
 (ert-deftest haystack-test/frecent-kill-entry-errors-off-entry ()
   "k signals user-error when point is not on an entry line."
@@ -3450,8 +4175,8 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecent-toggle-leaf-filters-entries ()
   "Leaf mode hides dominated entries."
   (let* ((now (float-time))
-         (data (list (cons '("rust")         (list :count 2 :last-access now))
-                     (cons '("rust" "async") (list :count 5 :last-access now)))))
+         (data (list (cons (haystack-test--tkey "rust")         (list :count 2 :last-access now))
+                     (cons (haystack-test--tkey "rust" "async") (list :count 5 :last-access now)))))
     (haystack-test--with-frecent-buf data
       (haystack-frecent-toggle-leaf)
       (should     (string-match-p "async" (buffer-string)))
@@ -3869,6 +4594,55 @@ must not corrupt the saved state that demo-stop restores from."
        (haystack-demo-stop)
        (should (equal (cdr (assoc "lang" haystack--expansion-groups))
                       '("rust" "python")))))))
+
+(ert-deftest haystack-test/demo-binds-and-releases-C-c-h ()
+  "demo binds C-c h when free and releases it on stop."
+  (haystack-test--with-demo-dir
+   (let ((key (kbd "C-c h")))
+     (global-unset-key key)
+     (haystack-demo)
+     (should (eq (lookup-key global-map key) haystack-prefix-map))
+     (haystack-demo-stop)
+     (should (null (lookup-key global-map key))))))
+
+(ert-deftest haystack-test/demo-skips-keybind-when-C-c-h-taken ()
+  "demo leaves C-c h untouched when it is already bound."
+  (haystack-test--with-demo-dir
+   (let ((key (kbd "C-c h"))
+         (sentinel (lambda () (interactive))))
+     (global-set-key key sentinel)
+     (unwind-protect
+         (progn
+           (haystack-demo)
+           (should (eq (lookup-key global-map key) sentinel))
+           (haystack-demo-stop)
+           (should (eq (lookup-key global-map key) sentinel)))
+       (global-unset-key key)))))
+
+;;;; haystack--format-chain-lines
+
+(ert-deftest haystack-test/format-chain-lines-single-term ()
+  "Single-term chain produces one ;;;;  line."
+  (let ((lines (haystack--format-chain-lines "root=rust")))
+    (should (equal lines ";;;;  root=rust\n"))))
+
+(ert-deftest haystack-test/format-chain-lines-two-terms ()
+  "Two-term chain produces root line plus one indented continuation."
+  (let ((lines (haystack--format-chain-lines "root=rust > filter=async")))
+    (should (equal lines ";;;;  root=rust\n;;;;    > filter=async\n"))))
+
+(ert-deftest haystack-test/format-chain-lines-four-terms ()
+  "Four-term chain produces four ;;;; lines."
+  (let ((lines (haystack--format-chain-lines "root=ai > filter=training > filter=learning > filter=deep")))
+    (should (= (length (split-string lines "\n" t)) 4))
+    (should (string-match-p "root=ai" lines))
+    (should (string-match-p "> filter=deep" lines))))
+
+(ert-deftest haystack-test/format-header-multi-term-chain ()
+  "format-header with a multi-term chain renders each term on its own line."
+  (let ((h (haystack--format-header "root=rust > filter=async" 3 10)))
+    (should (string-match-p ";;;;  root=rust" h))
+    (should (string-match-p ";;;;    > filter=async" h))))
 
 ;;;; Composite surfacing in buffer headers
 
@@ -4547,7 +5321,7 @@ Cleans up both the results buffer and the compose buffer."
    (let ((pop-count 0))
      (cl-letf (((symbol-function 'pop-to-buffer)
                 (lambda (buf &rest _) (cl-incf pop-count) buf)))
-       (let ((buf (haystack--frecency-replay (list "zzznomatch"))))
+       (let ((buf (haystack--frecency-replay (haystack-test--tkey "zzznomatch"))))
          (should (bufferp buf))
          (should (= 1 pop-count))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
@@ -5495,6 +6269,134 @@ matching the behavior of ?s (search anyway)."
        (should (string= (caar result) old-file))
        (should (string-suffix-p "@comp__baz__bar" (cdar result)))
        (should-not (string-match-p "\\.nil\\'" (cdar result)))))))
+
+;;;; haystack--volume-gate
+
+(ert-deftest haystack-test/volume-gate-nil-threshold-never-fires ()
+  "When `haystack-volume-gate-threshold' is nil the gate never prompts."
+  (let ((haystack-volume-gate-threshold nil)
+        (prompted nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (_) (setq prompted t) t)))
+      (haystack--volume-gate "file.org:9999")
+      (should-not prompted))))
+
+(ert-deftest haystack-test/volume-gate-fires-at-threshold ()
+  "Gate prompts when total line count meets the threshold."
+  (let ((haystack-volume-gate-threshold 100)
+        (prompted nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (_) (setq prompted t) t)))
+      ;; a.org:60 + b.org:40 = 100 lines — exactly at threshold
+      (haystack--volume-gate "a.org:60\nb.org:40\n")
+      (should prompted))))
+
+(ert-deftest haystack-test/volume-gate-does-not-fire-below-threshold ()
+  "Gate does not prompt when line count is below the threshold."
+  (let ((haystack-volume-gate-threshold 2000)
+        (prompted nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (_) (setq prompted t) t)))
+      (haystack--volume-gate "a.org:5\nb.org:3\n")
+      (should-not prompted))))
+
+(ert-deftest haystack-test/volume-gate-cancels-on-no ()
+  "Gate signals `user-error' when user answers no."
+  (let ((haystack-volume-gate-threshold 10))
+    (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_) nil)))
+      (should-error
+       (haystack--volume-gate "a.org:100\n")
+       :type 'user-error))))
+
+;;;; haystack-max-columns
+
+(ert-deftest haystack-test/max-columns-default-is-500 ()
+  "Default value of `haystack-max-columns' is 500."
+  (should (= (default-value 'haystack-max-columns) 500)))
+
+(ert-deftest haystack-test/max-columns-used-in-rg-args ()
+  "Content-mode rg args include --max-columns set to the defcustom value."
+  (let ((haystack-max-columns 300))
+    (should (member "--max-columns=300" (haystack--rg-args :pattern "foo")))))
+
+(ert-deftest haystack-test/max-columns-not-in-count-mode ()
+  "Count-mode rg args do not include --max-columns."
+  (should-not (cl-some (lambda (a) (string-prefix-p "--max-columns" a))
+                       (haystack--rg-args :count t :pattern "foo"))))
+
+;;;; haystack-volume-gate-style
+
+(ert-deftest haystack-test/volume-gate-style-default-is-exact ()
+  "Default value of `haystack-volume-gate-style' is \\='exact."
+  (should (eq (default-value 'haystack-volume-gate-style) 'exact)))
+
+(ert-deftest haystack-test/volume-gate-exact-prompt-shows-counts ()
+  "In exact mode the prompt includes line and file counts."
+  (let ((haystack-volume-gate-threshold 100)
+        (haystack-volume-gate-style 'exact)
+        (prompt-text nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (msg) (setq prompt-text msg) t)))
+      ;; 60 + 40 = 100 lines across 2 files
+      (haystack--volume-gate "a.org:60\nb.org:40\n")
+      (should (string-match-p "100" prompt-text))
+      (should (string-match-p "2" prompt-text)))))
+
+(ert-deftest haystack-test/volume-gate-fast-prompt-says-at-least ()
+  "In fast mode the prompt says \"at least N\" when output is at the cap."
+  (let ((haystack-volume-gate-threshold 100)
+        (haystack-volume-gate-style 'fast)
+        (prompt-text nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (msg) (setq prompt-text msg) t)))
+      ;; Exactly threshold lines in output — simulates head cap being hit
+      (let ((capped-output
+             (mapconcat (lambda (i) (format "f%d.org:1" i))
+                        (number-sequence 1 100) "\n")))
+        (haystack--volume-gate capped-output)
+        (should (string-match-p "at least" prompt-text))))))
+
+(ert-deftest haystack-test/volume-gate-fast-still-fires ()
+  "In fast mode the gate still fires when threshold is met."
+  (let ((haystack-volume-gate-threshold 100)
+        (haystack-volume-gate-style 'fast)
+        (prompted nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (_) (setq prompted t) t)))
+      (let ((capped-output
+             (mapconcat (lambda (i) (format "f%d.org:1" i))
+                        (number-sequence 1 100) "\n")))
+        (haystack--volume-gate capped-output)
+        (should prompted)))))
+
+;;;; haystack-tree-help
+
+(ert-deftest haystack-test/tree-mode-map-has-help-binding ()
+  "`haystack-tree-mode-map' binds ? to `haystack-tree-help'."
+  (should (eq (lookup-key haystack-tree-mode-map "?") #'haystack-tree-help)))
+
+(ert-deftest haystack-test/tree-help-opens-help-buffer ()
+  "`haystack-tree-help' opens a *haystack-help* buffer."
+  (cl-letf (((symbol-function 'display-buffer) #'ignore)
+            ((symbol-function 'select-window)  #'ignore))
+    (haystack-tree-help)
+    (let ((buf (get-buffer "*haystack-help*")))
+      (unwind-protect
+          (progn
+            (should buf)
+            (should (string-match-p "tree" (with-current-buffer buf (buffer-string)))))
+        (when buf (kill-buffer buf))))))
+
+(ert-deftest haystack-test/tree-help-content-lists-tree-keys ()
+  "`haystack-tree-help' content references tree-buffer commands, not results-buffer commands."
+  (let ((content (haystack--tree-help-content)))
+    ;; Tree commands present
+    (should (string-match-p "visit" content))
+    (should (string-match-p "next" content))
+    (should (string-match-p "prev" content))
+    ;; Results-buffer-only commands absent
+    (should-not (string-match-p "filter further" content))
+    (should-not (string-match-p "compose" content))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

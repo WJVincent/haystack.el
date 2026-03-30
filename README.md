@@ -444,6 +444,50 @@ instead, or `q` to abort.  Zero results inserts a boilerplate no-ref comment.
 **Separator conventions**: `.org` → `-----`, `.md`/`.markdown` → `---`,
 `.html`/`.htm` → `<hr>`, everything else → `----`.
 
+## Date-Range Search
+
+`haystack-search-date-range` (`C-c h R`) finds notes that contain an
+`hs:` Haystack timestamp within a date range you specify.
+
+### Inserting Timestamps
+
+Two commands add timestamps to the note you are writing:
+
+| Command | Key | Description |
+|---------|-----|-------------|
+| `haystack-insert-timestamp-now` | `C-c h i` | Insert the current date and time as an `hs:` stamp |
+| `haystack-insert-timestamp` | `C-c h I` | Prompt for a date string; insert at the given precision |
+
+Both accept `C-u` to produce an **inactive** stamp (square brackets) that does
+not appear in org-agenda.
+
+Examples:
+
+```
+hs: <2025-06-15 Sun 14:30>   — active, full timestamp
+hs: [2025-06-15 Sun]         — inactive, date-only
+```
+
+### Searching by Date
+
+`haystack-search-date-range` prompts for a start bound and an end bound.
+Each accepts any of:
+
+| Input | Meaning |
+|-------|---------|
+| `2025` | The entire year 2025 |
+| `2025-06` | June 2025 |
+| `2025-06-15` | A single day |
+| `2025-06-15 14:30` | An exact minute |
+| *(blank)* | Open (no lower or upper limit) |
+
+Results appear in a grep-mode buffer.  `haystack-filter-further` works
+normally — you can narrow a date-range result set by keyword exactly as
+you would any other search.
+
+Date-range searches are tracked by frecency and can be replayed from
+`haystack-frecent` (`C-c h r`) like any other search.
+
 ## Discoverability
 
 `haystack-describe-discoverability` (`C-c h d`, or `D` in a results buffer)
