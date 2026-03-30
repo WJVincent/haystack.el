@@ -866,5 +866,50 @@ fresh date-range search."
                  (when (buffer-live-p child-buf) (kill-buffer child-buf)))))
          (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
 
+;;;; Test — View toggle preserves filter-further
+
+(ert-deftest haystack-io-test/view-toggle-preserves-filter ()
+  "Toggling to compact view does not interfere with `haystack-filter-further'.
+The child buffer should have valid results because `buffer-string' returns
+raw text regardless of overlays."
+  (haystack-io-test--with-corpus
+    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+              ((symbol-function 'switch-to-buffer) #'ignore)
+              ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+      (let ((root-buf (haystack-run-root-search "haystack")))
+        (unwind-protect
+            (with-current-buffer root-buf
+              ;; Toggle to compact, then filter.
+              (haystack-view-compact)
+              (let ((child-buf (haystack-filter-further "emacs")))
+                (unwind-protect
+                    (with-current-buffer child-buf
+                      (let ((content (buffer-string)))
+                        ;; Should have at least one result line.
+                        (should (string-match-p "[^:]+:[0-9]+:.+" content))))
+                  (when (buffer-live-p child-buf) (kill-buffer child-buf)))))
+          (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
+
+;;;; Test — View toggle preserves MOC
+
+(ert-deftest haystack-io-test/view-toggle-preserves-moc ()
+  "Toggling to files view does not affect `haystack-copy-moc' loci count.
+The MOC should contain the same number of unique files as the full view."
+  (haystack-io-test--with-corpus
+    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+              ((symbol-function 'switch-to-buffer) #'ignore)
+              ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+      (let ((root-buf (haystack-run-root-search "haystack")))
+        (unwind-protect
+            (with-current-buffer root-buf
+              ;; Count unique files in full view.
+              (let* ((full-files (length (haystack--extract-filenames (buffer-string)))))
+                ;; Toggle to files view, copy MOC.
+                (haystack-view-files)
+                (haystack-copy-moc)
+                ;; The MOC loci count should match.
+                (should (= (length haystack--last-moc) full-files))))
+          (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
+
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

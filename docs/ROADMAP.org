@@ -368,21 +368,30 @@ Not in scope for 1.0. Recorded so they don't get lost.
 - Frecency records and replays date-range searches via the descriptor-shaped key =(:root (:kind date-range :start S :end E) :filters ...)=
 - Bound under =R= in =haystack-prefix-map=
 ** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
-** TODO Results view mode toggle (Full / Compact / Files)
-Three-state display toggle for the results buffer.  Full = current
-behavior.  Compact = replace raw filepath with =haystack--pretty-title=
-output via overlays (shorter, still meaningful; navigation unaffected
-since overlay leaves underlying =file:line:content= text intact).
-Files = deduplicated one-line-per-file view with no content.
-View mode is buffer-local; toggling is clearing/re-applying overlays.
-** TODO Match-centered content windowing
-Post-process the content column so the displayed window is centered on
-the match position rather than starting from the line start.  rg
-provides match offset data in its output; the centering is an Elisp
-post-processing step.  Addresses long-line corpora (and any note with
-a match late in a paragraph) where the current truncation hides the
-match.
+** DONE Results view mode toggle (Full / Compact / Files)
+- =haystack-cycle-view= (=v= in results buffer) cycles Full → Compact → Files → Full
+- =haystack-view-full=, =haystack-view-compact=, =haystack-view-files= for direct jump
+- Compact: =display= overlay replaces filepath with =haystack--pretty-title= output;
+  hash-table cache for performance (19ms/10k, 208ms/100k)
+- Files: one line per unique file; duplicates hidden via =invisible= property;
+  kept lines show pretty-title only (30ms/10k, 314ms/100k)
+- Underlying =file:line:content= text never modified — =buffer-string=, =compile-goto-error=,
+  =filter-further=, MOC, and compose all work unchanged
+- =n=/=p= navigation skips invisible lines in Files mode
+- Header shows current view mode (=;;;;  view: Full/Compact/Files=)
+- View mode is buffer-local; toggling clears and re-applies overlays
+** DONE Match-centered content windowing
+- Already implemented via =haystack--truncate-content=: the content
+  window is centred on the first regex match within
+  =haystack-context-width= characters, with =...= at truncated ends.
+- Wired into every search path (root, filter, negation, date-range)
+  via =haystack--truncate-output=.
 ** DONE Capture from search (=haystack-capture-from-search=)
 - Covered by =haystack-new-note-with-moc=: creates a note and inserts
   the results MOC in one step.  Org-capture integration is left to user
   config if preferred.
+** CANCELLED Per-filter-type match highlighting
+- Removed: font-lock-based highlighting did not render reliably in GUI
+  Emacs (grep-mode's fontification machinery interfered).  May revisit
+  with a different approach in the future.
+** TODO New note from region

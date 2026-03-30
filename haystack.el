@@ -200,6 +200,19 @@ for mentions trees; the *haystack-ref: buffer-name prefix is cosmetic.")
 (defvar-local haystack--compose-loci nil
   "List of (PATH . LINE) pairs used to generate the current composite buffer.")
 
+(defvar-local haystack--view-mode 'full
+  "Current view mode for this results buffer.
+Legal values: `full', `compact', `files'.")
+
+(defvar-local haystack--view-overlays nil
+  "Flat list of overlays created by the view mode system.
+Stored for O(N) bulk removal via `haystack--view-clear'.")
+
+(defvar-local haystack--header-end-marker nil
+  "Marker at the end of the read-only header region.
+Set by `haystack--setup-results-buffer'; used by view mode functions
+to know where results start.")
+
 ;;;; Hooks
 
 (defvar haystack-after-create-hook nil
@@ -1390,6 +1403,7 @@ When COMPOSITE-PATH is non-nil, a composite link line is included."
             ";;;;  [root]  [up]  [down]  [tree]\n"
             (when composite-path
               (format ";;;;  [composite: %s]\n" (file-name-nondirectory composite-path)))
+            ";;;;  view: Full\n"
             rule "\n")))
 
 (defun haystack-go-root ()
@@ -1451,10 +1465,6 @@ When COMPOSITE-PATH is non-nil, a composite button is wired in the header."
           (insert output)
           (grep-mode)
           (haystack-results-mode 1)
-          ;; Fontify ;;;; header lines as comments so grep-mode's
-          ;; context-line regex does not shadow them.
-          (font-lock-add-keywords
-           nil '(("^;;;;.*" 0 font-lock-comment-face t)))
           ;; Wire up navigation buttons before locking the header.
           (haystack--apply-header-buttons composite-path)
           ;; Keep header lines read-only even when wgrep is active.
@@ -1463,6 +1473,7 @@ When COMPOSITE-PATH is non-nil, a composite button is wired in the header."
           (setq haystack--search-descriptor descriptor
                 haystack--parent-buffer    parent-buf
                 haystack--buffer-notes-dir (expand-file-name haystack-notes-directory)
+                haystack--header-end-marker (copy-marker header-end)
                 default-directory          (file-name-as-directory
                                             (expand-file-name haystack-notes-directory)))
           ;; Land on the first result line so n/p/RET work immediately.
@@ -1495,55 +1506,71 @@ results buffers."
         (t                      "filter")))
 
 (defun haystack--chain-parts (descriptor)
-  "Return an ordered list of formatted chain segments for DESCRIPTOR.
-Each segment is a \"label=display\" string covering the root term and all
-stored filters.  The current in-progress filter is not included; callers
-append it as needed."
+  "Return an ordered list of chain segment plists for DESCRIPTOR.
+Each segment is a plist (:label L :display D :face F) covering the root
+term and all stored filters.  :display is propertized with :face.
+The current in-progress filter is not included; callers append it."
   (let* ((root-label   (cond ((plist-get descriptor :root-filename)              "filename")
                              ((eq (plist-get descriptor :root-kind) 'date-range) "date")
                              (t                                                  "root")))
          (root-exp     (plist-get descriptor :root-expansion))
          (root-display (haystack--format-term-display
                         (plist-get descriptor :root-term) root-exp))
-         (parts (list (format "%s=%s" root-label root-display))))
+         (root-face    (haystack--root-face descriptor))
+         (parts (list (list :label root-label
+                            :display (propertize root-display 'face root-face)
+                            :face root-face))))
     (dolist (f (plist-get descriptor :filters))
-      (setq parts
-            (append parts
-                    (list (if (eq (plist-get f :kind) 'date-range)
-                              (format "date=%s"
-                                      (haystack--date-root-label
-                                       (plist-get f :start) (plist-get f :end)))
-                            (format "%s=%s"
-                                    (haystack--filter-label (plist-get f :negated)
-                                                            (plist-get f :filename))
-                                    (haystack--format-term-display
-                                     (plist-get f :term) (plist-get f :expansion))))))))
+      (let* ((face (haystack--filter-face f))
+             (label (if (eq (plist-get f :kind) 'date-range)
+                        "date"
+                      (haystack--filter-label (plist-get f :negated)
+                                              (plist-get f :filename))))
+             (display (if (eq (plist-get f :kind) 'date-range)
+                          (haystack--date-root-label
+                           (plist-get f :start) (plist-get f :end))
+                        (haystack--format-term-display
+                         (plist-get f :term) (plist-get f :expansion)))))
+        (setq parts
+              (append parts
+                      (list (list :label label
+                                  :display (propertize display 'face face)
+                                  :face face))))))
     parts))
+
+(defun haystack--chain-part-string (part)
+  "Format chain segment PART plist as a \"label=display\" string."
+  (format "%s=%s" (plist-get part :label) (plist-get part :display)))
 
 (defun haystack--format-search-chain (descriptor current-term current-negated
                                                  &optional current-filename
-                                                 current-expansion)
+                                                 current-expansion
+                                                 current-face)
   "Return a string showing the full search chain for a child buffer header.
 Combines the root term, all existing filters from DESCRIPTOR, and the
 CURRENT-TERM being applied.  CURRENT-NEGATED and CURRENT-FILENAME control
 the label (filter=, exclude=, filename=, or !filename=).
 When CURRENT-EXPANSION (a member list) is non-nil it is shown as an
-alternation in place of the raw term.  Expansions stored in DESCRIPTOR
-are shown the same way."
-  (let ((current-display (haystack--format-term-display current-term current-expansion)))
-    (mapconcat #'identity
+alternation in place of the raw term.  CURRENT-FACE, when non-nil,
+propertizes the current term display."
+  (let* ((current-display (haystack--format-term-display current-term current-expansion))
+         (current-display (if current-face
+                              (propertize current-display 'face current-face)
+                            current-display)))
+    (mapconcat #'haystack--chain-part-string
                (append (haystack--chain-parts descriptor)
-                       (list (format "%s=%s"
-                                     (haystack--filter-label current-negated
-                                                             current-filename)
-                                     current-display)))
+                       (list (list :label (haystack--filter-label current-negated
+                                                                  current-filename)
+                                   :display current-display
+                                   :face (or current-face 'haystack-match-search))))
                " > ")))
 
 (defun haystack--descriptor-chain-string (descriptor)
   "Return the full search chain string for DESCRIPTOR.
 Formats root + all stored filters with no additional current term appended.
 Used to produce the header comment in data-style MOC output."
-  (mapconcat #'identity (haystack--chain-parts descriptor) " > "))
+  (mapconcat #'haystack--chain-part-string
+             (haystack--chain-parts descriptor) " > "))
 
 (defun haystack--child-buffer-name (descriptor new-term new-negated
                                                new-filename new-literal new-regex)
@@ -1790,7 +1817,8 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
                                                      (plist-get parsed :literal)
                                                      (plist-get parsed :regex)))
            (chain-str   (haystack--format-search-chain descriptor term negated
-                                                       filename expansion))
+                                                       filename expansion
+                                                       (haystack--filter-face parsed)))
            (new-filters (append (plist-get descriptor :filters)
                                 (list (list :term      term
                                             :negated   negated
@@ -2360,6 +2388,10 @@ as usual on the resulting buffer."
     (define-key map "t"             #'haystack-show-tree)
     (define-key map "D"             #'haystack-describe-discoverability)
     (define-key map "Y"             #'haystack-mentions-yank-to-origin)
+    (define-key map "v"             #'haystack-cycle-view)
+    (define-key map "1"             #'haystack-view-full)
+    (define-key map "2"             #'haystack-view-compact)
+    (define-key map "3"             #'haystack-view-files)
     (define-key map "?"             #'haystack-help)
     map)
   "Keymap active in haystack results buffers (on top of `grep-mode').")
@@ -2374,9 +2406,11 @@ while previewing matched files in another window."
 (defun haystack-next-match (&optional n)
   "Move to the next N-th match in the results buffer and preview it.
 Focus remains in the results buffer; the matched file is shown in
-another window."
+another window.  In files view mode, invisible lines are skipped."
   (interactive "p")
   (compilation-next-error (or n 1))
+  (while (and (not (eobp)) (invisible-p (point)))
+    (compilation-next-error 1))
   (save-selected-window
     (compile-goto-error)))
 
@@ -2384,11 +2418,155 @@ another window."
 (defun haystack-previous-match (&optional n)
   "Move to the previous N-th match in the results buffer and preview it.
 Focus remains in the results buffer; the matched file is shown in
-another window."
+another window.  In files view mode, invisible lines are skipped."
   (interactive "p")
   (compilation-next-error (- (or n 1)))
+  (while (and (not (bobp)) (invisible-p (point)))
+    (compilation-next-error -1))
   (save-selected-window
     (compile-goto-error)))
+
+;;;; View mode
+
+(defun haystack--view-clear ()
+  "Remove all view-mode overlays from the current buffer.
+Deletes every overlay in `haystack--view-overlays', nils the list,
+removes `haystack-view' from `buffer-invisibility-spec', and deletes
+the header view-mode overlay."
+  (mapc #'delete-overlay haystack--view-overlays)
+  (setq haystack--view-overlays nil)
+  (when (and (listp buffer-invisibility-spec)
+             (memq 'haystack-view buffer-invisibility-spec))
+    (setq buffer-invisibility-spec
+          (delq 'haystack-view buffer-invisibility-spec)))
+  (when haystack--view-header-overlay
+    (delete-overlay haystack--view-header-overlay)
+    (setq haystack--view-header-overlay nil)))
+
+(defun haystack--view-apply ()
+  "Apply overlays for the current `haystack--view-mode'.
+Dispatches to the appropriate apply function; no-op for `full'."
+  (pcase haystack--view-mode
+    ('compact (haystack--view-apply-compact))
+    ('files   (haystack--view-apply-files))
+    ('full    nil)))
+
+(defun haystack--view-apply-compact ()
+  "Apply compact-mode overlays.
+Replace each result line's filename with its `haystack--pretty-title'
+output via a `display' overlay.  A hash table caches titles so each
+unique filename is computed only once."
+  (let ((cache (make-hash-table :test #'equal)))
+    (save-excursion
+      (goto-char (marker-position haystack--header-end-marker))
+      (while (not (eobp))
+        (when (looking-at "\\([^:\n]+\\):\\([0-9]+\\):")
+          (let* ((beg (match-beginning 1))
+                 (end (match-end 1))
+                 (file (match-string 1))
+                 (base (file-name-nondirectory file))
+                 (title (or (gethash base cache)
+                            (puthash base (haystack--pretty-title base) cache)))
+                 (ov (make-overlay beg end)))
+            (overlay-put ov 'display title)
+            (overlay-put ov 'haystack-view t)
+            (push ov haystack--view-overlays)))
+        (forward-line 1)))))
+
+(defun haystack--view-apply-files ()
+  "Apply files-mode overlays.
+Show one line per unique file.  Duplicate lines are hidden via the
+`invisible' property; kept lines show only the pretty-title with
+the `:line:content' portion hidden via `display' overlay."
+  (add-to-invisibility-spec 'haystack-view)
+  (let ((seen (make-hash-table :test #'equal))
+        (cache (make-hash-table :test #'equal)))
+    (save-excursion
+      (goto-char (marker-position haystack--header-end-marker))
+      (while (not (eobp))
+        (when (looking-at "\\([^:\n]+\\):\\([0-9]+\\):\\(.*\\)")
+          (let* ((file-beg (match-beginning 1))
+                 (file-end (match-end 1))
+                 (file (match-string 1))
+                 (content-beg file-end)
+                 (content-end (match-end 0))
+                 (base (file-name-nondirectory file)))
+            (if (gethash base seen)
+                ;; Duplicate: hide entire line (including newline).
+                (let ((ov (make-overlay (line-beginning-position)
+                                        (min (1+ (line-end-position)) (point-max)))))
+                  (overlay-put ov 'invisible 'haystack-view)
+                  (overlay-put ov 'haystack-view t)
+                  (push ov haystack--view-overlays))
+              ;; First occurrence: show pretty-title, hide :line:content.
+              (puthash base t seen)
+              (let* ((title (or (gethash base cache)
+                                (puthash base (haystack--pretty-title base) cache)))
+                     (ov-name (make-overlay file-beg file-end))
+                     (ov-content (make-overlay content-beg content-end)))
+                (overlay-put ov-name 'display title)
+                (overlay-put ov-name 'haystack-view t)
+                (overlay-put ov-content 'display "")
+                (overlay-put ov-content 'haystack-view t)
+                (push ov-name haystack--view-overlays)
+                (push ov-content haystack--view-overlays)))))
+        (forward-line 1)))))
+
+(defun haystack--view-set (mode)
+  "Switch to view MODE, clearing old overlays and applying new ones."
+  (haystack--view-clear)
+  (setq haystack--view-mode mode)
+  (haystack--view-apply)
+  (haystack--view-update-header)
+  (message "Haystack view: %s" (symbol-name mode)))
+
+(defun haystack-cycle-view ()
+  "Cycle view mode: full → compact → files → full."
+  (interactive)
+  (haystack--view-set
+   (pcase haystack--view-mode
+     ('full    'compact)
+     ('compact 'files)
+     (_        'full))))
+
+(defun haystack-view-full ()
+  "Switch to full view mode (default grep-format output)."
+  (interactive)
+  (haystack--view-set 'full))
+
+(defun haystack-view-compact ()
+  "Switch to compact view mode (pretty-title overlays on filenames)."
+  (interactive)
+  (haystack--view-set 'compact))
+
+(defun haystack-view-files ()
+  "Switch to files view mode (one line per unique file)."
+  (interactive)
+  (haystack--view-set 'files))
+
+(defvar-local haystack--view-header-overlay nil
+  "Overlay on the header view-mode line, updated on toggle.")
+
+(defun haystack--view-update-header ()
+  "Update the view-mode indicator line in the header.
+In `full' mode the underlying text already says \"Full\" so no overlay
+is needed (it was cleared by `haystack--view-clear')."
+  (when (not (eq haystack--view-mode 'full))
+    (save-excursion
+      (goto-char (point-min))
+      (when (search-forward ";;;;  view: " (marker-position haystack--header-end-marker) t)
+        (let ((line-beg (line-beginning-position))
+              (line-end (line-end-position))
+              (label (format ";;;;  view: %s"
+                             (capitalize (symbol-name haystack--view-mode)))))
+          (if haystack--view-header-overlay
+              (progn
+                (move-overlay haystack--view-header-overlay line-beg line-end)
+                (overlay-put haystack--view-header-overlay 'display label))
+            (let ((ov (make-overlay line-beg line-end)))
+              (overlay-put ov 'display label)
+              (overlay-put ov 'evaporate t)
+              (setq haystack--view-header-overlay ov))))))))
 
 ;;;; Help
 
@@ -2456,6 +2634,12 @@ columns a two-column layout is used to reduce the required height."
                      (haystack--help-section "Composite")
                      (haystack--help-entry 'haystack-compose             "compose composite note")
                      ""
+                     (haystack--help-section "Display")
+                     (haystack--help-entry 'haystack-cycle-view          "cycle view (full/compact/files)")
+                     (haystack--help-entry 'haystack-view-full           "view: full")
+                     (haystack--help-entry 'haystack-view-compact        "view: compact")
+                     (haystack--help-entry 'haystack-view-files          "view: files")
+                     ""
                      (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")
                      rule)
                "\n")))
@@ -2487,6 +2671,9 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
                       ""
                       (haystack--help-section "Composite")
                       (haystack--help-entry 'haystack-compose           "compose composite")
+                      ""
+                      (haystack--help-section "Display")
+                      (haystack--help-entry 'haystack-cycle-view        "cycle view (full/compact/files)")
                       ""
                       ";;;;"
                       (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")))
@@ -2588,6 +2775,91 @@ Each face is drawn from the active theme, so the tree adapts to colorscheme
 changes automatically."
   :type '(repeat face)
   :group 'haystack)
+
+(defface haystack-match-search '((t :inherit match))
+  "Face for standard search term matches in results content."
+  :group 'haystack)
+
+(defface haystack-match-literal '((t :inherit font-lock-string-face))
+  "Face for literal (= prefix) term matches in results content."
+  :group 'haystack)
+
+(defface haystack-match-regex '((t :inherit font-lock-regexp-face))
+  "Face for regex (~ prefix) term matches in results content."
+  :group 'haystack)
+
+(defface haystack-match-negation '((t :inherit error))
+  "Face for negated (! prefix) terms in headers and tree views.
+Never applied to results content (excluded files are absent)."
+  :group 'haystack)
+
+(defface haystack-match-date '((t :inherit font-lock-type-face))
+  "Face for date-range search matches in results content."
+  :group 'haystack)
+
+(defface haystack-match-filename '((t :inherit font-lock-function-name-face))
+  "Face for filename (/ prefix) terms in headers and tree views.
+Never applied to results content (filename filters match paths, not content)."
+  :group 'haystack)
+
+(defun haystack--root-face (descriptor)
+  "Return the highlight face for DESCRIPTOR's root term."
+  (cond
+   ((eq (plist-get descriptor :root-kind) 'date-range) 'haystack-match-date)
+   ((plist-get descriptor :root-filename)              'haystack-match-filename)
+   ((plist-get descriptor :root-regex)                 'haystack-match-regex)
+   ((plist-get descriptor :root-literal)               'haystack-match-literal)
+   (t                                                  'haystack-match-search)))
+
+(defun haystack--filter-face (filter)
+  "Return the highlight face for FILTER plist."
+  (cond
+   ((eq (plist-get filter :kind) 'date-range) 'haystack-match-date)
+   ((plist-get filter :negated)               'haystack-match-negation)
+   ((plist-get filter :filename)              'haystack-match-filename)
+   ((plist-get filter :regex)                 'haystack-match-regex)
+   ((plist-get filter :literal)               'haystack-match-literal)
+   (t                                         'haystack-match-search)))
+
+(defun haystack--match-highlight-specs (descriptor)
+  "Return a list of highlight spec plists for DESCRIPTOR.
+Each spec is (:emacs-pattern P :face F :content-p BOOL).
+Content-p is nil for negated and filename entries (they don't match
+in the content region)."
+  (let* ((root-face (haystack--root-face descriptor))
+         (root-term (plist-get descriptor :root-term))
+         (root-pat  (if (eq (plist-get descriptor :root-kind) 'date-range)
+                        "hs: [<\\[]"
+                      (haystack--build-emacs-pattern
+                       root-term
+                       (plist-get descriptor :root-regex)
+                       (plist-get descriptor :root-literal))))
+         (root-content-p (not (or (plist-get descriptor :root-filename)
+                                  (eq root-face 'haystack-match-filename))))
+         (specs (list (list :emacs-pattern root-pat
+                            :face root-face
+                            :content-p root-content-p))))
+    (dolist (f (plist-get descriptor :filters))
+      (let* ((face (haystack--filter-face f))
+             (pat  (if (eq (plist-get f :kind) 'date-range)
+                       "hs: [<\\[]"
+                     (haystack--build-emacs-pattern
+                      (plist-get f :term)
+                      (plist-get f :regex)
+                      (plist-get f :literal))))
+             (content-p (not (or (plist-get f :negated)
+                                 (plist-get f :filename)))))
+        (push (list :emacs-pattern pat :face face :content-p content-p) specs)))
+    (nreverse specs)))
+
+(defun haystack--descriptor-leaf-face (descriptor)
+  "Return the highlight face for the deepest term in DESCRIPTOR.
+If filters exist, returns the face for the last filter; otherwise
+returns the root face."
+  (let ((filters (plist-get descriptor :filters)))
+    (if filters
+        (haystack--filter-face (car (last filters)))
+      (haystack--root-face descriptor))))
 
 (defvar haystack-tree-mode-map
   (let ((map (make-sparse-keymap)))
@@ -2756,8 +3028,7 @@ Each line gets a `haystack-tree-buffer' text property pointing to BUF."
   (let* ((descriptor (buffer-local-value 'haystack--search-descriptor buf))
          (term       (haystack--descriptor-leaf-label descriptor))
          (current-p  (eq buf current-buf))
-         (term-face  (nth (mod depth (length haystack-tree-depth-faces))
-                          haystack-tree-depth-faces))
+         (term-face  (haystack--descriptor-leaf-face descriptor))
          (line-start (point)))
     ;; Tree art — dimmed so it recedes behind the terms
     (let ((art-start (point)))

@@ -331,5 +331,110 @@ path: split, downcase, stop-word filter, dedup."
       (haystack--discoverability-render
        tc "/notes/20241215120000-bench-note.org"))))
 
+;;;; View mode overlays
+
+(defun haystack-bench--make-view-buffer (n-lines)
+  "Create a results buffer with N-LINES of synthetic grep output.
+Returns the buffer; caller must kill it."
+  (let* ((haystack-notes-directory temporary-file-directory)
+         (lines (make-vector n-lines nil)))
+    (dotimes (i n-lines)
+      (aset lines i
+            (format "%014d-synthetic-note.org:%d:%s"
+                    (mod i 100) (1+ i)
+                    (make-string 60 ?a))))
+    (haystack--setup-results-buffer
+     "*haystack-bench-view*"
+     ";;;; bench header\n"
+     (concat (mapconcat #'identity lines "\n") "\n")
+     (list :root-term "bench" :filters nil))))
+
+(ert-deftest haystack-bench/compact-overlays-10k ()
+  "Compact overlays on 10k lines in under 500ms."
+  (let ((buf (haystack-bench--make-view-buffer 10000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-bench--within-500ms "compact-overlays 10k lines"
+            (haystack-view-compact)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/compact-overlays-100k ()
+  "Compact overlays on 100k lines in under 2s."
+  (let ((buf (haystack-bench--make-view-buffer 100000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-bench--within-2s "compact-overlays 100k lines"
+            (haystack-view-compact)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/files-overlays-10k ()
+  "Files overlays on 10k lines in under 500ms."
+  (let ((buf (haystack-bench--make-view-buffer 10000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-bench--within-500ms "files-overlays 10k lines"
+            (haystack-view-files)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/files-overlays-100k ()
+  "Files overlays on 100k lines in under 2s."
+  (let ((buf (haystack-bench--make-view-buffer 100000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-bench--within-2s "files-overlays 100k lines"
+            (haystack-view-files)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/view-clear-10k ()
+  "Clearing 10k view overlays in under 500ms."
+  (let ((buf (haystack-bench--make-view-buffer 10000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-view-compact)
+          (haystack-bench--within-500ms "view-clear 10k overlays"
+            (haystack--view-clear)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/view-clear-100k ()
+  "Clearing 100k view overlays in under 2s."
+  (let ((buf (haystack-bench--make-view-buffer 100000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (haystack-view-compact)
+          (haystack-bench--within-2s "view-clear 100k overlays"
+            (haystack--view-clear)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/font-lock-highlight-10k ()
+  "Font-lock-ensure with 3 highlight specs on 10k lines in under 500ms."
+  (let ((buf (haystack-bench--make-view-buffer 10000)))
+    (unwind-protect
+        (with-current-buffer buf
+          ;; Add highlight specs matching the synthetic content.
+          (font-lock-add-keywords
+           nil
+           '(("synthetic" 0 'haystack-match-search keep)
+             ("note" 0 'haystack-match-literal keep)
+             ("aaa" 0 'haystack-match-regex keep))
+           'append)
+          (haystack-bench--within-500ms "font-lock-highlight 10k lines"
+            (font-lock-ensure)))
+      (kill-buffer buf))))
+
+(ert-deftest haystack-bench/font-lock-highlight-100k ()
+  "Font-lock-ensure with 3 highlight specs on 100k lines in under 2s."
+  (let ((buf (haystack-bench--make-view-buffer 100000)))
+    (unwind-protect
+        (with-current-buffer buf
+          (font-lock-add-keywords
+           nil
+           '(("synthetic" 0 'haystack-match-search keep)
+             ("note" 0 'haystack-match-literal keep)
+             ("aaa" 0 'haystack-match-regex keep))
+           'append)
+          (haystack-bench--within-2s "font-lock-highlight 100k lines"
+            (font-lock-ensure)))
+      (kill-buffer buf))))
+
 (provide 'haystack-bench)
 ;;; haystack-bench.el ends here

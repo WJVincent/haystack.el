@@ -464,7 +464,7 @@ For tests that only need simple unmodified filter terms."
   "chain-parts uses \"date\" as the root label for date-range descriptors."
   (let* ((d     (haystack--date-root-descriptor "2024-01" "2024-03"))
          (parts (haystack--chain-parts d)))
-    (should (string-prefix-p "date=" (car parts)))))
+    (should (equal "date" (plist-get (car parts) :label)))))
 
 (ert-deftest haystack-test/chain-parts-renders-date-filter-in-chain ()
   "chain-parts renders a date-range filter entry as date=LABEL."
@@ -475,7 +475,7 @@ For tests that only need simple unmodified filter terms."
                      :composite-filter nil))
          (parts (haystack--chain-parts desc)))
     (should (= (length parts) 2))
-    (should (string-prefix-p "date=" (cadr parts)))))
+    (should (equal "date" (plist-get (cadr parts) :label)))))
 
 ;;;; haystack--search-date-range-internal — output format
 
@@ -6397,6 +6397,311 @@ matching the behavior of ?s (search anyway)."
     ;; Results-buffer-only commands absent
     (should-not (string-match-p "filter further" content))
     (should-not (string-match-p "compose" content))))
+
+;;;; View mode tests
+
+(ert-deftest haystack-test/view-mode-default-is-full ()
+  "New results buffer has `haystack--view-mode' set to `full'."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-view*"
+                ";;;; test header\n"
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (should (eq haystack--view-mode 'full)))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/view-mode-cycles-correctly ()
+  "Three calls to `haystack-cycle-view' cycle full → compact → files → full."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-cycle*"
+                ";;;; test header\n"
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (should (eq haystack--view-mode 'full))
+            (haystack-cycle-view)
+            (should (eq haystack--view-mode 'compact))
+            (haystack-cycle-view)
+            (should (eq haystack--view-mode 'files))
+            (haystack-cycle-view)
+            (should (eq haystack--view-mode 'full)))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/view-clear-removes-all-overlays ()
+  "After clearing, `haystack--view-overlays' is nil and no tagged overlays remain."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-clear*"
+                ";;;; test header\n"
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            ;; Manually add some overlays to simulate view mode state.
+            (let ((ov (make-overlay (point-min) (+ (point-min) 4))))
+              (overlay-put ov 'haystack-view t)
+              (push ov haystack--view-overlays))
+            (should haystack--view-overlays)
+            (haystack--view-clear)
+            (should-not haystack--view-overlays))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/view-direct-jump-sets-mode ()
+  "Each direct-jump command sets the expected mode value."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-direct*"
+                ";;;; test header\n"
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-compact)
+            (should (eq haystack--view-mode 'compact))
+            (haystack-view-files)
+            (should (eq haystack--view-mode 'files))
+            (haystack-view-full)
+            (should (eq haystack--view-mode 'full)))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/header-end-marker-is-set ()
+  "`haystack--header-end-marker' is set to a marker at the end of the header."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-marker*"
+                ";;;; test header\n"
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (should (markerp haystack--header-end-marker))
+            (should (= (marker-position haystack--header-end-marker)
+                       (1+ (length ";;;; test header\n")))))
+        (kill-buffer buf)))))
+
+;;;; View mode — compact tests
+
+(ert-deftest haystack-test/compact-overlay-replaces-filename ()
+  "In compact mode, overlay at filename position displays pretty-title."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-compact*"
+                ";;;; header\n"
+                "20240101120000-my-note.org:1:some content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-compact)
+            (goto-char haystack--header-end-marker)
+            (let ((ovs (overlays-at (point))))
+              (should ovs)
+              (should (equal (overlay-get (car ovs) 'display) "my note"))))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/compact-preserves-buffer-string ()
+  "After compact overlays, `buffer-string' still contains raw grep-format text."
+  (let ((haystack-notes-directory temporary-file-directory)
+        (raw-output "20240101120000-my-note.org:1:some content\n"))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-compact-raw*"
+                ";;;; header\n"
+                raw-output
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-compact)
+            (should (string-match-p "20240101120000-my-note\\.org:1:some content"
+                                    (buffer-string))))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/compact-skips-header ()
+  "Compact overlays are only created after `haystack--header-end-marker'."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-compact-hdr*"
+                ";;;; header\n"
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-compact)
+            (let ((header-ovs (overlays-in (point-min)
+                                           (marker-position haystack--header-end-marker))))
+              ;; No view overlays should exist in the header region.
+              (should-not (cl-some (lambda (ov) (overlay-get ov 'haystack-view))
+                                   header-ovs))))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/compact-caches-pretty-titles ()
+  "Pretty-title is computed once per unique filename, not once per line."
+  (let ((haystack-notes-directory temporary-file-directory)
+        (call-count 0))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-compact-cache*"
+                ";;;; header\n"
+                (concat "fileA.org:1:line one\n"
+                        "fileA.org:2:line two\n"
+                        "fileA.org:3:line three\n"
+                        "fileB.org:1:line one\n"
+                        "fileB.org:2:line two\n")
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (cl-letf (((symbol-function 'haystack--pretty-title)
+                       (lambda (f)
+                         (setq call-count (1+ call-count))
+                         (replace-regexp-in-string "-" " " (file-name-sans-extension f)))))
+              (haystack-view-compact))
+            ;; 2 unique files = 2 calls, not 5.
+            (should (= call-count 2)))
+        (kill-buffer buf)))))
+
+;;;; View mode — files tests
+
+(ert-deftest haystack-test/files-hides-duplicates ()
+  "Files mode shows one visible line per unique file."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-files*"
+                ";;;; header\n"
+                (concat "fileA.org:1:line one\n"
+                        "fileA.org:2:line two\n"
+                        "fileA.org:3:line three\n"
+                        "fileB.org:1:line one\n"
+                        "fileB.org:4:line four\n")
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-files)
+            ;; Count visible lines in the results region.
+            (let ((visible 0))
+              (goto-char (marker-position haystack--header-end-marker))
+              (while (not (eobp))
+                (unless (invisible-p (point))
+                  (setq visible (1+ visible)))
+                (forward-line 1))
+              (should (= visible 2))))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/files-preserves-buffer-string ()
+  "After files overlays, `buffer-string' still contains all raw lines."
+  (let ((haystack-notes-directory temporary-file-directory)
+        (raw-output (concat "fileA.org:1:line one\n"
+                            "fileA.org:2:line two\n"
+                            "fileB.org:1:line one\n")))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-files-raw*"
+                ";;;; header\n"
+                raw-output
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-files)
+            (should (string-match-p "fileA\\.org:2:line two" (buffer-string))))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/files-first-occurrence-shows-pretty-title ()
+  "In files mode, the kept line's filename is overlaid with pretty-title."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-files-title*"
+                ";;;; header\n"
+                "20240101120000-my-note.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-files)
+            (goto-char (marker-position haystack--header-end-marker))
+            (let ((ovs (overlays-at (point))))
+              (should (cl-some (lambda (ov)
+                                 (equal (overlay-get ov 'display) "my note"))
+                               ovs))))
+        (kill-buffer buf)))))
+
+(ert-deftest haystack-test/files-first-occurrence-hides-content ()
+  "In files mode, the kept line's :line:content portion is hidden."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-files-content*"
+                ";;;; header\n"
+                "file.org:1:some content here\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-files)
+            (goto-char (marker-position haystack--header-end-marker))
+            ;; Move past the filename overlay to the :line:content region.
+            (when (looking-at "\\([^:\n]+\\)")
+              (goto-char (match-end 0)))
+            (let ((ovs (overlays-at (point))))
+              (should (cl-some (lambda (ov)
+                                 (equal (overlay-get ov 'display) ""))
+                               ovs))))
+        (kill-buffer buf)))))
+
+;;;; View mode — header indicator tests
+
+(ert-deftest haystack-test/header-shows-view-mode ()
+  "After cycling view mode, the header reflects the new mode."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-hdr-view*"
+                (haystack--format-header "root=test" 1 1)
+                "file.org:1:content\n"
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            ;; Default: underlying text says "Full", no overlay yet.
+            (goto-char (point-min))
+            (should (search-forward "view: Full" (marker-position haystack--header-end-marker) t))
+            ;; Cycle to compact — overlay should show "Compact".
+            (haystack-cycle-view)
+            (should haystack--view-header-overlay)
+            (should (string-match-p "Compact"
+                                    (overlay-get haystack--view-header-overlay 'display)))
+            ;; Cycle to files.
+            (haystack-cycle-view)
+            (should (string-match-p "Files"
+                                    (overlay-get haystack--view-header-overlay 'display)))
+            ;; Cycle back to full — overlay cleared.
+            (haystack-cycle-view)
+            (should-not haystack--view-header-overlay))
+        (kill-buffer buf)))))
+
+;;;; View mode — navigation tests
+
+(ert-deftest haystack-test/next-match-skips-invisible-lines ()
+  "In files mode, `haystack-next-match' skips invisible (duplicate) lines."
+  (let ((haystack-notes-directory temporary-file-directory))
+    (let ((buf (haystack--setup-results-buffer
+                "*haystack:1:test-nav*"
+                (haystack--format-header "root=test" 2 4)
+                (concat "fileA.org:1:line one\n"
+                        "fileA.org:2:line two\n"
+                        "fileA.org:3:line three\n"
+                        "fileB.org:1:line one\n")
+                (list :root-term "test" :filters nil))))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-view-files)
+            ;; Start at the first result.
+            (goto-char (marker-position haystack--header-end-marker))
+            ;; fileA is visible at point.  Next should jump to fileB,
+            ;; skipping the two invisible fileA duplicates.
+            (cl-letf (((symbol-function 'compile-goto-error) #'ignore)
+                      ((symbol-function 'save-selected-window)
+                       (lambda (&rest _) nil)))
+              (haystack-next-match 1))
+            ;; Point should be on the fileB line.
+            (should (string-match-p "fileB"
+                                    (buffer-substring (line-beginning-position)
+                                                      (line-end-position)))))
+        (kill-buffer buf)))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

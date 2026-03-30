@@ -285,6 +285,8 @@ instead. This prevents pointless redundant filters.
 | `D` | Analyze term discoverability for the current note |
 | `Y` | Append mentions MOC to origin note and kill tree (mentions buffers only) |
 | `C-c C-c` | Compose a composite note from this buffer's results |
+| `v` | Cycle view mode (Full → Compact → Files) |
+| `1` / `2` / `3` | Jump to Full / Compact / Files view directly |
 | `?`  | Show help |
 
 Results buffers are `grep-mode` compatible. `compile-goto-error`,
@@ -295,6 +297,25 @@ the box.
 > This shadows `follow-mode` (`follow-mode` is a minor mode normally bound to
 > `f` in some configurations).  If you rely on `follow-mode`, rebind
 > `haystack-filter-further` in `haystack-results-mode-map`.
+
+## View Modes
+
+Results buffers support three view modes, cycled with `v`:
+
+- **Full** (default) — standard grep-format output with file paths, line
+  numbers, and content
+- **Compact** — file paths are replaced with human-readable titles (via
+  overlays); line numbers and content remain visible
+- **Files** — one line per unique file, no line numbers or content; a
+  quick way to see which files matched
+
+View mode is buffer-local and does not affect the underlying buffer
+text. `filter-further`, MOC, compose, and all other operations work
+identically in any view mode. `n`/`p` navigation automatically skips
+hidden lines in Files mode.
+
+Direct-jump commands (`haystack-view-full`, `haystack-view-compact`,
+`haystack-view-files`) are also available for keybinding.
 
 ## Buffer Tree
 
