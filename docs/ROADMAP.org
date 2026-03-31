@@ -391,10 +391,19 @@ implemented; remaining TODO items are ideas for future development.
   Emacs (grep-mode's fontification machinery interfered).  May revisit
   with a different approach in the future.
 ** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
-** TODO New note from region
+** DONE New note from region (=haystack-new-note-from-region=)
+- Grabs the active region text, creates a new note via the standard
+  slug/extension prompt, inserts the region content after frontmatter
+- Bound to =x= in =haystack-prefix-map=
 ** TODO Boolean DSL / query parser (=|=, =()= operators — =&= already done)
 ** TODO Human-readable date parser for time queries (date expressions like "today", "-7d", "last friday")
-** TODO Search scope modes (body-only, frontmatter-only via sentinel)
+** DONE Search scope modes (body-only, frontmatter-only via sentinel)
+- =>= prefix: body-only (match only lines after =%%% haystack-end-frontmatter %%%= sentinel)
+- =<= prefix: frontmatter-only (match only lines at or before sentinel)
+- Implemented as a post-filter: sentinel lookup via rg, then Elisp line-number comparison
+- Composes with all existing prefixes: =!>=, =>==, =>=~=, =<==, etc.
+- Integrated into root search, filter-further, frecency chain keys, and replay
+- Files without a sentinel are all-body (=>= matches everything, =<= returns nothing)
 ** TODO Discoverability save-hook mode
 ** TODO Frecency replay recording semantics
 - Currently replay suppresses recording for all intermediate steps and
@@ -402,3 +411,12 @@ implemented; remaining TODO items are ideas for future development.
   replaying a chain doesn't count as "visiting" it.  The right answer
   is unclear — use the current behaviour and revisit if the frecency
   list becomes less useful over time.
+** TODO Keymap audit — mnemonic review of all default bindings
+- Revisit both =haystack-prefix-map= and =haystack-results-mode-map=
+  bindings with fresh eyes once the feature set has stabilised
+- Goal: every binding should have a clear mnemonic (some current
+  choices like =x= for new-note-from-region are pragmatic gap-fills
+  rather than obvious mnemonics)
+- Consider consistency across the prefix map and results-mode map
+- This is a pre-1.0 task — changing bindings after public release is
+  a breaking change

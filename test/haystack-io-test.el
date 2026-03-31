@@ -911,5 +911,109 @@ The MOC should contain the same number of unique files as the full view."
                 (should (= (length haystack--last-moc) full-files))))
           (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
 
+;;;; Test 33 — scope filter: body scope reduces result count
+
+(ert-deftest haystack-io-test/scope-body-has-fewer-results ()
+  "Body scope (>) produces a different header stat line than unscoped,
+confirming the scope filter ran and changed the result count."
+  (haystack-io-test--with-corpus
+    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+              ((symbol-function 'switch-to-buffer) #'ignore))
+      (let ((all-buf  (haystack-run-root-search "=TITLE"))
+            (body-buf (haystack-run-root-search ">=TITLE")))
+        (unwind-protect
+            (let ((all-header  (with-current-buffer all-buf
+                                 (buffer-substring (point-min)
+                                                   (marker-position haystack--header-end-marker))))
+                  (body-header (with-current-buffer body-buf
+                                 (buffer-substring (point-min)
+                                                   (marker-position haystack--header-end-marker)))))
+              ;; The match count in the body header should be smaller because
+              ;; frontmatter #+TITLE: lines are excluded.
+              (let ((all-matches  (when (string-match "\\([0-9]+\\) matches" all-header)
+                                    (string-to-number (match-string 1 all-header))))
+                    (body-matches (when (string-match "\\([0-9]+\\) matches" body-header)
+                                    (string-to-number (match-string 1 body-header)))))
+                (should all-matches)
+                (should body-matches)
+                (should (< body-matches all-matches))))
+          (when (buffer-live-p all-buf)  (kill-buffer all-buf))
+          (when (buffer-live-p body-buf) (kill-buffer body-buf)))))))
+
+;;;; Test 34 — scope filter: frontmatter scope returns only frontmatter lines
+
+(ert-deftest haystack-io-test/scope-frontmatter-returns-low-line-numbers ()
+  "Frontmatter scope (<) returns only lines at or before the sentinel (line <= 3
+for standard haystack frontmatter: TITLE, DATE, sentinel)."
+  (haystack-io-test--with-corpus
+    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+              ((symbol-function 'switch-to-buffer) #'ignore))
+      (let ((fm-buf (haystack-run-root-search "<=TITLE")))
+        (unwind-protect
+            (let ((output (with-current-buffer fm-buf (buffer-string))))
+              ;; Should find results.
+              (should (> (length (with-current-buffer fm-buf
+                                   (haystack--extract-filenames (buffer-string))))
+                         0))
+              ;; Every non-header result line should be in the frontmatter
+              ;; region (line <= 3 for org files, up to ~5 for YAML/comment styles).
+              (dolist (line (split-string output "\n" t))
+                (when (string-match "\\`.+?:\\([0-9]+\\):" line)
+                  (should (<= (string-to-number (match-string 1 line)) 6)))))
+          (when (buffer-live-p fm-buf) (kill-buffer fm-buf)))))))
+
+;;;; Test 35 — scope filter: AND query with body scope
+
+(ert-deftest haystack-io-test/scope-and-query-body-reduces-matches ()
+  "AND query with body scope produces fewer matches than unscoped AND."
+  (haystack-io-test--with-corpus
+    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+              ((symbol-function 'switch-to-buffer) #'ignore))
+      (let ((all-buf  (haystack-run-root-search "=emacs & =lisp"))
+            (body-buf (haystack-run-root-search ">=emacs & >=lisp")))
+        (unwind-protect
+            (let ((all-header  (with-current-buffer all-buf
+                                 (buffer-substring (point-min)
+                                                   (marker-position haystack--header-end-marker))))
+                  (body-header (with-current-buffer body-buf
+                                 (buffer-substring (point-min)
+                                                   (marker-position haystack--header-end-marker)))))
+              (let ((all-matches  (when (string-match "\\([0-9]+\\) matches" all-header)
+                                    (string-to-number (match-string 1 all-header))))
+                    (body-matches (when (string-match "\\([0-9]+\\) matches" body-header)
+                                    (string-to-number (match-string 1 body-header)))))
+                (should all-matches)
+                (should body-matches)
+                (should (< body-matches all-matches))))
+          (when (buffer-live-p all-buf)  (kill-buffer all-buf))
+          (when (buffer-live-p body-buf) (kill-buffer body-buf)))))))
+
+;;;; Test 36 — scope filter: negation with body scope
+
+(ert-deftest haystack-io-test/scope-negation-body-correct-semantics ()
+  "!>term excludes files containing the term in body, not in frontmatter."
+  (haystack-io-test--with-corpus
+    (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+              ((symbol-function 'switch-to-buffer) #'ignore))
+      ;; First search for emacs, then negate-filter with body scope
+      (let ((root-buf (haystack-run-root-search "=emacs")))
+        (unwind-protect
+            (with-current-buffer root-buf
+              ;; !>TITLE should NOT exclude files that only have TITLE in frontmatter.
+              ;; Unscoped !TITLE would exclude them because TITLE appears anywhere.
+              (let ((body-neg-buf   (haystack-filter-further "!>=TITLE"))
+                    (unscoped-neg-buf (haystack-filter-further "!=TITLE")))
+                (unwind-protect
+                    (let ((body-neg-files (length (with-current-buffer body-neg-buf
+                                                    (haystack--extract-filenames (buffer-string)))))
+                          (unscoped-neg-files (length (with-current-buffer unscoped-neg-buf
+                                                        (haystack--extract-filenames (buffer-string))))))
+                      ;; Body-scoped negation should keep MORE files because
+                      ;; files with TITLE only in frontmatter are not excluded.
+                      (should (>= body-neg-files unscoped-neg-files)))
+                  (when (buffer-live-p body-neg-buf) (kill-buffer body-neg-buf))
+                  (when (buffer-live-p unscoped-neg-buf) (kill-buffer unscoped-neg-buf)))))
+          (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
+
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

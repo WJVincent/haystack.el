@@ -86,6 +86,7 @@ See `demo/README.org` for a guided walkthrough.
 | `C-c h .` | Search word at point (or active region) |
 | `C-c h n` | Create a new note |
 | `C-c h N` | Create a new note and insert the current results MOC |
+| `C-c h x` | Create a new note from the active region |
 | `C-c h r` | Search the active region |
 | `C-c h f` | Jump to a frecent search |
 | `C-c h y` | Yank a MOC at point |
@@ -188,7 +189,7 @@ into a root search.
 The filter prompt shows the available prefixes:
 
 ```
-[=]literal  [/]filename  [!]negate  [~]regex
+[=]literal  [/]filename  [!]negate  [~]regex  [>]body  [<]frontmatter
 Filter:
 ```
 
@@ -199,9 +200,12 @@ Filter:
 | `/` | Filename filter — match path relative to notes directory | `/cargo` |
 | `~` | Raw regex — passed directly to ripgrep | `~foo\|bar` |
 | `!`  | Negate — exclude files containing this term | `!async` |
+| `>` | Body only — match after the frontmatter sentinel | `>rust` |
+| `<` | Frontmatter only — match at or before the sentinel | `<title` |
 
 Modifiers compose: `!/pattern` negates a filename filter; `!~pattern`
-negates a regex. The `/` prefix matches the **full path relative to the
+negates a regex; `!>term` excludes files containing the term in the
+body; `>=term` does a literal body-only search. The `/` prefix matches the **full path relative to the
 notes directory** (so `/sicp` matches both `sicp-notes.org` and
 `sicp-org/README.org`), then shows content lines from the root search —
 grep-mode navigation and MOC features all continue to work.

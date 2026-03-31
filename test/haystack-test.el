@@ -794,6 +794,41 @@ For tests that only need simple unmodified filter terms."
          (should-error (haystack-new-note-with-moc) :type 'user-error)))
      (kill-buffer buf))))
 
+;;;; haystack-new-note-from-region
+
+(ert-deftest haystack-test/new-note-from-region-creates-file-with-content ()
+  "Creates a note containing the region text after frontmatter."
+  (haystack-test--with-notes-dir
+   (let ((haystack-default-extension "org")
+         (responses (list "from-region" "org")))
+     (with-temp-buffer
+       (insert "This is the selected text.")
+       (set-mark (point-min))
+       (goto-char (point-max))
+       (cl-letf (((symbol-function 'read-string)
+                  (lambda (_prompt &optional _init _hist _default)
+                    (pop responses)))
+                 ((symbol-function 'find-file) #'ignore))
+         (haystack-new-note-from-region (region-beginning) (region-end))
+         (let* ((files (directory-files haystack-notes-directory nil "\\.org$"))
+                (content (with-temp-buffer
+                           (insert-file-contents
+                            (expand-file-name (car files) haystack-notes-directory))
+                           (buffer-string))))
+           (should (= 1 (length files)))
+           (should (string-match-p "from-region" (car files)))
+           (should (string-match-p "#\\+TITLE:" content))
+           (should (haystack-test--has-sentinel content))
+           (should (string-match-p "This is the selected text\\." content))))))))
+
+(ert-deftest haystack-test/new-note-from-region-errors-without-region ()
+  "Signals user-error when no region is active."
+  (haystack-test--with-notes-dir
+   (with-temp-buffer
+     (deactivate-mark)
+     (should-error (haystack-new-note-from-region (point) (point))
+                   :type 'user-error))))
+
 ;;;; haystack-regenerate-frontmatter
 
 (ert-deftest haystack-test/regen-replaces-frontmatter ()
@@ -852,44 +887,59 @@ For tests that only need simple unmodified filter terms."
 (ert-deftest haystack-test/strip-prefixes-bare-term ()
   "A bare term returns no flags and the term unchanged."
   (should (equal (haystack--strip-prefixes "rust")
-                 '("rust" nil nil nil nil))))
+                 '("rust" nil nil nil nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-negate ()
   (should (equal (haystack--strip-prefixes "!rust")
-                 '("rust" t nil nil nil))))
+                 '("rust" t nil nil nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-filename ()
   (should (equal (haystack--strip-prefixes "/cargo")
-                 '("cargo" nil t nil nil))))
+                 '("cargo" nil t nil nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-negate-and-filename ()
   (should (equal (haystack--strip-prefixes "!/cargo")
-                 '("cargo" t t nil nil))))
+                 '("cargo" t t nil nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-literal ()
   (should (equal (haystack--strip-prefixes "=rust")
-                 '("rust" nil nil t nil))))
+                 '("rust" nil nil t nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-regex ()
   (should (equal (haystack--strip-prefixes "~rus+t")
-                 '("rus+t" nil nil nil t))))
+                 '("rus+t" nil nil nil t nil))))
 
 (ert-deftest haystack-test/strip-prefixes-negate-and-literal ()
   (should (equal (haystack--strip-prefixes "!=rust")
-                 '("rust" t nil t nil))))
+                 '("rust" t nil t nil nil))))
 
 (ert-deftest haystack-test/strip-prefixes-negate-and-regex ()
   (should (equal (haystack--strip-prefixes "!~rus+t")
-                 '("rus+t" t nil nil t))))
+                 '("rus+t" t nil nil t nil))))
 
 (ert-deftest haystack-test/strip-prefixes-literal-and-regex ()
   (should (equal (haystack--strip-prefixes "=~rus+t")
-                 '("rus+t" nil nil t t))))
+                 '("rus+t" nil nil t t nil))))
 
 (ert-deftest haystack-test/strip-prefixes-order-matters ()
   "= before ! is not treated as the literal prefix."
   (should (equal (haystack--strip-prefixes "=!rust")
-                 '("!rust" nil nil t nil))))
+                 '("!rust" nil nil t nil nil))))
+
+(ert-deftest haystack-test/strip-prefixes-body-scope ()
+  "> sets scope to body."
+  (should (equal (haystack--strip-prefixes ">rust")
+                 '("rust" nil nil nil nil body))))
+
+(ert-deftest haystack-test/strip-prefixes-frontmatter-scope ()
+  "< sets scope to frontmatter."
+  (should (equal (haystack--strip-prefixes "<title")
+                 '("title" nil nil nil nil frontmatter))))
+
+(ert-deftest haystack-test/strip-prefixes-negate-body-scope ()
+  "!> sets negated and body scope."
+  (should (equal (haystack--strip-prefixes "!>rust")
+                 '("rust" t nil nil nil body))))
 
 ;;; haystack--multi-word-p
 
@@ -1633,6 +1683,48 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
   (let ((result (haystack--parse-input "C++")))
     (should (equal (plist-get result :pattern) (regexp-quote "C++")))))
 
+;;; haystack--parse-input (scope prefixes)
+
+(ert-deftest haystack-test/parse-input-body-scope ()
+  ">prefix sets :scope to body."
+  (let ((result (haystack--parse-input ">rust")))
+    (should (equal (plist-get result :term)  "rust"))
+    (should (equal (plist-get result :scope) 'body))
+    (should (equal (plist-get result :negated) nil))))
+
+(ert-deftest haystack-test/parse-input-frontmatter-scope ()
+  "<prefix sets :scope to frontmatter."
+  (let ((result (haystack--parse-input "<title")))
+    (should (equal (plist-get result :term)  "title"))
+    (should (equal (plist-get result :scope) 'frontmatter))
+    (should (equal (plist-get result :negated) nil))))
+
+(ert-deftest haystack-test/parse-input-negated-body-scope ()
+  "!>prefix sets both :negated and :scope."
+  (let ((result (haystack--parse-input "!>rust")))
+    (should (equal (plist-get result :term)    "rust"))
+    (should (equal (plist-get result :scope)   'body))
+    (should (equal (plist-get result :negated) t))))
+
+(ert-deftest haystack-test/parse-input-body-scope-literal ()
+  ">=prefix sets :scope and :literal."
+  (let ((result (haystack--parse-input ">=rust")))
+    (should (equal (plist-get result :term)    "rust"))
+    (should (equal (plist-get result :scope)   'body))
+    (should (equal (plist-get result :literal) t))))
+
+(ert-deftest haystack-test/parse-input-body-scope-regex ()
+  ">~prefix sets :scope and :regex."
+  (let ((result (haystack--parse-input ">~rus+t")))
+    (should (equal (plist-get result :term)    "rus+t"))
+    (should (equal (plist-get result :scope)   'body))
+    (should (equal (plist-get result :regex)   t))))
+
+(ert-deftest haystack-test/parse-input-no-scope-by-default ()
+  "Bare term has nil :scope."
+  (let ((result (haystack--parse-input "rust")))
+    (should (null (plist-get result :scope)))))
+
 ;;;; haystack--strip-notes-prefix
 
 (ert-deftest haystack-test/strip-notes-prefix-removes-prefix ()
@@ -1928,6 +2020,58 @@ function degrades gracefully and returns a non-empty string."
   "Content mode includes --max-columns=500 to drop minified/base64 lines."
   (let ((haystack-file-glob nil))
     (should (member "--max-columns=500" (haystack--rg-args)))))
+
+;;;; haystack--scope-filter-output
+
+(ert-deftest haystack-test/scope-filter-body-keeps-lines-after-sentinel ()
+  "Body scope keeps only lines with line-number > sentinel line."
+  (let ((sentinel-table (make-hash-table :test 'equal))
+        (output (concat "foo.org:2:title: My Note\n"
+                        "foo.org:4:body content\n"
+                        "foo.org:5:more body\n")))
+    (puthash "foo.org" 3 sentinel-table)
+    (let ((result (haystack--scope-filter-output output sentinel-table 'body)))
+      (should (string-match-p "foo.org:4:body content" result))
+      (should (string-match-p "foo.org:5:more body" result))
+      (should-not (string-match-p "foo.org:2:title" result)))))
+
+(ert-deftest haystack-test/scope-filter-frontmatter-keeps-lines-at-or-before-sentinel ()
+  "Frontmatter scope keeps only lines with line-number <= sentinel line."
+  (let ((sentinel-table (make-hash-table :test 'equal))
+        (output (concat "foo.org:2:title: My Note\n"
+                        "foo.org:3:sentinel line\n"
+                        "foo.org:5:body content\n")))
+    (puthash "foo.org" 3 sentinel-table)
+    (let ((result (haystack--scope-filter-output output sentinel-table 'frontmatter)))
+      (should (string-match-p "foo.org:2:title" result))
+      (should (string-match-p "foo.org:3:sentinel" result))
+      (should-not (string-match-p "foo.org:5:body" result)))))
+
+(ert-deftest haystack-test/scope-filter-body-includes-files-without-sentinel ()
+  "Files without a sentinel are all-body; body scope keeps all their lines."
+  (let ((sentinel-table (make-hash-table :test 'equal))
+        (output "bar.org:1:no frontmatter here\n"))
+    (let ((result (haystack--scope-filter-output output sentinel-table 'body)))
+      (should (string-match-p "bar.org:1:no frontmatter" result)))))
+
+(ert-deftest haystack-test/scope-filter-frontmatter-excludes-files-without-sentinel ()
+  "Files without a sentinel have no frontmatter; frontmatter scope drops them."
+  (let ((sentinel-table (make-hash-table :test 'equal))
+        (output "bar.org:1:no frontmatter here\n"))
+    (let ((result (haystack--scope-filter-output output sentinel-table 'frontmatter)))
+      (should (string-empty-p result)))))
+
+(ert-deftest haystack-test/scope-filter-preserves-header-lines ()
+  "Header lines starting with ;;; pass through regardless of scope."
+  (let ((sentinel-table (make-hash-table :test 'equal))
+        (output (concat ";;; haystack: root=rust | 5 files\n"
+                        "foo.org:2:in frontmatter\n"
+                        "foo.org:5:in body\n")))
+    (puthash "foo.org" 3 sentinel-table)
+    (let ((result (haystack--scope-filter-output output sentinel-table 'body)))
+      (should (string-match-p "^;;; haystack:" result))
+      (should (string-match-p "foo.org:5:in body" result))
+      (should-not (string-match-p "foo.org:2:in frontmatter" result)))))
 
 ;;;; haystack--count-output-stats
 
@@ -3797,6 +3941,43 @@ Saves and restores the global and the dirty flag."
     (should (eq (plist-get f :kind) 'date-range))
     (should (equal (plist-get f :start) "2025-01"))
     (should (equal (plist-get f :end) "2025-03"))))
+
+(ert-deftest haystack-test/frecency-chain-key-includes-root-scope ()
+  "Root scope is recorded in the frecency chain key."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :root-kind nil :root-scope body :filters nil))))
+    (should (eq (plist-get (plist-get key :root) :scope) 'body))))
+
+(ert-deftest haystack-test/frecency-chain-key-includes-filter-scope ()
+  "Filter scope is recorded in the frecency chain key."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :root-kind nil :filters
+                ((:term "title" :scope frontmatter))))))
+    (should (eq (plist-get (car (plist-get key :filters)) :scope) 'frontmatter))))
+
+(ert-deftest haystack-test/frecency-chain-key-omits-nil-scope ()
+  "Nil scope is not stored in the chain key (backward compat)."
+  (let ((key (haystack--frecency-chain-key
+              '(:root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :root-kind nil :root-scope nil :filters nil))))
+    (should (null (plist-get (plist-get key :root) :scope)))))
+
+(ert-deftest haystack-test/frecency-key-root-term-includes-scope ()
+  "Root term reconstruction includes the scope prefix."
+  (let ((key (list :root (list :kind 'text :term "rust" :scope 'body)
+                   :filters nil)))
+    (should (equal (haystack--frecency-key-root-term key) ">rust")))
+  (let ((key (list :root (list :kind 'text :term "rust" :literal t :scope 'frontmatter)
+                   :filters nil)))
+    (should (equal (haystack--frecency-key-root-term key) "<=rust"))))
+
+(ert-deftest haystack-test/frecency-key-display-includes-scope ()
+  "Display string includes scope prefix."
+  (let ((key (list :root (list :kind 'text :term "rust" :scope 'body)
+                   :filters (list (list :term "title" :scope 'frontmatter)))))
+    (should (equal (haystack--frecency-key-display key) ">rust > <title"))))
 
 ;;; frecency UI label for plist keys
 

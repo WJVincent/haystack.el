@@ -740,6 +740,30 @@ file, and runs `haystack-after-create-hook'."
   (run-hooks 'haystack-after-create-hook))
 
 ;;;###autoload
+(defun haystack-new-note-from-region (beg end)
+  "Create a new note and insert the text between BEG and END into it.
+Prompts for a slug and file extension, writes frontmatter, inserts the
+region content, opens the file, and runs `haystack-after-create-hook'."
+  (interactive "r")
+  (when (= beg end)
+    (user-error "Haystack: no region selected"))
+  (let ((text (buffer-substring-no-properties beg end)))
+    (haystack--ensure-notes-directory)
+    (let ((path (haystack--create-note-file)))
+      (with-temp-buffer
+        (insert-file-contents path)
+        (goto-char (point-max))
+        (insert text)
+        (write-region (point-min) (point-max) path nil 'silent))
+      ;; Refresh the visited buffer with the new content.
+      (let ((buf (get-file-buffer path)))
+        (when buf
+          (with-current-buffer buf
+            (revert-buffer t t t)
+            (goto-char (point-max))))))
+    (run-hooks 'haystack-after-create-hook)))
+
+;;;###autoload
 (defun haystack-new-note-with-moc ()
   "Create a new note and insert the current results MOC into it.
 Must be called from a haystack results buffer.  Prompts for a slug and
@@ -1199,15 +1223,24 @@ editing `.expansion-groups.el' directly or re-running `haystack-associate'."
 
 (defun haystack--strip-prefixes (raw)
   "Strip leading prefix characters from RAW user input.
-Returns a list (TERM NEGATED FILENAME LITERAL REGEX) where each flag is non-nil
-if its corresponding prefix was present.  Detection order: ! then / then = then ~."
+Returns a list (TERM NEGATED FILENAME LITERAL REGEX SCOPE) where each
+flag is non-nil if its corresponding prefix was present.  SCOPE is
+\\='body (> prefix), \\='frontmatter (< prefix), or nil.
+Detection order: ! then >/< then / then = then ~."
   (let ((negated  nil)
         (filename nil)
         (literal  nil)
         (regex    nil)
+        (scope    nil)
         (term     raw))
     (when (string-prefix-p "!" term)
       (setq negated t
+            term (substring term 1)))
+    (when (string-prefix-p ">" term)
+      (setq scope 'body
+            term (substring term 1)))
+    (when (string-prefix-p "<" term)
+      (setq scope 'frontmatter
             term (substring term 1)))
     (when (string-prefix-p "/" term)
       (setq filename t
@@ -1218,7 +1251,7 @@ if its corresponding prefix was present.  Detection order: ! then / then = then 
     (when (string-prefix-p "~" term)
       (setq regex t
             term (substring term 1)))
-    (list term negated filename literal regex)))
+    (list term negated filename literal regex scope)))
 
 (defun haystack--multi-word-p (term)
   "Return non-nil if TERM contains any whitespace (multi-word query)."
@@ -1264,11 +1297,12 @@ Returns a plist:
   :filename   — / prefix: match against the file's basename, not content
   :literal    — = prefix: suppress expansion group lookup
   :regex      — ~ prefix: treat term as raw ripgrep regex, skip escaping
+  :scope      — > prefix: \\='body; < prefix: \\='frontmatter; nil otherwise
   :multi-word     — non-nil if term contains whitespace after stripping
   :expansion      — group member list if expansion fired, nil otherwise
   :pattern        — ripgrep regex string (for rg calls)
   :emacs-pattern  — Emacs regexp string (for `string-match-p' filename matching)"
-  (cl-destructuring-bind (term negated filename literal regex)
+  (cl-destructuring-bind (term negated filename literal regex scope)
       (haystack--strip-prefixes raw)
     (let* ((multi-word (haystack--multi-word-p term))
            (expansion  (and (not regex) (not literal)
@@ -1280,6 +1314,7 @@ Returns a plist:
             :filename      filename
             :literal       literal
             :regex         regex
+            :scope         scope
             :multi-word    multi-word
             :expansion     expansion
             :pattern       pattern
@@ -1339,6 +1374,77 @@ EXTRA-ARGS: additional args appended last (e.g. the notes directory path)."
          (tail-args
           (append (when pattern (list "--" pattern)) extra-args)))
     (append mode-args base-args composite-args file-glob-args tail-args)))
+
+;;;; Scope filtering
+
+(defun haystack--sentinel-line-numbers (filelist)
+  "Return a hash table mapping filename → sentinel line number.
+FILELIST is a null-separated file path as used by `haystack--xargs-rg'.
+Runs rg to find the sentinel string in each file.  Only the first
+match per file is recorded (files may contain the sentinel string in
+body text as well).  Files without a sentinel are absent from the table."
+  (let* ((rg-args (list "--line-number" "--with-filename" "--no-heading"
+                        "--color=never" "--fixed-strings"
+                        "--" haystack--sentinel-string))
+         (raw (haystack--xargs-rg filelist rg-args))
+         (table (make-hash-table :test 'equal)))
+    (dolist (line (split-string raw "\n" t))
+      (when (string-match "\\`\\(.+?\\):\\([0-9]+\\):" line)
+        (let ((file (match-string 1 line)))
+          ;; Only record the first occurrence per file.
+          (unless (gethash file table)
+            (puthash file
+                     (string-to-number (match-string 2 line))
+                     table)))))
+    table))
+
+(defun haystack--scope-filter-output (output sentinel-table scope)
+  "Filter grep-format OUTPUT by SCOPE using SENTINEL-TABLE.
+SCOPE is \\='body (keep lines after sentinel) or \\='frontmatter
+\(keep lines at or before sentinel).  SENTINEL-TABLE maps filename
+to sentinel line number.  Header lines (starting with ;;;) pass
+through unchanged.  Files absent from the table are treated as
+all-body (no frontmatter)."
+  (let ((lines (split-string output "\n" t))
+        (kept nil))
+    (dolist (line lines)
+      (cond
+       ;; Header lines pass through.
+       ((string-prefix-p ";;;" line)
+        (push line kept))
+       ;; Parse file:line:content.
+       ((string-match "\\`\\(.+?\\):\\([0-9]+\\):" line)
+        (let* ((file     (match-string 1 line))
+               (line-num (string-to-number (match-string 2 line)))
+               (sentinel (gethash file sentinel-table)))
+          (cond
+           ((eq scope 'body)
+            (when (or (null sentinel) (> line-num sentinel))
+              (push line kept)))
+           ((eq scope 'frontmatter)
+            (when (and sentinel (<= line-num sentinel))
+              (push line kept))))))
+       ;; Non-matching lines (shouldn't happen, but pass through).
+       (t (push line kept))))
+    (mapconcat #'identity (nreverse kept) "\n")))
+
+(defun haystack--apply-scope-filter (output scope)
+  "Apply SCOPE filtering to grep-format OUTPUT.
+Extracts filenames from OUTPUT, runs a sentinel lookup, and filters
+lines by scope.  Returns the filtered output string."
+  (let* ((lines (split-string output "\n" t))
+         (files (cl-remove-duplicates
+                 (cl-loop for line in lines
+                          when (string-match "\\`\\(.+?\\):[0-9]+:" line)
+                          collect (match-string 1 line))
+                 :test #'string=)))
+    (if (null files)
+        output
+      (let ((filelist (haystack--write-filelist files)))
+        (unwind-protect
+            (let ((sentinel-table (haystack--sentinel-line-numbers filelist)))
+              (haystack--scope-filter-output output sentinel-table scope))
+          (delete-file filelist))))))
 
 (defun haystack--count-output-stats (output)
   "Return (FILES . LINES) from rg --count OUTPUT.
@@ -1559,8 +1665,13 @@ The current in-progress filter is not included; callers append it."
                              ((eq (plist-get descriptor :root-kind) 'date-range) "date")
                              (t                                                  "root")))
          (root-exp     (plist-get descriptor :root-expansion))
-         (root-display (haystack--format-term-display
-                        (plist-get descriptor :root-term) root-exp))
+         (root-scope-prefix (pcase (plist-get descriptor :root-scope)
+                              ('body ">")
+                              ('frontmatter "<")
+                              (_ "")))
+         (root-display (concat root-scope-prefix
+                               (haystack--format-term-display
+                                (plist-get descriptor :root-term) root-exp)))
          (root-face    (haystack--root-face descriptor))
          (parts (list (list :label root-label
                             :display (propertize root-display 'face root-face)
@@ -1571,11 +1682,16 @@ The current in-progress filter is not included; callers append it."
                         "date"
                       (haystack--filter-label (plist-get f :negated)
                                               (plist-get f :filename))))
+             (scope-prefix (pcase (plist-get f :scope)
+                            ('body ">")
+                            ('frontmatter "<")
+                            (_ "")))
              (display (if (eq (plist-get f :kind) 'date-range)
                           (haystack--date-root-label
                            (plist-get f :start) (plist-get f :end))
-                        (haystack--format-term-display
-                         (plist-get f :term) (plist-get f :expansion)))))
+                        (concat scope-prefix
+                                (haystack--format-term-display
+                                 (plist-get f :term) (plist-get f :expansion))))))
         (setq parts
               (append parts
                       (list (list :label label
@@ -1618,17 +1734,19 @@ Used to produce the header comment in data-style MOC output."
              (haystack--chain-parts descriptor) " > "))
 
 (defun haystack--child-buffer-name (descriptor new-term new-negated
-                                               new-filename new-literal new-regex)
+                                               new-filename new-literal new-regex
+                                               &optional new-scope)
   "Return the results buffer name for a child filter of DESCRIPTOR.
 NEW-TERM and its modifier flags (NEW-NEGATED, NEW-FILENAME, NEW-LITERAL,
-NEW-REGEX) describe the filter being applied.  All terms in the chain
-are prefixed with their modifier characters for clarity."
+NEW-REGEX, NEW-SCOPE) describe the filter being applied.  All terms in
+the chain are prefixed with their modifier characters for clarity."
   (let* ((root    (haystack--tree-term-label
                    (plist-get descriptor :root-term)
                    nil
                    (plist-get descriptor :root-filename)
                    (plist-get descriptor :root-literal)
-                   (plist-get descriptor :root-regex)))
+                   (plist-get descriptor :root-regex)
+                   (plist-get descriptor :root-scope)))
          (filters (mapcar (lambda (f)
                             (if (eq (plist-get f :kind) 'date-range)
                                 (haystack--date-root-label
@@ -1638,12 +1756,13 @@ are prefixed with their modifier characters for clarity."
                                (plist-get f :negated)
                                (plist-get f :filename)
                                (plist-get f :literal)
-                               (plist-get f :regex))))
+                               (plist-get f :regex)
+                               (plist-get f :scope))))
                           (plist-get descriptor :filters)))
          (chain   (append (list root) filters
                           (list (haystack--tree-term-label
                                  new-term new-negated new-filename
-                                 new-literal new-regex)))))
+                                 new-literal new-regex new-scope)))))
     (format "*haystack:%d:%s*"
             (length chain)
             (mapconcat #'identity chain ":"))))
@@ -1747,6 +1866,39 @@ Step 2: write the narrowed set to a second temp file and re-run ROOT-PATTERN."
             (haystack--search-in-filelist root-pattern tmp2 cf)
           (delete-file tmp2))))))
 
+(defun haystack--filter-by-scoped-negation (filenames pattern root-pattern cf scope)
+  "Negate PATTERN within SCOPE across FILENAMES.
+Find files that contain PATTERN in the specified SCOPE, subtract them
+from FILENAMES, then re-run ROOT-PATTERN on the remaining set.
+CF is the composite filter."
+  (let ((tmp (haystack--write-filelist filenames)))
+    (unwind-protect
+        (let* (;; Step 1: find files that match the pattern (unscoped).
+               (matching-output
+                (haystack--xargs-rg tmp
+                                    (haystack--rg-args :composite-filter 'all
+                                                       :pattern pattern)))
+               ;; Step 2: scope-filter the matches, extract filenames.
+               (scoped-output
+                (haystack--apply-scope-filter matching-output scope))
+               (matching-files
+                (cl-remove-duplicates
+                 (cl-loop for line in (split-string scoped-output "\n" t)
+                          when (string-match "\\`\\(.+?\\):[0-9]+:" line)
+                          collect (match-string 1 line))
+                 :test #'string=))
+               (matching-set (make-hash-table :test 'equal))
+               (_populate (dolist (f matching-files) (puthash f t matching-set)))
+               ;; Step 3: subtract matching files from candidates.
+               (narrowed (cl-remove-if (lambda (f) (gethash f matching-set)) filenames)))
+          (if (null narrowed)
+              ""
+            (let ((tmp2 (haystack--write-filelist narrowed)))
+              (unwind-protect
+                  (haystack--search-in-filelist root-pattern tmp2 cf)
+                (delete-file tmp2)))))
+      (delete-file tmp))))
+
 (defun haystack--filter-by-content (filenames pattern root-pattern cf)
   "Filter FILENAMES by positive content match on PATTERN.
 CF is the composite filter.  Applies the volume gate, then returns rg output.
@@ -1808,7 +1960,7 @@ Prefix RAW-INPUT with / to match against filenames instead of content.
 Prefix RAW-INPUT with = for literal matching (suppress expansion groups).
 Prefix RAW-INPUT with ~ to use raw ripgrep regex."
   (interactive
-   (list (read-string "[=]literal  [/]filename  [!]negate  [~]regex\nFilter: ")))
+   (list (read-string "[=]literal  [/]filename  [!]negate  [~]regex  [>]body  [<]frontmatter\nFilter: ")))
   (haystack--frecency-ensure)
   (unless (bound-and-true-p haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
@@ -1846,21 +1998,30 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
        term
        (mapconcat #'identity root-exp "|")
        term))
-    (let* ((raw-output
+    (let* ((scope    (plist-get parsed :scope))
+           (raw-output
             (cond
              (filename
               (haystack--filter-by-filename filenames emacs-pat negated root-pattern cf))
+             ((and negated scope)
+              (haystack--filter-by-scoped-negation filenames pattern root-pattern cf scope))
              (negated
               (haystack--filter-by-negation filenames pattern root-pattern cf))
              (t
               (haystack--filter-by-content filenames pattern root-pattern cf))))
+           ;; Apply scope post-filter for non-negated searches (negated+scope
+           ;; is handled by haystack--filter-by-scoped-negation above).
+           (raw-output (if (and scope (not negated))
+                           (haystack--apply-scope-filter raw-output scope)
+                         raw-output))
            (stats       (haystack--count-search-stats raw-output))
            (trunc-pat   (if (or filename negated) root-emacs-pat emacs-pat))
            (output      (haystack--strip-notes-prefix
                          (haystack--truncate-output raw-output trunc-pat)))
            (buf-name    (haystack--child-buffer-name descriptor term negated filename
                                                      (plist-get parsed :literal)
-                                                     (plist-get parsed :regex)))
+                                                     (plist-get parsed :regex)
+                                                     scope))
            (chain-str   (haystack--format-search-chain descriptor term negated
                                                        filename expansion
                                                        (haystack--filter-face parsed)))
@@ -1870,6 +2031,7 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
                                             :filename  filename
                                             :literal   (plist-get parsed :literal)
                                             :regex     (plist-get parsed :regex)
+                                            :scope     scope
                                             :expansion expansion))))
            (new-descriptor (list :root             (plist-get descriptor :root)
                                  :root-term        (plist-get descriptor :root-term)
@@ -2060,7 +2222,11 @@ for the dispatcher to use."
          (first-term    (plist-get first-parsed :term))
          (first-pattern (plist-get first-parsed :pattern))
          (first-exp     (plist-get first-parsed :expansion))
+         (scope         (plist-get first-parsed :scope))
          (raw-output    (haystack--run-and-query and-tokens cf))
+         (raw-output    (if scope
+                            (haystack--apply-scope-filter raw-output scope)
+                          raw-output))
          (stats         (haystack--count-search-stats raw-output))
          (output        (haystack--strip-notes-prefix
                          (haystack--truncate-output raw-output
@@ -2072,12 +2238,21 @@ for the dispatcher to use."
                                     (plist-get p :term) nil
                                     (plist-get p :filename)
                                     (plist-get p :literal)
-                                    (plist-get p :regex)))
+                                    (plist-get p :regex)
+                                    (plist-get p :scope)))
                                  parsed-list "&")))
+         (scope-prefix  (pcase scope
+                          ('body ">")
+                          ('frontmatter "<")
+                          (_ "")))
          (display-parts (mapcar (lambda (p)
-                                  (haystack--format-term-display
-                                   (plist-get p :term)
-                                   (plist-get p :expansion)))
+                                  (concat (pcase (plist-get p :scope)
+                                            ('body ">")
+                                            ('frontmatter "<")
+                                            (_ ""))
+                                          (haystack--format-term-display
+                                           (plist-get p :term)
+                                           (plist-get p :expansion))))
                                 parsed-list))
          (chain-label   (format "root=%s"
                                 (mapconcat #'identity display-parts " & ")))
@@ -2096,6 +2271,7 @@ for the dispatcher to use."
                               :root-regex       (plist-get first-parsed :regex)
                               :root-filename    nil
                               :root-expansion   first-exp
+                              :root-scope       scope
                               :filters          nil
                               :composite-filter cf))
          (composite-path (haystack--find-composite descriptor))
@@ -2151,7 +2327,7 @@ COMPOSITE-FILTER is a symbol controlling how @* composite files are
 treated: \\='exclude (default), \\='only, or \\='all.
 Interactively, a \\[universal-argument] prefix sets COMPOSITE-FILTER to \\='all,
 including composite files in the search."
-  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [A & B]AND\nSearch: ")
+  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [>]body  [<]frontmatter  [A & B]AND\nSearch: ")
                      (when current-prefix-arg 'all)))
   (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
@@ -2225,6 +2401,10 @@ including composite files in the search."
                           (when (= exit-code 2)
                             (user-error "Haystack: rg error: %s" (buffer-string))))
                         (buffer-string)))))
+                 (scope    (plist-get parsed :scope))
+                 (output   (if scope
+                               (haystack--apply-scope-filter output scope)
+                             output))
                  (trunc-pat (if filename "." emacs-pat))
                  (stats    (haystack--count-search-stats output))
                  (output   (haystack--strip-notes-prefix
@@ -2232,10 +2412,16 @@ including composite files in the search."
                  (buf-name (format "*haystack:1:%s*"
                                    (haystack--tree-term-label term nil filename
                                                               (plist-get parsed :literal)
-                                                              (plist-get parsed :regex))))
+                                                              (plist-get parsed :regex)
+                                                              scope)))
                  (expansion   (plist-get parsed :expansion))
-                 (chain-label (format "%s=%s"
+                 (scope-prefix (pcase scope
+                                ('body ">")
+                                ('frontmatter "<")
+                                (_ "")))
+                 (chain-label (format "%s=%s%s"
                                       (if filename "filename" "root")
+                                      scope-prefix
                                       (haystack--format-term-display term expansion)))
                  (descriptor (list :root-term        term
                                    :root-expanded    (if filename "." pattern)
@@ -2243,6 +2429,7 @@ including composite files in the search."
                                    :root-regex       (plist-get parsed :regex)
                                    :root-filename    filename
                                    :root-expansion   expansion
+                                   :root-scope       scope
                                    :filters          nil
                                    :composite-filter cf)))
             (let* ((composite-path (haystack--find-composite descriptor))
@@ -2701,6 +2888,15 @@ columns a two-column layout is used to reduce the required height."
                      (haystack--help-entry 'haystack-view-compact        "view: compact")
                      (haystack--help-entry 'haystack-view-files          "view: files")
                      ""
+                     (haystack--help-section "Search/Filter Prefixes")
+                     ";;;;    =term     literal (suppress expansion)"
+                     ";;;;    /term     filename match"
+                     ";;;;    ~pattern  raw regex"
+                     ";;;;    !term     negate (exclude matching files)"
+                     ";;;;    >term     body only (after frontmatter sentinel)"
+                     ";;;;    <term     frontmatter only (before sentinel)"
+                     ";;;;    A & B     AND (file-level intersection)"
+                     ""
                      (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")
                      rule)
                "\n")))
@@ -2736,7 +2932,11 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
                       (haystack--help-section "Display")
                       (haystack--help-entry 'haystack-cycle-view        "cycle view (full/compact/files)")
                       ""
-                      ";;;;"
+                      (haystack--help-section "Search/Filter Prefixes")
+                      ";;;;    = literal  / filename  ~ regex"
+                      ";;;;    ! negate   > body      < frontmatter"
+                      ";;;;    A & B  AND intersection"
+                      ""
                       (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")))
          (col-w 50)
          (n     (max (length left) (length right)))
@@ -3046,10 +3246,13 @@ trims leading/trailing whitespace.  If the result exceeds
               "..."
               (substring normalised (- len haystack--display-term-context))))))
 
-(defun haystack--tree-term-label (term negated filename literal regex)
+(defun haystack--tree-term-label (term negated filename literal regex &optional scope)
   "Return TERM prefixed with its modifier characters for display.
-Negation maps to !, filename to /, regex to ~, literal to =."
+Negation maps to !, scope maps to > or <, filename to /, regex to ~, literal to =."
   (concat (when negated "!")
+          (pcase scope
+            ('body ">")
+            ('frontmatter "<"))
           (cond (filename "/")
                 (regex    "~")
                 (literal  "="))
@@ -3737,6 +3940,8 @@ Only truthy flag values are stored; absent keys behave as nil."
                 (setq r (append r (list :literal t))))
               (when (plist-get descriptor :root-regex)
                 (setq r (append r (list :regex t))))
+              (when (plist-get descriptor :root-scope)
+                (setq r (append r (list :scope (plist-get descriptor :root-scope)))))
               r)))
          (filter-list
           (mapcar (lambda (f)
@@ -3753,6 +3958,7 @@ Only truthy flag values are stored; absent keys behave as nil."
                         (when (plist-get f :filename) (setq r (append r (list :filename t))))
                         (when (plist-get f :literal)  (setq r (append r (list :literal  t))))
                         (when (plist-get f :regex)    (setq r (append r (list :regex    t))))
+                        (when (plist-get f :scope)    (setq r (append r (list :scope (plist-get f :scope)))))
                         r)))
                   (plist-get descriptor :filters))))
     (list :root root-plist :filters filter-list)))
@@ -3770,7 +3976,10 @@ Filters are appended with \" > \" separators."
                       (haystack--date-root-label
                        (or (plist-get root :start) "")
                        (or (plist-get root :end)   "")))
-            (concat (cond ((plist-get root :filename) "/")
+            (concat (pcase (plist-get root :scope)
+                      ('body ">")
+                      ('frontmatter "<"))
+                    (cond ((plist-get root :filename) "/")
                           ((plist-get root :regex)    "~")
                           ((plist-get root :literal)  "=")
                           (t ""))
@@ -3783,6 +3992,9 @@ Filters are appended with \" > \" separators."
                                  (or (plist-get f :start) "")
                                  (or (plist-get f :end)   "")))
                       (concat (when (plist-get f :negated)  "!")
+                              (pcase (plist-get f :scope)
+                                ('body ">")
+                                ('frontmatter "<"))
                               (cond ((plist-get f :filename) "/")
                                     ((plist-get f :regex)    "~")
                                     ((plist-get f :literal)  "=")
@@ -4070,7 +4282,10 @@ Columns: score, visits, days since last access, search chain.
   "Return the prefixed root term string from frecency KEY, for text roots.
 Used to reconstruct the argument to `haystack-run-root-search'."
   (let ((root (plist-get key :root)))
-    (concat (cond ((plist-get root :filename) "/")
+    (concat (pcase (plist-get root :scope)
+              ('body ">")
+              ('frontmatter "<"))
+            (cond ((plist-get root :filename) "/")
                   ((plist-get root :regex)    "~")
                   ((plist-get root :literal)  "=")
                   (t ""))
@@ -4121,6 +4336,9 @@ later added to the stop-word list does not crash or prompt."
                             (or (plist-get f :end)   ""))
                          (haystack-filter-further
                           (concat (when (plist-get f :negated)  "!")
+                                  (pcase (plist-get f :scope)
+                                    ('body ">")
+                                    ('frontmatter "<"))
                                   (cond ((plist-get f :filename) "/")
                                         ((plist-get f :regex)    "~")
                                         ((plist-get f :literal)  "=")
@@ -5107,6 +5325,7 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "r" #'haystack-search-region)
 (define-key haystack-prefix-map "n" #'haystack-new-note)
 (define-key haystack-prefix-map "N" #'haystack-new-note-with-moc)
+(define-key haystack-prefix-map "x" #'haystack-new-note-from-region)
 (define-key haystack-prefix-map "y" #'haystack-yank-moc)
 (define-key haystack-prefix-map "t" #'haystack-show-tree)
 (define-key haystack-prefix-map "f" #'haystack-frecent)

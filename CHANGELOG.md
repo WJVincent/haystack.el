@@ -3,6 +3,18 @@
 All notable changes to Haystack are documented here.  Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Search scope modes** — `>` prefix searches body only (after the
+  frontmatter sentinel), `<` prefix searches frontmatter only (before
+  the sentinel).  Composes with all existing prefixes (`!>`, `>=`,
+  `>~`, etc.).  Files without a sentinel are treated as all-body.
+  Scope is stored in frecency chain keys and replayed correctly.
+- **`haystack-new-note-from-region`** (`C-c h x`) — create a new note
+  and insert the active region text after frontmatter.
+
 ## [0.14.0] — 2026-03-30
 
 ### Added
