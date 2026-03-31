@@ -3,10 +3,18 @@
 All notable changes to Haystack are documented here.  Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.14.0] — 2026-03-30
 
 ### Added
 
+- **`haystack-inherit-view-mode`** defcustom — when non-nil, child
+  buffers created by `haystack-filter-further` and
+  `haystack-filter-further-by-date` inherit the parent's view mode
+  instead of starting in Full. Defaults to nil.
+- **`haystack-describe-frontmatter-styles`** — introspect registered
+  frontmatter comment styles (prefix, suffix, extensions).
+- **`haystack-describe-moc-languages`** — introspect registered MOC
+  data format languages (comment prefix, extensions).
 - **Results view mode toggle** — three-state display toggle for
   results buffers.  `v` cycles Full → Compact → Files → Full.  Compact
   replaces file paths with human-readable titles via overlays.  Files
@@ -15,6 +23,29 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   `haystack-view-files`.  Underlying buffer text is never modified;
   all existing features (filter, MOC, compose, navigation) work
   unchanged in every view mode.
+
+### Fixed
+
+- **README keybinding errors** — timestamp bindings `C-c h i` / `C-c h I`
+  were swapped in the Quick Start table; frecency binding was listed as
+  `C-c h r` instead of `C-c h f` in the date-range section.
+- **Leading-dash search terms** — patterns like `-foo` or `--config` are
+  now separated from rg flags with `--`, preventing misinterpretation.
+- **Mentions yank-to-origin on deleted files** —
+  `haystack-mentions-yank-to-origin` and `haystack-insert-mentions` now
+  signal an error if the origin note has been deleted, instead of
+  silently recreating it.
+- **Group rename drops old root** — `haystack-rename-group-root` now
+  preserves the old root as a member so it still expands to the group.
+- **Date-filter drops mentions state** —
+  `haystack-filter-further-by-date` now propagates
+  `haystack--mentions-origin` and renames child buffers to
+  `*haystack-ref:`, matching `haystack-filter-further`.
+- **`haystack-new-note` missing autoload** — added `;;;###autoload` so
+  `M-x haystack-new-note` works in package-managed installations without
+  an explicit `(require 'haystack)`.
+- **Frecency replay score inflation** — replaying a multi-step chain no
+  longer records intermediate steps; only the final leaf is recorded.
 
 
 ## [0.13.0] — 2026-03-29

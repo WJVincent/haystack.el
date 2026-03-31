@@ -95,6 +95,9 @@ See `demo/README.org` for a guided walkthrough.
 | `C-c h d` | Analyze term discoverability for the current note |
 | `C-c h m` | Open mentions results buffer for the current note |
 | `C-c h M` | Insert mentions directly (with count prompt) |
+| `C-c h R` | Search notes by date range |
+| `C-c h i` | Prompt for a date; insert timestamp at chosen precision |
+| `C-c h I` | Insert current date and time as an `hs:` timestamp |
 | `C-c h D` | Start demo mode |
 
 ## Creating Notes
@@ -476,8 +479,8 @@ Two commands add timestamps to the note you are writing:
 
 | Command | Key | Description |
 |---------|-----|-------------|
-| `haystack-insert-timestamp-now` | `C-c h i` | Insert the current date and time as an `hs:` stamp |
-| `haystack-insert-timestamp` | `C-c h I` | Prompt for a date string; insert at the given precision |
+| `haystack-insert-timestamp` | `C-c h i` | Prompt for a date string; insert at the given precision |
+| `haystack-insert-timestamp-now` | `C-c h I` | Insert the current date and time as an `hs:` stamp |
 
 Both accept `C-u` to produce an **inactive** stamp (square brackets) that does
 not appear in org-agenda.
@@ -507,7 +510,7 @@ normally — you can narrow a date-range result set by keyword exactly as
 you would any other search.
 
 Date-range searches are tracked by frecency and can be replayed from
-`haystack-frecent` (`C-c h r`) like any other search.
+`haystack-frecent` (`C-c h f`) like any other search.
 
 ## Discoverability
 
@@ -675,6 +678,10 @@ to write immediately on every buffer visit instead.
 | `haystack-composite-max-lines` | `300` | Max lines of content per source file in a composite. `nil` = no limit. |
 | `haystack-composite-all-matches` | `nil` | One section per match line rather than per file in composites. |
 | `haystack-composite-protect` | `t` | Intercept manual saves in composite buffers and redirect to `haystack-new-note`. |
+| `haystack-volume-gate-threshold` | `2000` | Prompt for confirmation when results exceed this many lines. `nil` disables. |
+| `haystack-volume-gate-style` | `'exact` | Volume gate counting: `'exact` uses `rg --count`, `'fast` estimates from buffer size. |
+| `haystack-max-columns` | `500` | Drop result lines longer than this (prevents minified/base64 noise). |
+| `haystack-inherit-view-mode` | `nil` | When `t`, child buffers inherit the parent's view mode instead of starting in Full. |
 
 ### Regenerating Frontmatter
 

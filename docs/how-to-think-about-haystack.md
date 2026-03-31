@@ -64,10 +64,10 @@ That's it. There is no special mode to learn, no custom keybindings to
 memorize for basic use. The results are standard grep-mode buffers —
 if you know how to use `*grep*`, you know how to use Haystack.
 
-## The Five Things Haystack Adds Beyond Grep
+## What Haystack Adds Beyond Grep
 
 Raw `rg` in a shell could do step 1 above. Haystack earns its
-existence with five additions:
+existence with several additions:
 
 **Progressive state.** Each filter remembers its parent. You can
 narrow in any direction, backtrack, branch, and explore — all without
@@ -100,6 +100,22 @@ richer than explicit backlinks: notes that discuss the same idea without
 formally linking to it surface too. You can narrow the mentions list
 with the usual filter-further commands, then commit the curated set
 directly to the origin note with one keystroke.
+
+**Date-range search.** Lightweight `hs:` timestamps let you search by
+time. Stamp notes as you write them, then search by year, month, day,
+or minute range. Date-range searches compose with keyword filters — find
+notes about "rust" written in January 2025 — and are tracked by
+frecency like any other search.
+
+**AND queries.** The `&` operator intersects file sets: `rust & async`
+finds notes containing *both* terms. Each token narrows the candidate
+set via successive `--files-with-matches` passes, so only notes that
+satisfy the full conjunction appear.
+
+**View modes.** Results buffers cycle between Full, Compact, and Files
+views. Compact replaces file paths with pretty titles. Files collapses
+to one line per note. The underlying grep-format text is never modified,
+so navigation, filtering, and MOC export all work regardless of view.
 
 ## Who This Is For
 

@@ -101,12 +101,12 @@ code-review mindset.
 
 Prioritize:
 
-1. correctness bugs
-2. behavior regressions
-3. invariant violations
+1. correctness bugs and behavior regressions
+2. invariant violations
+3. state lifecycle and feature integration issues
 4. performance risks
-5. missing tests
-6. documentation drift
+5. documentation drift and unstated assumptions
+6. convention violations and dead code
 7. maintainability issues with real downstream cost
 
 Keep findings concrete. Prefer file and line references. Distinguish
@@ -120,18 +120,31 @@ residual risk or testing gaps.
 When participating in a review cycle, structure work so outputs can be
 compared and merged across models.
 
-Recommended review partitions:
+The standard cycle has ten phases. Phases 1–7 are independent review
+passes that can run in parallel. Phases 8–10 are sequential synthesis.
 
-1. Correctness and edge cases
-2. Emacs idioms and API design
-3. Structure, duplication, and maintainability
-4. Documentation, UX, and conceptual consistency
-5. Tests and performance coverage
+### Review phases (independent, parallelizable)
 
-An agent does not need to cover every partition deeply, but should
-make its lens explicit.
+1. Design intent, identity, and stated-vs-enacted values
+2. Documentation accuracy, completeness, and unstated assumptions
+3. Behavioral correctness, edge cases, and test coverage
+4. State lifecycle and feature integration
+5. Conventions, idioms, and best practices
+6. Dead code, vestigial logic, and unnecessary complexity
+7. Performance
 
-### First-pass review
+An agent does not need to cover every phase deeply, but should make
+its lens explicit.
+
+### Synthesis phases (sequential)
+
+8. Self-synthesis — reconcile your own Phase 1–7 findings
+9. Cross-agent revision — revise after reading other agents' Phase 8
+   outputs
+10. Final synthesis — one designated agent produces the planning-grade
+    synthesis
+
+### First-pass review (Phases 1–7)
 
 Produce an independent review without being anchored by the other
 agents' conclusions.
@@ -144,17 +157,16 @@ For each finding:
 - state the likely user-visible or maintenance impact
 - propose the smallest credible fix direction
 
-### Synthesis pass
+### Synthesis pass (Phase 8)
 
-When asked to synthesize multiple reviews:
+When synthesizing your own review phases:
 
-- deduplicate overlapping findings
-- merge similar findings under the strongest framing
-- separate confirmed issues from plausible but unverified concerns
-- call out disagreements between agents
-- rank by release risk, not by verbosity
+- draw connections across phases — findings that appear in multiple
+  lenses are higher-signal
+- force tradeoff resolution where phases are in tension
+- do not simply concatenate earlier reviews
 
-### Revision pass
+### Cross-agent revision (Phase 9)
 
 When revising after reading other agents' reviews:
 
@@ -163,6 +175,17 @@ When revising after reading other agents' reviews:
 - explicitly note which earlier findings you now reject, merge, or
   strengthen
 - avoid cargo-cult consensus
+
+### Final synthesis (Phase 10)
+
+When producing the final synthesis:
+
+- deduplicate overlapping findings
+- merge similar findings under the strongest framing
+- separate confirmed issues from plausible but unverified concerns
+- call out disagreements between agents
+- rank by release risk, not by verbosity
+- spot-check code before resolving disagreements
 
 The goal is not agreement for its own sake. The goal is a sharper
 final synthesis document for planning.
@@ -190,13 +213,23 @@ are valid findings when they are concrete and useful.
 
 The canonical review workflow lives under `review_docs/`.
 
-Use the standardized five-phase structure:
+Use the standardized ten-phase structure:
 
-1. Phase 1: philosophy, identity, and documentation
-2. Phase 2: code, bugs, tests, and performance
-3. Phase 3: self-synthesis within one agent
-4. Phase 4: cross-agent revision after reading other agents' Phase 3 outputs
-5. Phase 5: final synthesis by one designated agent
+1. Phase 1: design intent, identity, and stated-vs-enacted values
+2. Phase 2: documentation accuracy, completeness, and unstated
+   assumptions
+3. Phase 3: behavioral correctness, edge cases, and test coverage
+4. Phase 4: state lifecycle and feature integration
+5. Phase 5: conventions, idioms, and best practices
+6. Phase 6: dead code, vestigial logic, and unnecessary complexity
+7. Phase 7: performance
+8. Phase 8: self-synthesis within one agent
+9. Phase 9: cross-agent revision after reading other agents' Phase 8
+   outputs
+10. Phase 10: final synthesis by one designated agent
+
+Phases 1–7 are independent and can run in parallel. The sequential
+chain is phases 8–9–10.
 
 Use the templates in `review_docs/` rather than inventing new shapes
 for each cycle unless the user explicitly asks for a different format.
@@ -207,10 +240,15 @@ Review output filenames should make date, agent, and phase obvious.
 
 Use these patterns:
 
-- `YYYY-MM-DD-agent-pass-1-philosophy.md`
-- `YYYY-MM-DD-agent-pass-2-code-review.md`
-- `YYYY-MM-DD-agent-pass-3-self-synthesis.md`
-- `YYYY-MM-DD-agent-pass-4-cross-agent-revision.md`
+- `YYYY-MM-DD-agent-pass-1-design-intent.md`
+- `YYYY-MM-DD-agent-pass-2-documentation.md`
+- `YYYY-MM-DD-agent-pass-3-correctness.md`
+- `YYYY-MM-DD-agent-pass-4-state-integration.md`
+- `YYYY-MM-DD-agent-pass-5-conventions.md`
+- `YYYY-MM-DD-agent-pass-6-dead-code.md`
+- `YYYY-MM-DD-agent-pass-7-performance.md`
+- `YYYY-MM-DD-agent-pass-8-self-synthesis.md`
+- `YYYY-MM-DD-agent-pass-9-cross-agent-revision.md`
 - `YYYY-MM-DD-agent-synthesis.md`
 
 Examples of `agent`: `claude`, `codex`, `gemini`.

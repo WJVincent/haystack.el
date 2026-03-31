@@ -270,7 +270,7 @@ The most complex subsystems. Benefit from real usage data.
 - [X] Composite filter: =C-u= on root search includes composites; =haystack-search-composites= for only-composites
 - [X] Discoverability command produces diagnostic buffer with reach/isolated terms
 - [X] Stop words load, seed, add, remove, describe all work
-
+  
 ** Composite Notes
 *** DONE =haystack-compose= + =haystack-compose-mode=
 - =C-c C-c= in results → open/rebuild staging buffer
@@ -314,7 +314,8 @@ The most complex subsystems. Benefit from real usage data.
 
 
 * Stretch Goals                                                     :stretch:
-Not in scope for 1.0. Recorded so they don't get lost.
+Originally deferred from the phased roadmap.  Most have since been
+implemented; remaining TODO items are ideas for future development.
 
 ** DONE Demo mode (=haystack-demo= / =haystack-demo-stop=)
 - 84 notes bundled under =demo/notes/= covering Emacs, Lisp, PKM, Haystack
@@ -346,10 +347,6 @@ Not in scope for 1.0. Recorded so they don't get lost.
 - =haystack-io-test--with-corpus= macro: copies corpus, saves/restores all globals,
   kills scoped buffers on exit
 - Edge-case brainstorm in =docs/io-test-brainstorm.md=
-** TODO Boolean DSL / query parser (=|=, =()= operators — =&= already done)
-** TODO Human-readable date parser for time queries (date expressions like "today", "-7d", "last friday")
-** TODO Search scope modes (body-only, frontmatter-only via sentinel)
-** TODO Discoverability save-hook mode
 ** DONE Find mentions (=haystack-find-mentions=, =haystack-insert-mentions=)
 - Implemented as a slug-literal root search (=haystack-find-mentions=, prefix key =m=)
 - Direct-insert variant with count prompt (=haystack-insert-mentions=, prefix key =M=)
@@ -367,7 +364,6 @@ Not in scope for 1.0. Recorded so they don't get lost.
 - Results use standard grep-mode format; =haystack-filter-further= works normally from a date-root buffer
 - Frecency records and replays date-range searches via the descriptor-shaped key =(:root (:kind date-range :start S :end E) :filters ...)=
 - Bound under =R= in =haystack-prefix-map=
-** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
 ** DONE Results view mode toggle (Full / Compact / Files)
 - =haystack-cycle-view= (=v= in results buffer) cycles Full → Compact → Files → Full
 - =haystack-view-full=, =haystack-view-compact=, =haystack-view-files= for direct jump
@@ -394,4 +390,15 @@ Not in scope for 1.0. Recorded so they don't get lost.
 - Removed: font-lock-based highlighting did not render reliably in GUI
   Emacs (grep-mode's fontification machinery interfered).  May revisit
   with a different approach in the future.
+** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
 ** TODO New note from region
+** TODO Boolean DSL / query parser (=|=, =()= operators — =&= already done)
+** TODO Human-readable date parser for time queries (date expressions like "today", "-7d", "last friday")
+** TODO Search scope modes (body-only, frontmatter-only via sentinel)
+** TODO Discoverability save-hook mode
+** TODO Frecency replay recording semantics
+- Currently replay suppresses recording for all intermediate steps and
+  records only the leaf.  This prevents score inflation but also means
+  replaying a chain doesn't count as "visiting" it.  The right answer
+  is unclear — use the current behaviour and revisit if the frecency
+  list becomes less useful over time.

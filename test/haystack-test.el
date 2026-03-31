@@ -675,6 +675,22 @@ For tests that only need simple unmodified filter terms."
       (should (haystack-test--has-sentinel fm))
       (should (string-suffix-p "\n\n" fm)))))
 
+;;;; haystack-describe-frontmatter-styles
+
+(ert-deftest haystack-test/describe-frontmatter-styles-creates-buffer ()
+  "Creates a describe buffer listing registered frontmatter styles."
+  (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+    (haystack-describe-frontmatter-styles)
+    (let ((buf (get-buffer "*haystack-frontmatter-styles*")))
+      (unwind-protect
+          (progn
+            (should buf)
+            (with-current-buffer buf
+              (should (string-match-p "slash" (buffer-string)))
+              (should (string-match-p "hash" (buffer-string)))
+              (should (string-match-p "//" (buffer-string)))))
+        (when buf (kill-buffer buf))))))
+
 ;;;; haystack--frontmatter dispatch
 
 (ert-deftest haystack-test/frontmatter-dispatch-known-extensions ()
@@ -1143,11 +1159,11 @@ Writes INITIAL-GROUPS to disk so functions that call
 ;;; haystack--groups-rename-root
 
 (ert-deftest haystack-test/groups-rename-root-updates-root ()
-  "Renames the root of the matching group."
+  "Renames the root and adds the old root as a member."
   (let ((result (haystack--groups-rename-root
                  '(("rust" . ("rustlang" "rs")))
                  "rust" "Rust")))
-    (should (equal result '(("Rust" . ("rustlang" "rs")))))))
+    (should (equal result '(("Rust" . ("rust" "rustlang" "rs")))))))
 
 (ert-deftest haystack-test/groups-rename-root-leaves-other-groups ()
   "Other groups are not affected."
@@ -1163,13 +1179,33 @@ Writes INITIAL-GROUPS to disk so functions that call
                  "rust" "rs-lang")))
     (should (equal (caar result) "rs-lang"))))
 
+(ert-deftest haystack-test/groups-rename-root-preserves-old-root-as-member ()
+  "The old root becomes a member so it still expands to the group."
+  (let ((result (haystack--groups-rename-root
+                 '(("rust" . ("rustlang" "rs")))
+                 "rust" "Rust-lang")))
+    (should (equal (caar result) "Rust-lang"))
+    (should (member "rust" (cdar result)))))
+
+(ert-deftest haystack-test/groups-rename-root-no-duplicate-old-root ()
+  "If the old root is already a member, it is not duplicated."
+  (let ((result (haystack--groups-rename-root
+                 '(("rust" . ("Rust" "rs")))
+                 "rust" "rustlang")))
+    (should (equal (caar result) "rustlang"))
+    ;; "rust" was already in members as "Rust" (case-insensitive),
+    ;; so it should appear exactly once.
+    (should (= 1 (cl-count-if
+                  (lambda (m) (string= (downcase m) "rust"))
+                  (cdar result))))))
+
 ;;; haystack-rename-group-root
 
 (ert-deftest haystack-test/rename-group-root-updates-group ()
-  "Renames the root and saves."
+  "Renames the root, adds old root as member, and saves."
   (haystack-test--with-groups '(("rust" . ("rustlang")))
     (haystack-rename-group-root "rust" "rs")
-    (should (equal haystack--expansion-groups '(("rs" . ("rustlang")))))))
+    (should (equal haystack--expansion-groups '(("rs" . ("rust" "rustlang")))))))
 
 (ert-deftest haystack-test/rename-group-root-errors-on-member-term ()
   "Errors if the given term is a member, not the root."
@@ -1722,6 +1758,17 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
   (let ((haystack-file-glob '("*.org")))
     (let ((args (haystack--rg-args :composite-filter 'exclude :pattern "rust")))
       (should-not (member "--glob=*.org" args)))))
+
+(ert-deftest haystack-test/rg-args-leading-dash-pattern-separated ()
+  "A leading-dash pattern is preceded by \"--\" so rg does not parse it as a flag."
+  (let ((haystack-file-glob nil))
+    (let ((args (haystack--rg-args :composite-filter 'exclude :pattern "-foo")))
+      (should (member "-foo" args))
+      (let ((pos-sep (cl-position "--" args :test #'string=))
+            (pos-pat (cl-position "-foo" args :test #'string=)))
+        (should pos-sep)
+        (should pos-pat)
+        (should (< pos-sep pos-pat))))))
 
 ;;;; haystack--truncate-content
 
@@ -3111,6 +3158,22 @@ Data style is handled at the block level in haystack-yank-moc."
       (should (string-match-p "OPEN" result))
       (should (string-match-p "CLOSE" result)))))
 
+;;;; haystack-describe-moc-languages
+
+(ert-deftest haystack-test/describe-moc-languages-creates-buffer ()
+  "Creates a describe buffer listing registered MOC data format languages."
+  (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+    (haystack-describe-moc-languages)
+    (let ((buf (get-buffer "*haystack-moc-languages*")))
+      (unwind-protect
+          (progn
+            (should buf)
+            (with-current-buffer buf
+              (should (string-match-p "js" (buffer-string)))
+              (should (string-match-p "python" (buffer-string)))
+              (should (string-match-p "elisp" (buffer-string)))))
+        (when buf (kill-buffer buf))))))
+
 ;;; copy-moc stores chain
 
 (ert-deftest haystack-test/copy-moc-stores-chain ()
@@ -3842,6 +3905,32 @@ A note within the range must appear; a note outside the range must not."
                  (should     (string-match-p "jan-replay" (buffer-string)))
                  (should-not (string-match-p "mar-replay" (buffer-string)))))
            (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+(ert-deftest haystack-test/frecency-replay-does-not-inflate-intermediate-scores ()
+  "Replaying a 2-step chain records only the leaf, not the intermediate root."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-inflate-test.org"
+                                 haystack-notes-directory)))
+     (with-temp-file note (insert "rust async content\n")))
+   (haystack-test--with-frecency nil
+     (cl-letf (((symbol-function 'haystack--load-frecency) #'ignore)
+               ((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (let* ((key (list :root (list :kind 'text :term "rust")
+                         :filters (list (list :term "async"))))
+              (buf (haystack--frecency-replay key)))
+         (unwind-protect
+             (let* ((root-key (haystack-test--tkey "rust"))
+                    (leaf-key (haystack-test--tkey "rust" "async"))
+                    (root-entry (assoc root-key haystack--frecency-data))
+                    (leaf-entry (assoc leaf-key haystack--frecency-data)))
+               ;; The root should NOT have been recorded during replay
+               (should-not root-entry)
+               ;; The leaf SHOULD have been recorded (the final step)
+               (should leaf-entry)
+               (should (= 1 (plist-get (cdr leaf-entry) :count))))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
 ;;; haystack--frecency-record
 
 (ert-deftest haystack-test/frecency-record-creates-entry ()
@@ -6075,6 +6164,79 @@ matching the behavior of ?s (search anyway)."
                    (when (buffer-live-p child) (kill-buffer child)))))
            (kill-buffer root-buf)))))))
 
+(ert-deftest haystack-test/date-filter-inherits-mentions-origin ()
+  "Date-filtered child inherits haystack--mentions-origin from parent."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20250115120000-test.org" haystack-notes-directory))
+         (origin "/path/to/origin.org"))
+     (with-temp-file note (insert "rust content hs: <2025-01-15 Wed 12:00>\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:=rust*")))
+         (unless root-buf (setq root-buf (get-buffer "*haystack:1:rust*")))
+         (should root-buf)
+         (with-current-buffer root-buf
+           (setq-local haystack--mentions-origin origin))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (let ((child (haystack-filter-further-by-date "2025-01" "2025-01")))
+                 (unwind-protect
+                     (progn
+                       (should (equal (buffer-local-value 'haystack--mentions-origin child)
+                                      origin))
+                       (should (string-prefix-p "*haystack-ref:" (buffer-name child))))
+                   (when (buffer-live-p child) (kill-buffer child)))))
+           (kill-buffer root-buf)))))))
+
+;;;; haystack-inherit-view-mode
+
+(ert-deftest haystack-test/filter-further-inherits-view-mode-when-enabled ()
+  "Child buffer inherits parent's view mode when `haystack-inherit-view-mode' is t."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust async content\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:=rust*")))
+         (unless root-buf (setq root-buf (get-buffer "*haystack:1:rust*")))
+         (should root-buf)
+         (with-current-buffer root-buf
+           (setq haystack--view-mode 'compact))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (let ((haystack-inherit-view-mode t))
+                 (let ((child (haystack-filter-further "async")))
+                   (unwind-protect
+                       (should (eq (buffer-local-value 'haystack--view-mode child)
+                                   'compact))
+                     (when (buffer-live-p child) (kill-buffer child))))))
+           (kill-buffer root-buf)))))))
+
+(ert-deftest haystack-test/filter-further-does-not-inherit-view-mode-by-default ()
+  "Child buffer starts in full view mode when `haystack-inherit-view-mode' is nil."
+  (haystack-test--with-notes-dir
+   (let ((note (expand-file-name "20240101000000-test.org" haystack-notes-directory)))
+     (with-temp-file note (insert "rust async content\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (haystack-run-root-search "rust")
+       (let ((root-buf (get-buffer "*haystack:1:=rust*")))
+         (unless root-buf (setq root-buf (get-buffer "*haystack:1:rust*")))
+         (should root-buf)
+         (with-current-buffer root-buf
+           (setq haystack--view-mode 'compact))
+         (unwind-protect
+             (with-current-buffer root-buf
+               (let ((haystack-inherit-view-mode nil))
+                 (let ((child (haystack-filter-further "async")))
+                   (unwind-protect
+                       (should (eq (buffer-local-value 'haystack--view-mode child)
+                                   'full))
+                     (when (buffer-live-p child) (kill-buffer child))))))
+           (kill-buffer root-buf)))))))
+
 ;;;; haystack--append-to-origin-file
 
 (ert-deftest haystack-test/append-to-origin-file-appends-separator-and-content ()
@@ -6105,6 +6267,13 @@ matching the behavior of ?s (search anyway)."
        (should (string-match-p "first line" content))
        (should (string-match-p "second line" content))
        (should (string-match-p "appended" content))))))
+
+(ert-deftest haystack-test/append-to-origin-file-errors-on-deleted-file ()
+  "Signals user-error when the origin file does not exist."
+  (haystack-test--with-notes-dir
+   (let ((origin (expand-file-name "deleted.org" haystack-notes-directory)))
+     (should-error (haystack--append-to-origin-file origin "content" "org")
+                   :type 'user-error))))
 
 ;;;; haystack-mentions-yank-to-origin
 

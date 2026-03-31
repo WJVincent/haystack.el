@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: wv
-;; Version: 0.13.0
+;; Version: 0.14.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, files, outlines
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -144,6 +144,15 @@ placeholder.  Increase for corpora with long prose lines (e.g. notes without
           the exact count."
   :type '(choice (const :tag "Exact count" exact)
                  (const :tag "Fast short-circuit" fast))
+  :group 'haystack)
+
+(defcustom haystack-inherit-view-mode nil
+  "When non-nil, child buffers inherit the parent's view mode.
+By default, child buffers created by `haystack-filter-further' and
+`haystack-filter-further-by-date' start in full view mode regardless
+of the parent.  Set this to t to propagate the parent's view mode
+to children automatically."
+  :type 'boolean
   :group 'haystack)
 
 (defcustom haystack-file-glob nil
@@ -291,6 +300,32 @@ Keyword arguments:
          (concat ,prefix " title: " title ,suffix "\n"
                  ,prefix " date: " (format-time-string "%Y-%m-%d") ,suffix "\n"
                  ,prefix " %%% haystack-end-frontmatter %%%" ,suffix "\n\n")))))
+
+;;;###autoload
+(defun haystack-describe-frontmatter-styles ()
+  "Display all registered frontmatter comment styles."
+  (interactive)
+  (haystack--show-info-buffer
+   "*haystack-frontmatter-styles*"
+   (concat "Haystack — Frontmatter Styles\n"
+           (make-string 40 ?=) "\n\n"
+           (if (null haystack--frontmatter-registry)
+               "(no styles registered)\n"
+             (mapconcat
+              (lambda (entry)
+                (let* ((name (car entry))
+                       (props (cdr entry))
+                       (prefix (plist-get props :prefix))
+                       (suffix (plist-get props :suffix))
+                       (exts (plist-get props :extensions)))
+                  (format "%-14s  prefix: %-6s  suffix: %-6s  extensions: %s\n"
+                          name
+                          (format "%S" prefix)
+                          (format "%S" suffix)
+                          (mapconcat #'identity exts ", "))))
+              haystack--frontmatter-registry ""))
+           "\nOrg and Markdown use unique formats defined separately.\n"
+           "Extend via `haystack-define-frontmatter' and `haystack-frontmatter-functions'.\n")))
 
 ;;; Unique-format styles (do not fit the PREFIX/SUFFIX pattern)
 
@@ -694,6 +729,7 @@ Running `haystack-after-create-hook' is the caller's responsibility."
     (goto-char (point-max))
     path))
 
+;;;###autoload
 (defun haystack-new-note ()
   "Create a new timestamped note in `haystack-notes-directory'.
 Prompts for a slug and file extension, writes frontmatter, opens the
@@ -1024,11 +1060,19 @@ Multi-word terms are rejected.  Three states:
 
 (defun haystack--groups-rename-root (groups old-root new-root)
   "Return GROUPS with OLD-ROOT replaced by NEW-ROOT as the canonical root.
-Only the root (car) of each group is matched; members are not affected."
+The old root is added as a member so it still expands to the group.
+If the old root is already a member (case-insensitive), it is not duplicated."
   (let ((key (downcase old-root)))
     (mapcar (lambda (group)
               (if (string= key (downcase (car group)))
-                  (cons new-root (cdr group))
+                  (let* ((old (car group))
+                         (members (cdr group))
+                         (already (cl-some (lambda (m)
+                                             (string= (downcase m) key))
+                                           members)))
+                    (cons new-root (if already
+                                       members
+                                     (cons old members))))
                 group))
             groups)))
 
@@ -1290,9 +1334,10 @@ EXTRA-ARGS: additional args appended last (e.g. the notes directory path)."
          (file-glob-args
           (when (and file-glob haystack-file-glob)
             (mapcar (lambda (g) (concat "--glob=" g)) haystack-file-glob)))
-         ;; Pattern and trailing positional args
+         ;; Pattern and trailing positional args; "--" prevents
+         ;; leading-dash patterns from being parsed as rg flags.
          (tail-args
-          (append (when pattern (list pattern)) extra-args)))
+          (append (when pattern (list "--" pattern)) extra-args)))
     (append mode-args base-args composite-args file-glob-args tail-args)))
 
 (defun haystack--count-output-stats (output)
@@ -1843,6 +1888,7 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
                                                     composite-path)))
       (haystack--frecency-record new-descriptor)
       (let* ((parent-origin haystack--mentions-origin)
+             (parent-view  haystack--view-mode)
              (buf (haystack--setup-results-buffer
                    buf-name header output new-descriptor parent-buf composite-path)))
         ;; Propagate mentions origin and rename buffer when inside a mentions tree.
@@ -1852,6 +1898,10 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
             (rename-buffer
              (replace-regexp-in-string "\\`\\*haystack:" "*haystack-ref:" (buffer-name))
              t)))
+        ;; Inherit parent's view mode when configured.
+        (when (and haystack-inherit-view-mode (not (eq parent-view 'full)))
+          (with-current-buffer buf
+            (haystack--view-set parent-view)))
         (unless haystack--suppress-display
           (switch-to-buffer buf))
         buf))))
@@ -1910,8 +1960,19 @@ The child buffer supports `haystack-filter-further' as usual."
          (header      (haystack--format-header chain-str (car stats) (cdr stats)
                                                composite-path)))
     (haystack--frecency-record new-descriptor)
-    (let ((buf (haystack--setup-results-buffer
-                buf-name header output new-descriptor parent-buf composite-path)))
+    (let* ((parent-origin haystack--mentions-origin)
+           (parent-view  haystack--view-mode)
+           (buf (haystack--setup-results-buffer
+                 buf-name header output new-descriptor parent-buf composite-path)))
+      (when parent-origin
+        (with-current-buffer buf
+          (setq-local haystack--mentions-origin parent-origin)
+          (rename-buffer
+           (replace-regexp-in-string "\\`\\*haystack:" "*haystack-ref:" (buffer-name))
+           t)))
+      (when (and haystack-inherit-view-mode (not (eq parent-view 'full)))
+        (with-current-buffer buf
+          (haystack--view-set parent-view)))
       (unless haystack--suppress-display
         (switch-to-buffer buf))
       buf)))
@@ -3358,6 +3419,29 @@ Keyword arguments:
                    (mapconcat #'identity entries ,separator)
                    ,close))))))
 
+;;;###autoload
+(defun haystack-describe-moc-languages ()
+  "Display all registered MOC data format languages."
+  (interactive)
+  (haystack--show-info-buffer
+   "*haystack-moc-languages*"
+   (concat "Haystack — MOC Data Format Languages\n"
+           (make-string 40 ?=) "\n\n"
+           (if (null haystack--moc-language-registry)
+               "(no languages registered)\n"
+             (mapconcat
+              (lambda (entry)
+                (let* ((name (car entry))
+                       (props (cdr entry))
+                       (comment (plist-get props :comment))
+                       (exts (plist-get props :extensions)))
+                  (format "%-10s  comment: %-4s  extensions: %s\n"
+                          name
+                          (format "%S" comment)
+                          (mapconcat #'identity exts ", "))))
+              haystack--moc-language-registry ""))
+           "\nExtend via `haystack-define-moc-language' and `haystack-moc-data-formatters'.\n")))
+
 (haystack-define-moc-language js
   :comment "//"
   :open    "const haystack = [\n"
@@ -3561,6 +3645,11 @@ without affecting the window layout.")
 Used by `haystack--frecency-replay' so replaying a chain whose root term
 was later added to the stop-word list does not crash or prompt.")
 
+(defvar haystack--suppress-frecency-recording nil
+  "When non-nil, `haystack--frecency-record' becomes a no-op.
+Used by `haystack--frecency-replay' to prevent intermediate chain steps
+from inflating frecency scores.")
+
 (defvar haystack--frecency-timer nil
   "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
 
@@ -3704,21 +3793,23 @@ Filters are appended with \" > \" separators."
 
 (defun haystack--frecency-record (descriptor)
   "Record or update a frecency entry for DESCRIPTOR.
-Loads data from disk on first call.  Sets `haystack--frecency-dirty'."
-  (unless haystack--frecency-data
-    (haystack--load-frecency))
-  (let* ((key      (haystack--frecency-chain-key descriptor))
-         (now      (float-time))
-         (existing (assoc key haystack--frecency-data)))
-    (if existing
-        (setcdr existing
-                (list :count      (1+ (plist-get (cdr existing) :count))
-                      :last-access now))
-      (push (cons key (list :count 1 :last-access now))
-            haystack--frecency-data))
-    (setq haystack--frecency-dirty t)
-    (when (null haystack-frecency-save-interval)
-      (haystack--frecency-flush))))
+Loads data from disk on first call.  Sets `haystack--frecency-dirty'.
+No-op when `haystack--suppress-frecency-recording' is non-nil."
+  (unless haystack--suppress-frecency-recording
+    (unless haystack--frecency-data
+      (haystack--load-frecency))
+    (let* ((key      (haystack--frecency-chain-key descriptor))
+           (now      (float-time))
+           (existing (assoc key haystack--frecency-data)))
+      (if existing
+          (setcdr existing
+                  (list :count      (1+ (plist-get (cdr existing) :count))
+                        :last-access now))
+        (push (cons key (list :count 1 :last-access now))
+              haystack--frecency-data))
+      (setq haystack--frecency-dirty t)
+      (when (null haystack-frecency-save-interval)
+        (haystack--frecency-flush)))))
 
 (defun haystack--frecency-score (entry)
   "Return the frecency score for ENTRY: count / max(days-since-access, 1).
@@ -4008,34 +4099,39 @@ later added to the stop-word list does not crash or prompt."
   (let ((current-buf nil)
         (done nil))
     (unwind-protect
-        (let ((haystack--suppress-display t)
-              (haystack--suppress-stop-word t))
-          (let* ((root (plist-get key :root))
-                 (kind (plist-get root :kind)))
-            (setq current-buf
-                  (if (eq kind 'date-range)
-                      (haystack-search-date-range
-                       (or (plist-get root :start) "")
-                       (or (plist-get root :end)   ""))
-                    (haystack-run-root-search
-                     (haystack--frecency-key-root-term key)))))
-          (dolist (f (plist-get key :filters))
-            (let ((next-buf
-                   (with-current-buffer current-buf
-                     (if (eq (plist-get f :kind) 'date-range)
-                         (haystack-filter-further-by-date
-                          (or (plist-get f :start) "")
-                          (or (plist-get f :end)   ""))
-                       (haystack-filter-further
-                        (concat (when (plist-get f :negated)  "!")
-                                (cond ((plist-get f :filename) "/")
-                                      ((plist-get f :regex)    "~")
-                                      ((plist-get f :literal)  "=")
-                                      (t ""))
-                                (plist-get f :term)))))))
-              (kill-buffer current-buf)
-              (setq current-buf next-buf)))
+        (progn
+          (let ((haystack--suppress-display t)
+                (haystack--suppress-stop-word t)
+                (haystack--suppress-frecency-recording t))
+            (let* ((root (plist-get key :root))
+                   (kind (plist-get root :kind)))
+              (setq current-buf
+                    (if (eq kind 'date-range)
+                        (haystack-search-date-range
+                         (or (plist-get root :start) "")
+                         (or (plist-get root :end)   ""))
+                      (haystack-run-root-search
+                       (haystack--frecency-key-root-term key)))))
+            (dolist (f (plist-get key :filters))
+              (let ((next-buf
+                     (with-current-buffer current-buf
+                       (if (eq (plist-get f :kind) 'date-range)
+                           (haystack-filter-further-by-date
+                            (or (plist-get f :start) "")
+                            (or (plist-get f :end)   ""))
+                         (haystack-filter-further
+                          (concat (when (plist-get f :negated)  "!")
+                                  (cond ((plist-get f :filename) "/")
+                                        ((plist-get f :regex)    "~")
+                                        ((plist-get f :literal)  "=")
+                                        (t ""))
+                                  (plist-get f :term)))))))
+                (kill-buffer current-buf)
+                (setq current-buf next-buf))))
+          ;; Record only the final leaf descriptor, outside the suppression scope.
           (with-current-buffer current-buf
+            (when (bound-and-true-p haystack--search-descriptor)
+              (haystack--frecency-record haystack--search-descriptor))
             (setq-local haystack--parent-buffer nil))
           (pop-to-buffer current-buf)
           (setq done t)
@@ -4114,6 +4210,9 @@ and kills the entire mentions tree."
 (defun haystack--append-to-origin-file (origin content ext)
   "Append a mentions separator and CONTENT to ORIGIN and save.
 EXT determines the separator style."
+  (unless (file-exists-p origin)
+    (user-error "Haystack: origin note %s no longer exists"
+                (file-name-nondirectory origin)))
   (let ((sep (haystack--mentions-separator ext)))
     (with-current-buffer (find-file-noselect origin)
       (goto-char (point-max))
