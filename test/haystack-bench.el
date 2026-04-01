@@ -176,34 +176,26 @@ buffer-local state required by haystack--tree-render-node.
 Caller must kill all returned buffers when done."
   (let (all-bufs)
     (dotimes (r n-roots)
-      (let* ((root-desc (list :root-term     (format "root%d" r)
-                              :root-filename nil :root-literal nil :root-regex nil
-                              :filters       nil))
+      (let* ((root-desc (haystack-sd-create :root-term (format "root%d" r)))
              (root-buf  (get-buffer-create (format " *hs-bench-%d*" r))))
         (with-current-buffer root-buf
           (setq haystack--search-descriptor root-desc
                 haystack--parent-buffer     nil))
         (push root-buf all-bufs)
         (dotimes (c children-per-root)
-          (let* ((child-desc (list :root-term     (format "root%d" r)
-                                   :root-filename nil :root-literal nil :root-regex nil
-                                   :filters       (list (list :term     (format "f%d" c)
-                                                              :negated  nil :filename nil
-                                                              :literal  nil :regex    nil))))
+          (let* ((child-desc (haystack-sd-create
+                               :root-term (format "root%d" r)
+                               :filters   (list (list :term (format "f%d" c)))))
                  (child-buf  (get-buffer-create (format " *hs-bench-%d-%d*" r c))))
             (with-current-buffer child-buf
               (setq haystack--search-descriptor child-desc
                     haystack--parent-buffer     root-buf))
             (push child-buf all-bufs)
             (dotimes (g grandchildren-per-child)
-              (let* ((gc-desc (list :root-term     (format "root%d" r)
-                                    :root-filename nil :root-literal nil :root-regex nil
-                                    :filters       (list (list :term     (format "f%d" c)
-                                                               :negated  nil :filename nil
-                                                               :literal  nil :regex    nil)
-                                                         (list :term     (format "g%d" g)
-                                                               :negated  nil :filename nil
-                                                               :literal  nil :regex    nil))))
+              (let* ((gc-desc (haystack-sd-create
+                               :root-term (format "root%d" r)
+                               :filters   (list (list :term (format "f%d" c))
+                                                (list :term (format "g%d" g)))))
                      (gc-buf  (get-buffer-create (format " *hs-bench-%d-%d-%d*" r c g))))
                 (with-current-buffer gc-buf
                   (setq haystack--search-descriptor gc-desc
@@ -347,7 +339,7 @@ Returns the buffer; caller must kill it."
      "*haystack-bench-view*"
      ";;;; bench header\n"
      (concat (mapconcat #'identity lines "\n") "\n")
-     (list :root-term "bench" :filters nil))))
+     (haystack-sd-create :root-term "bench"))))
 
 (ert-deftest haystack-bench/compact-overlays-10k ()
   "Compact overlays on 10k lines in under 500ms."

@@ -5,6 +5,25 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: search descriptor is now a `cl-defstruct`** —
+  `haystack-sd` replaces the ad-hoc plist.  The auto-generated copier
+  eliminates the field-by-field copy sites in `haystack-filter-further`
+  and `haystack-filter-further-by-date`, removing a latent bug class
+  where adding a descriptor field required updating every copy site.
+  No user-visible behavior change; frecency data format is unchanged.
+- **Byte-compile clean** — zero warnings from `batch-byte-compile`.
+  Fixed forward-reference declarations, wide docstrings, and one
+  unused variable.
+- **Lazy-load org** — `(require 'org)` replaced with
+  `(declare-function org-mode "org")`.  Org is loaded on first use of
+  compose or discoverability modes, not at package load time.
+- **Ripgrep entry-point guard** — `haystack-run-root-search` and
+  friends now check `(executable-find "rg")` and emit a clear
+  `user-error` instead of a raw `file-error`.
+- **Author header** — updated to MELPA-required `Name <email>` format.
+
 ### Added
 
 - **Search scope modes** — `>` prefix searches body only (after the
@@ -14,6 +33,13 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   Scope is stored in frecency chain keys and replayed correctly.
 - **`haystack-new-note-from-region`** (`C-c h x`) — create a new note
   and insert the active region text after frontmatter.
+- **Pinned search paths** — frecency entries can be pinned so they
+  always appear in `haystack-frecent` completing-read, regardless of
+  score decay.  `p` in the frecent buffer toggles pin at point; `P`
+  in a results buffer pins or unpins the current search.  Pinned
+  entries bypass leaf filtering and sort before non-pinned entries.
+  The `*` indicator marks pinned entries in both the frecent buffer
+  and completing-read annotations.
 
 ## [0.14.0] — 2026-03-30
 

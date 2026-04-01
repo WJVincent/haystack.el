@@ -1,6 +1,6 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
-;; Author: wv
+;; Author: William Vincent <william@william-vincent.dev>
 ;; Version: 0.14.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, files, outlines
@@ -54,7 +54,23 @@
 
 (require 'cl-lib)
 (require 'grep)
-(require 'org)
+(declare-function org-mode "org")
+
+;; Forward declarations — silence byte-compiler warnings for variables
+;; defined later in this file.
+(defvar haystack--demo-active)
+(defvar haystack--last-moc)
+(defvar haystack--last-moc-chain)
+(defvar haystack--frecency-data)
+(defvar haystack--frecency-dirty)
+(defvar haystack--frecency-initialized)
+(defvar haystack--frecency-timer)
+(defvar haystack--suppress-display)
+(defvar haystack--suppress-stop-word)
+(defvar haystack--view-header-overlay)
+(defvar haystack-tree-mode-map)
+(defvar haystack-frecent-mode-map)
+(defvar haystack-prefix-map)
 
 ;;;; Customization
 
@@ -176,26 +192,33 @@ Example: (\"*.md\" \"*.org\")"
   "The expanded `haystack-notes-directory' at the time this buffer was created.
 Used to scope tree views and kill operations to the correct notes directory.")
 
+(cl-defstruct (haystack-sd (:constructor haystack-sd-create)
+                           (:copier haystack-sd-copy))
+  "Search descriptor for a haystack results buffer.
+Holds the root search term, its parsed properties, the ordered list
+of filters applied so far, and the composite-filter mode.
+
+Filter plists stored in the `filters' slot retain the plist
+representation:
+  (:term STRING :negated BOOL :filename BOOL :literal BOOL
+   :regex BOOL :scope SYMBOL :expansion LIST :kind SYMBOL
+   :start STRING :end STRING)"
+  (root           nil)
+  (root-term      nil)
+  (root-expanded  nil)
+  (root-literal   nil)
+  (root-regex     nil)
+  (root-filename  nil)
+  (root-expansion nil)
+  (root-kind      nil)
+  (root-scope     nil)
+  (root-date-start nil)
+  (root-date-end   nil)
+  (filters         nil)
+  (composite-filter nil))
+
 (defvar-local haystack--search-descriptor nil
-  "Plist describing the full search chain for this buffer.
-
-Structure:
-  (:root-term       STRING   — raw user input for root search
-   :root-expanded   STRING   — regex sent to rg (may be alternation)
-   :root-literal    BOOL     — = prefix: suppress expansion
-   :root-regex      BOOL     — ~ prefix: skip regexp-quote
-   :root-filename   BOOL     — / prefix: root was a filename search
-   :root-expansion  LIST     — group members if expansion fired, nil otherwise
-   :filters         LIST     — ordered list of filter plists
-   :composite-filter SYMBOL  — \\='exclude | \\='only | \\='all)
-
-Each filter plist:
-  (:term      STRING
-   :negated   BOOL
-   :filename  BOOL
-   :literal   BOOL
-   :regex     BOOL
-   :expansion LIST — group members if expansion fired, nil otherwise)")
+  "A `haystack-sd' struct describing the full search chain for this buffer.")
 
 (defvar-local haystack--mentions-origin nil
   "Absolute path of the note that triggered this mentions search.
@@ -239,7 +262,9 @@ to know where results start.")
   (haystack--validate-notes-directory)
   (unless (file-directory-p haystack-notes-directory)
     (user-error "Haystack: notes directory does not exist: %s"
-                haystack-notes-directory)))
+                haystack-notes-directory))
+  (unless (executable-find "rg")
+    (user-error "Haystack requires ripgrep (rg) on your PATH.  See https://github.com/BurntSushi/ripgrep")))
 
 (defun haystack--ensure-notes-directory ()
   "Ensure `haystack-notes-directory' is set and exists.
@@ -844,7 +869,8 @@ Set to t after a successful load.  Cleared by
   (expand-file-name ".expansion-groups.el" haystack-notes-directory))
 
 (defun haystack--load-expansion-groups ()
-  "Load expansion groups from `.expansion-groups.el' into `haystack--expansion-groups'.
+  "Load expansion groups from disk.
+Reads `.expansion-groups.el' into `haystack--expansion-groups'.
 Silently sets `haystack--expansion-groups' to nil when the file is
 absent.  Emits a message on parse errors rather than signalling.
 Skips the disk read when `haystack--expansion-groups-loaded' is non-nil
@@ -1134,8 +1160,12 @@ are summed and the later timestamp is kept."
             (let* ((ep    (cdr existing))
                    (count (+ (plist-get props :count) (plist-get ep :count)))
                    (ts    (max (plist-get props :last-access)
-                               (plist-get ep :last-access))))
-              (setcdr existing (list :count count :last-access ts)))
+                               (plist-get ep :last-access)))
+                   (pin   (or (plist-get props :pinned)
+                              (plist-get ep :pinned)))
+                   (merged (list :count count :last-access ts)))
+              (when pin (setq merged (plist-put merged :pinned t)))
+              (setcdr existing merged))
           (push (cons new-chain props) result))))
     (nreverse result)))
 
@@ -1661,22 +1691,22 @@ results buffers."
 Each segment is a plist (:label L :display D :face F) covering the root
 term and all stored filters.  :display is propertized with :face.
 The current in-progress filter is not included; callers append it."
-  (let* ((root-label   (cond ((plist-get descriptor :root-filename)              "filename")
-                             ((eq (plist-get descriptor :root-kind) 'date-range) "date")
-                             (t                                                  "root")))
-         (root-exp     (plist-get descriptor :root-expansion))
-         (root-scope-prefix (pcase (plist-get descriptor :root-scope)
+  (let* ((root-label   (cond ((haystack-sd-root-filename descriptor)              "filename")
+                             ((eq (haystack-sd-root-kind descriptor) 'date-range) "date")
+                             (t                                                   "root")))
+         (root-exp     (haystack-sd-root-expansion descriptor))
+         (root-scope-prefix (pcase (haystack-sd-root-scope descriptor)
                               ('body ">")
                               ('frontmatter "<")
                               (_ "")))
          (root-display (concat root-scope-prefix
                                (haystack--format-term-display
-                                (plist-get descriptor :root-term) root-exp)))
+                                (haystack-sd-root-term descriptor) root-exp)))
          (root-face    (haystack--root-face descriptor))
          (parts (list (list :label root-label
                             :display (propertize root-display 'face root-face)
                             :face root-face))))
-    (dolist (f (plist-get descriptor :filters))
+    (dolist (f (haystack-sd-filters descriptor))
       (let* ((face (haystack--filter-face f))
              (label (if (eq (plist-get f :kind) 'date-range)
                         "date"
@@ -1741,12 +1771,12 @@ NEW-TERM and its modifier flags (NEW-NEGATED, NEW-FILENAME, NEW-LITERAL,
 NEW-REGEX, NEW-SCOPE) describe the filter being applied.  All terms in
 the chain are prefixed with their modifier characters for clarity."
   (let* ((root    (haystack--tree-term-label
-                   (plist-get descriptor :root-term)
+                   (haystack-sd-root-term descriptor)
                    nil
-                   (plist-get descriptor :root-filename)
-                   (plist-get descriptor :root-literal)
-                   (plist-get descriptor :root-regex)
-                   (plist-get descriptor :root-scope)))
+                   (haystack-sd-root-filename descriptor)
+                   (haystack-sd-root-literal descriptor)
+                   (haystack-sd-root-regex descriptor)
+                   (haystack-sd-root-scope descriptor)))
          (filters (mapcar (lambda (f)
                             (if (eq (plist-get f :kind) 'date-range)
                                 (haystack--date-root-label
@@ -1758,7 +1788,7 @@ the chain are prefixed with their modifier characters for clarity."
                                (plist-get f :literal)
                                (plist-get f :regex)
                                (plist-get f :scope))))
-                          (plist-get descriptor :filters)))
+                          (haystack-sd-filters descriptor)))
          (chain   (append (list root) filters
                           (list (haystack--tree-term-label
                                  new-term new-negated new-filename
@@ -1967,12 +1997,12 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
   (haystack--load-expansion-groups)
   (let* ((parent-buf   (current-buffer))
          (descriptor   haystack--search-descriptor)
-         (cf           (plist-get descriptor :composite-filter))
-         (root-pattern    (plist-get descriptor :root-expanded))
+         (cf           (haystack-sd-composite-filter descriptor))
+         (root-pattern    (haystack-sd-root-expanded descriptor))
          (root-emacs-pat  (haystack--build-emacs-pattern
-                            (plist-get descriptor :root-term)
-                            (plist-get descriptor :root-regex)
-                            (plist-get descriptor :root-literal)))
+                            (haystack-sd-root-term descriptor)
+                            (haystack-sd-root-regex descriptor)
+                            (haystack-sd-root-literal descriptor)))
          (parsed       (haystack--parse-input raw-input))
          (term         (plist-get parsed :term))
          (pattern      (plist-get parsed :pattern))
@@ -1981,7 +2011,7 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
          (filename     (plist-get parsed :filename))
          (expansion    (plist-get parsed :expansion))
          (filenames    (haystack--extract-filenames (buffer-string)))
-         (root-exp     (plist-get descriptor :root-expansion)))
+         (root-exp     (haystack-sd-root-expansion descriptor)))
     (when (null filenames)
       (user-error "Haystack: no files in current buffer to filter"))
     ;; Exclusivity guardrail: a bare single-word term that belongs to the
@@ -2025,7 +2055,7 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
            (chain-str   (haystack--format-search-chain descriptor term negated
                                                        filename expansion
                                                        (haystack--filter-face parsed)))
-           (new-filters (append (plist-get descriptor :filters)
+           (new-filters (append (haystack-sd-filters descriptor)
                                 (list (list :term      term
                                             :negated   negated
                                             :filename  filename
@@ -2033,18 +2063,11 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
                                             :regex     (plist-get parsed :regex)
                                             :scope     scope
                                             :expansion expansion))))
-           (new-descriptor (list :root             (plist-get descriptor :root)
-                                 :root-term        (plist-get descriptor :root-term)
-                                 :root-expanded    root-pattern
-                                 :root-literal     (plist-get descriptor :root-literal)
-                                 :root-regex       (plist-get descriptor :root-regex)
-                                 :root-filename    (plist-get descriptor :root-filename)
-                                 :root-expansion   (plist-get descriptor :root-expansion)
-                                 :root-kind        (plist-get descriptor :root-kind)
-                                 :root-date-start  (plist-get descriptor :root-date-start)
-                                 :root-date-end    (plist-get descriptor :root-date-end)
-                                 :filters          new-filters
-                                 :composite-filter cf))
+           (new-descriptor (let ((sd (haystack-sd-copy descriptor)))
+                            (setf (haystack-sd-root-expanded sd) root-pattern
+                                  (haystack-sd-filters sd) new-filters
+                                  (haystack-sd-composite-filter sd) cf)
+                            sd))
            (composite-path (haystack--find-composite new-descriptor))
            (header         (haystack--format-header chain-str (car stats) (cdr stats)
                                                     composite-path)))
@@ -2100,19 +2123,10 @@ The child buffer supports `haystack-filter-further' as usual."
               (user-error "Haystack: search cancelled"))))
          (label       (haystack--date-root-label start end))
          (new-filter  (list :kind 'date-range :term label :start start :end end))
-         (new-filters (append (plist-get descriptor :filters) (list new-filter)))
-         (new-descriptor (list :root             (plist-get descriptor :root)
-                               :root-term        (plist-get descriptor :root-term)
-                               :root-expanded    (plist-get descriptor :root-expanded)
-                               :root-literal     (plist-get descriptor :root-literal)
-                               :root-regex       (plist-get descriptor :root-regex)
-                               :root-filename    (plist-get descriptor :root-filename)
-                               :root-expansion   (plist-get descriptor :root-expansion)
-                               :root-kind        (plist-get descriptor :root-kind)
-                               :root-date-start  (plist-get descriptor :root-date-start)
-                               :root-date-end    (plist-get descriptor :root-date-end)
-                               :filters          new-filters
-                               :composite-filter (plist-get descriptor :composite-filter)))
+         (new-filters (append (haystack-sd-filters descriptor) (list new-filter)))
+         (new-descriptor (let ((sd (haystack-sd-copy descriptor)))
+                           (setf (haystack-sd-filters sd) new-filters)
+                           sd))
          (chain-str   (haystack--descriptor-chain-string new-descriptor))
          (buf-name    (haystack--child-buffer-name
                        descriptor (concat "date:" label) nil nil nil nil))
@@ -2241,10 +2255,6 @@ for the dispatcher to use."
                                     (plist-get p :regex)
                                     (plist-get p :scope)))
                                  parsed-list "&")))
-         (scope-prefix  (pcase scope
-                          ('body ">")
-                          ('frontmatter "<")
-                          (_ "")))
          (display-parts (mapcar (lambda (p)
                                   (concat (pcase (plist-get p :scope)
                                             ('body ">")
@@ -2265,15 +2275,14 @@ for the dispatcher to use."
          ;; guarantees at least two tokens before dispatching to this path.
          (root-term-str (concat first-term " & "
                                 (mapconcat #'identity (cdr and-tokens) " & ")))
-         (descriptor    (list :root-term        root-term-str
-                              :root-expanded    first-pattern
-                              :root-literal     (plist-get first-parsed :literal)
-                              :root-regex       (plist-get first-parsed :regex)
-                              :root-filename    nil
-                              :root-expansion   first-exp
-                              :root-scope       scope
-                              :filters          nil
-                              :composite-filter cf))
+         (descriptor    (haystack-sd-create
+                        :root-term        root-term-str
+                        :root-expanded    first-pattern
+                        :root-literal     (plist-get first-parsed :literal)
+                        :root-regex       (plist-get first-parsed :regex)
+                        :root-expansion   first-exp
+                        :root-scope       scope
+                        :composite-filter cf))
          (composite-path (haystack--find-composite descriptor))
          (header         (haystack--format-header chain-label (car stats) (cdr stats)
                                                   composite-path)))
@@ -2423,15 +2432,15 @@ including composite files in the search."
                                       (if filename "filename" "root")
                                       scope-prefix
                                       (haystack--format-term-display term expansion)))
-                 (descriptor (list :root-term        term
-                                   :root-expanded    (if filename "." pattern)
-                                   :root-literal     (plist-get parsed :literal)
-                                   :root-regex       (plist-get parsed :regex)
-                                   :root-filename    filename
-                                   :root-expansion   expansion
-                                   :root-scope       scope
-                                   :filters          nil
-                                   :composite-filter cf)))
+                 (descriptor (haystack-sd-create
+                              :root-term        term
+                              :root-expanded    (if filename "." pattern)
+                              :root-literal     (plist-get parsed :literal)
+                              :root-regex       (plist-get parsed :regex)
+                              :root-filename    filename
+                              :root-expansion   expansion
+                              :root-scope       scope
+                              :composite-filter cf)))
             (let* ((composite-path (haystack--find-composite descriptor))
                    (header         (haystack--format-header chain-label (car stats) (cdr stats)
                                                             composite-path)))
@@ -2512,26 +2521,23 @@ The descriptor is compatible with `haystack-filter-further':
   :root-literal suppresses term expansion of the display label;
   :root-kind marks this as a date-range root for Phase 8 replay dispatch."
   (let ((label (haystack--date-root-label start end)))
-    (list :root           (list :kind      'date-range
-                                :term      label
-                                :expanded  "hs: [<\\[]"
-                                :literal   t
-                                :regex     nil
-                                :filename  nil
-                                :expansion nil
-                                :start     start
-                                :end       end)
-          :root-term       label
-          :root-expanded   "hs: [<\\[]"
-          :root-literal    t
-          :root-regex      nil
-          :root-filename   nil
-          :root-expansion  nil
-          :root-kind       'date-range
-          :root-date-start start
-          :root-date-end   end
-          :filters         nil
-          :composite-filter 'exclude)))
+    (haystack-sd-create
+     :root           (list :kind      'date-range
+                           :term      label
+                           :expanded  "hs: [<\\[]"
+                           :literal   t
+                           :regex     nil
+                           :filename  nil
+                           :expansion nil
+                           :start     start
+                           :end       end)
+     :root-term       label
+     :root-expanded   "hs: [<\\[]"
+     :root-literal    t
+     :root-kind       'date-range
+     :root-date-start start
+     :root-date-end   end
+     :composite-filter 'exclude)))
 
 (defun haystack--search-date-range-internal (start end)
   "Non-interactive backend for `haystack-search-date-range'.
@@ -2640,6 +2646,7 @@ as usual on the resulting buffer."
     (define-key map "1"             #'haystack-view-full)
     (define-key map "2"             #'haystack-view-compact)
     (define-key map "3"             #'haystack-view-files)
+    (define-key map "P"             #'haystack-pin-current-search)
     (define-key map "?"             #'haystack-help)
     map)
   "Keymap active in haystack results buffers (on top of `grep-mode').")
@@ -2888,6 +2895,9 @@ columns a two-column layout is used to reduce the required height."
                      (haystack--help-entry 'haystack-view-compact        "view: compact")
                      (haystack--help-entry 'haystack-view-files          "view: files")
                      ""
+                     (haystack--help-section "Frecency")
+                     (haystack--help-entry 'haystack-pin-current-search  "toggle pin on this search")
+                     ""
                      (haystack--help-section "Search/Filter Prefixes")
                      ";;;;    =term     literal (suppress expansion)"
                      ";;;;    /term     filename match"
@@ -2931,6 +2941,9 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
                       ""
                       (haystack--help-section "Display")
                       (haystack--help-entry 'haystack-cycle-view        "cycle view (full/compact/files)")
+                      ""
+                      (haystack--help-section "Frecency")
+                      (haystack--help-entry 'haystack-pin-current-search "toggle pin")
                       ""
                       (haystack--help-section "Search/Filter Prefixes")
                       ";;;;    = literal  / filename  ~ regex"
@@ -3066,11 +3079,11 @@ Never applied to results content (filename filters match paths, not content)."
 (defun haystack--root-face (descriptor)
   "Return the highlight face for DESCRIPTOR's root term."
   (cond
-   ((eq (plist-get descriptor :root-kind) 'date-range) 'haystack-match-date)
-   ((plist-get descriptor :root-filename)              'haystack-match-filename)
-   ((plist-get descriptor :root-regex)                 'haystack-match-regex)
-   ((plist-get descriptor :root-literal)               'haystack-match-literal)
-   (t                                                  'haystack-match-search)))
+   ((eq (haystack-sd-root-kind descriptor) 'date-range) 'haystack-match-date)
+   ((haystack-sd-root-filename descriptor)              'haystack-match-filename)
+   ((haystack-sd-root-regex descriptor)                 'haystack-match-regex)
+   ((haystack-sd-root-literal descriptor)               'haystack-match-literal)
+   (t                                                   'haystack-match-search)))
 
 (defun haystack--filter-face (filter)
   "Return the highlight face for FILTER plist."
@@ -3088,19 +3101,19 @@ Each spec is (:emacs-pattern P :face F :content-p BOOL).
 Content-p is nil for negated and filename entries (they don't match
 in the content region)."
   (let* ((root-face (haystack--root-face descriptor))
-         (root-term (plist-get descriptor :root-term))
-         (root-pat  (if (eq (plist-get descriptor :root-kind) 'date-range)
+         (root-term (haystack-sd-root-term descriptor))
+         (root-pat  (if (eq (haystack-sd-root-kind descriptor) 'date-range)
                         "hs: [<\\[]"
                       (haystack--build-emacs-pattern
                        root-term
-                       (plist-get descriptor :root-regex)
-                       (plist-get descriptor :root-literal))))
-         (root-content-p (not (or (plist-get descriptor :root-filename)
+                       (haystack-sd-root-regex descriptor)
+                       (haystack-sd-root-literal descriptor))))
+         (root-content-p (not (or (haystack-sd-root-filename descriptor)
                                   (eq root-face 'haystack-match-filename))))
          (specs (list (list :emacs-pattern root-pat
                             :face root-face
                             :content-p root-content-p))))
-    (dolist (f (plist-get descriptor :filters))
+    (dolist (f (haystack-sd-filters descriptor))
       (let* ((face (haystack--filter-face f))
              (pat  (if (eq (plist-get f :kind) 'date-range)
                        "hs: [<\\[]"
@@ -3117,7 +3130,7 @@ in the content region)."
   "Return the highlight face for the deepest term in DESCRIPTOR.
 If filters exist, returns the face for the last filter; otherwise
 returns the root face."
-  (let ((filters (plist-get descriptor :filters)))
+  (let ((filters (haystack-sd-filters descriptor)))
     (if filters
         (haystack--filter-face (car (last filters)))
       (haystack--root-face descriptor))))
@@ -3248,7 +3261,7 @@ trims leading/trailing whitespace.  If the result exceeds
 
 (defun haystack--tree-term-label (term negated filename literal regex &optional scope)
   "Return TERM prefixed with its modifier characters for display.
-Negation maps to !, scope maps to > or <, filename to /, regex to ~, literal to =."
+Negation→!, scope→>/<, filename→/, regex→~, literal→=."
   (concat (when negated "!")
           (pcase scope
             ('body ">")
@@ -3263,7 +3276,7 @@ Negation maps to !, scope maps to > or <, filename to /, regex to ~, literal to 
 If DESCRIPTOR has filters, uses the last filter's term and modifiers.
 Otherwise uses the root term and modifiers.
 Date-range entries are prefixed with \"date:\" for clarity."
-  (let ((filters (plist-get descriptor :filters)))
+  (let ((filters (haystack-sd-filters descriptor)))
     (if filters
         (let ((f (car (last filters))))
           (if (eq (plist-get f :kind) 'date-range)
@@ -3274,14 +3287,14 @@ Date-range entries are prefixed with \"date:\" for clarity."
              (plist-get f :filename)
              (plist-get f :literal)
              (plist-get f :regex))))
-      (if (eq (plist-get descriptor :root-kind) 'date-range)
-          (concat "date:" (plist-get descriptor :root-term))
+      (if (eq (haystack-sd-root-kind descriptor) 'date-range)
+          (concat "date:" (haystack-sd-root-term descriptor))
         (haystack--tree-term-label
-         (plist-get descriptor :root-term)
+         (haystack-sd-root-term descriptor)
          nil
-         (plist-get descriptor :root-filename)
-         (plist-get descriptor :root-literal)
-         (plist-get descriptor :root-regex))))))
+         (haystack-sd-root-filename descriptor)
+         (haystack-sd-root-literal descriptor)
+         (haystack-sd-root-regex descriptor))))))
 
 (defun haystack--tree-render-node (buf current-buf prefix connector depth)
   "Insert a rendered line for BUF, then recurse into its children.
@@ -3854,7 +3867,8 @@ Used by `haystack--frecency-replay' to prevent intermediate chain steps
 from inflating frecency scores.")
 
 (defvar haystack--frecency-timer nil
-  "Idle timer that flushes frecency data; interval set by `haystack-frecency-save-interval'.")
+  "Idle timer that flushes frecency data.
+Interval set by `haystack-frecency-save-interval'.")
 
 (defun haystack--frecency-file ()
   "Return the absolute path of the frecency data file."
@@ -3907,8 +3921,9 @@ does not produce side effects."
     (setq haystack--frecency-initialized t)))
 
 (defun haystack--frecency-setup-timer ()
-  "Set up (or cancel) the frecency idle timer based on `haystack-frecency-save-interval'.
-Always registers `haystack--frecency-flush' on `kill-emacs-hook'."
+  "Set up or cancel the frecency idle timer.
+Uses `haystack-frecency-save-interval'.  Always registers
+`haystack--frecency-flush' on `kill-emacs-hook'."
   (when haystack--frecency-timer
     (cancel-timer haystack--frecency-timer)
     (setq haystack--frecency-timer nil))
@@ -3928,20 +3943,20 @@ FILTER-LIST: plists (:term TERM) with optional :negated, :filename,
 :literal, :regex flags when non-nil.
 Only truthy flag values are stored; absent keys behave as nil."
   (let* ((root-plist
-          (if (eq (plist-get descriptor :root-kind) 'date-range)
+          (if (eq (haystack-sd-root-kind descriptor) 'date-range)
               (let ((r (list :kind 'date-range
-                             :start (plist-get descriptor :root-date-start)
-                             :end   (plist-get descriptor :root-date-end))))
+                             :start (haystack-sd-root-date-start descriptor)
+                             :end   (haystack-sd-root-date-end descriptor))))
                 r)
-            (let ((r (list :kind 'text :term (plist-get descriptor :root-term))))
-              (when (plist-get descriptor :root-filename)
+            (let ((r (list :kind 'text :term (haystack-sd-root-term descriptor))))
+              (when (haystack-sd-root-filename descriptor)
                 (setq r (append r (list :filename t))))
-              (when (plist-get descriptor :root-literal)
+              (when (haystack-sd-root-literal descriptor)
                 (setq r (append r (list :literal t))))
-              (when (plist-get descriptor :root-regex)
+              (when (haystack-sd-root-regex descriptor)
                 (setq r (append r (list :regex t))))
-              (when (plist-get descriptor :root-scope)
-                (setq r (append r (list :scope (plist-get descriptor :root-scope)))))
+              (when (haystack-sd-root-scope descriptor)
+                (setq r (append r (list :scope (haystack-sd-root-scope descriptor)))))
               r)))
          (filter-list
           (mapcar (lambda (f)
@@ -3960,7 +3975,7 @@ Only truthy flag values are stored; absent keys behave as nil."
                         (when (plist-get f :regex)    (setq r (append r (list :regex    t))))
                         (when (plist-get f :scope)    (setq r (append r (list :scope (plist-get f :scope)))))
                         r)))
-                  (plist-get descriptor :filters))))
+                  (haystack-sd-filters descriptor))))
     (list :root root-plist :filters filter-list)))
 
 (defun haystack--frecency-key-display (key)
@@ -4014,9 +4029,12 @@ No-op when `haystack--suppress-frecency-recording' is non-nil."
            (now      (float-time))
            (existing (assoc key haystack--frecency-data)))
       (if existing
-          (setcdr existing
-                  (list :count      (1+ (plist-get (cdr existing) :count))
-                        :last-access now))
+          (let* ((old-props (cdr existing))
+                 (new-props (list :count      (1+ (plist-get old-props :count))
+                                  :last-access now)))
+            (when (plist-get old-props :pinned)
+              (setq new-props (plist-put new-props :pinned t)))
+            (setcdr existing new-props))
         (push (cons key (list :count 1 :last-access now))
               haystack--frecency-data))
       (setq haystack--frecency-dirty t)
@@ -4079,7 +4097,8 @@ entry against that table."
          (let* ((key       (car entry))
                 (score     (haystack--frecency-score entry))
                 (best-desc (gethash key max-desc)))
-           (or (null best-desc) (<= best-desc score))))
+           (or (plist-get (cdr entry) :pinned)
+               (null best-desc) (<= best-desc score))))
        entries))))
 
 ;;; Frecency diagnostic buffer mode
@@ -4091,15 +4110,21 @@ entry against that table."
   "When non-nil, *haystack-frecent* shows only leaf entries.")
 
 (defun haystack--frecent-sort-entries (entries order)
-  "Return ENTRIES sorted by ORDER (`score', `frequency', or `recency')."
-  (sort (copy-sequence entries)
-        (pcase order
-          ('score     (lambda (a b) (> (haystack--frecency-score a)
-                                       (haystack--frecency-score b))))
-          ('frequency (lambda (a b) (> (plist-get (cdr a) :count)
-                                       (plist-get (cdr b) :count))))
-          (_          (lambda (a b) (> (plist-get (cdr a) :last-access)
-                                       (plist-get (cdr b) :last-access)))))))
+  "Return ENTRIES sorted by ORDER (`score', `frequency', or `recency').
+Pinned entries always sort before non-pinned entries.  Within each
+tier, entries are sorted by ORDER."
+  (let ((value-fn (pcase order
+                    ('score     #'haystack--frecency-score)
+                    ('frequency (lambda (e) (plist-get (cdr e) :count)))
+                    (_          (lambda (e) (plist-get (cdr e) :last-access))))))
+    (sort (copy-sequence entries)
+          (lambda (a b)
+            (let ((pa (plist-get (cdr a) :pinned))
+                  (pb (plist-get (cdr b) :pinned)))
+              (cond
+               ((and pa (not pb)) t)
+               ((and pb (not pa)) nil)
+               (t (> (funcall value-fn a) (funcall value-fn b)))))))))
 
 (defun haystack--frecent-render ()
   "Redraw *haystack-frecent* using the current sort order and leaf filter."
@@ -4120,16 +4145,17 @@ entry against that table."
     (insert ";;;;------------------------------------------------------------\n\n")
     (if (null entries)
         (insert "  (no entries recorded yet)\n")
-      (insert (format "  %-8s  %-6s  %-6s  %s\n" "score" "visits" "days" "chain"))
-      (insert "  --------  ------  ------  ----\n")
+      (insert (format "   %-8s  %-6s  %-6s  %s\n" "score" "visits" "days" "chain"))
+      (insert "   --------  ------  ------  ----\n")
       (dolist (entry entries)
         (let* ((props      (cdr entry))
                (score      (haystack--frecency-score entry))
                (count      (plist-get props :count))
                (days       (/ (- (float-time) (plist-get props :last-access)) 86400.0))
                (chain-str  (haystack--frecency-key-display (car entry)))
+               (pin        (if (plist-get props :pinned) "*" " "))
                (line-start (point)))
-          (insert (format "  %8.2f  %6d  %6.1f  %s\n" score count days chain-str))
+          (insert (format "  %s%8.2f  %6d  %6.1f  %s\n" pin score count days chain-str))
           (put-text-property line-start (point)
                              'haystack-frecent-chain (car entry)))))
     (insert "\n;;;;------------------------------------------------------------\n")))
@@ -4181,6 +4207,28 @@ A leaf entry is one where no deeper chain with a higher score exists."
   (message "Haystack frecent: showing %s"
            (if haystack--frecent-leaf-only "leaves only" "all entries")))
 
+(defun haystack-frecent-toggle-pin ()
+  "Toggle the pinned state of the frecency entry at point.
+Pinned entries always appear in `haystack-frecent' completing-read and
+bypass leaf filtering.  Sets `haystack--frecency-dirty'."
+  (interactive)
+  (let ((chain (get-text-property (point) 'haystack-frecent-chain)))
+    (unless chain
+      (user-error "Haystack: no frecency entry at point"))
+    (let* ((entry  (assoc chain haystack--frecency-data))
+           (props  (cdr entry))
+           (pinned (plist-get props :pinned)))
+      (if pinned
+          (progn
+            (setq props (cl-copy-list props))
+            (cl-remf props :pinned)
+            (setcdr entry props)
+            (message "Haystack: unpinned"))
+        (plist-put props :pinned t)
+        (message "Haystack: pinned"))
+      (setq haystack--frecency-dirty t)
+      (haystack--frecent-render))))
+
 (defun haystack-frecent-kill-entry ()
   "Kill the frecency entry at point after `y-or-n-p' confirmation."
   (interactive)
@@ -4195,6 +4243,31 @@ A leaf entry is one where no deeper chain with a higher score exists."
       (setq haystack--frecency-dirty t)
       (haystack--frecent-render)
       (message "Haystack: removed frecency entry"))))
+
+(defun haystack-pin-current-search ()
+  "Toggle pin on the current results buffer's search chain.
+If the chain already exists in frecency data, toggle its :pinned flag.
+If it does not exist, create a new entry with :count 0 and :pinned t."
+  (interactive)
+  (unless haystack--search-descriptor
+    (user-error "Haystack: no search descriptor in this buffer"))
+  (haystack--frecency-ensure)
+  (let* ((key      (haystack--frecency-chain-key haystack--search-descriptor))
+         (existing (assoc key haystack--frecency-data)))
+    (if existing
+        (let ((props (cdr existing)))
+          (if (plist-get props :pinned)
+              (progn
+                (setq props (cl-copy-list props))
+                (cl-remf props :pinned)
+                (setcdr existing props)
+                (message "Haystack: unpinned"))
+            (plist-put props :pinned t)
+            (message "Haystack: pinned")))
+      (push (cons key (list :count 0 :last-access (float-time) :pinned t))
+            haystack--frecency-data)
+      (message "Haystack: pinned (new entry)"))
+    (setq haystack--frecency-dirty t)))
 
 (defun haystack--frecent-help-key (cmd)
   "Return a human-readable key string for CMD in `haystack-frecent-mode-map'."
@@ -4220,6 +4293,7 @@ A leaf entry is one where no deeper chain with a higher score exists."
                      (format ";;;;    %-8s  toggle all / leaf-only"     (funcall key 'haystack-frecent-toggle-leaf))
                      ""
                      ";;;;  Entries"
+                     (format ";;;;    %-8s  toggle pin at point"        (funcall key 'haystack-frecent-toggle-pin))
                      (format ";;;;    %-8s  kill entry at point"        (funcall key 'haystack-frecent-kill-entry))
                      ""
                      ";;;;    q         close this window"
@@ -4248,6 +4322,7 @@ A leaf entry is one where no deeper chain with a higher score exists."
     (define-key map "t" #'haystack-frecent-sort-score)
     (define-key map "f" #'haystack-frecent-sort-frequency)
     (define-key map "r" #'haystack-frecent-sort-recency)
+    (define-key map "p" #'haystack-frecent-toggle-pin)
     (define-key map "k" #'haystack-frecent-kill-entry)
     (define-key map "?" #'haystack-frecent-help)
     map)
@@ -4315,6 +4390,14 @@ later added to the stop-word list does not crash or prompt."
         (done nil))
     (unwind-protect
         (progn
+          ;; Suppress frecency recording for intermediate replay steps so
+          ;; that replaying a chain does not inflate counts for sub-chains
+          ;; the user did not manually traverse this time.  Only the final
+          ;; leaf is recorded (below, outside the suppression scope).
+          ;; Consequence: intermediate chains from earlier manual exploration
+          ;; gradually lose score as days pass without manual re-traversal.
+          ;; This is deliberate — it keeps the frecent list focused on actual
+          ;; exploration patterns rather than on replay artifacts.
           (let ((haystack--suppress-display t)
                 (haystack--suppress-stop-word t)
                 (haystack--suppress-frecency-recording t))
@@ -4376,9 +4459,7 @@ argument ALL, show every recorded chain."
                         (haystack--frecent-leaves haystack--frecency-data)))
          (_           (unless pool
                         (user-error "Haystack: no leaf entries (use C-u to show all)")))
-         (sorted      (sort (copy-sequence pool)
-                            (lambda (a b) (> (haystack--frecency-score a)
-                                             (haystack--frecency-score b)))))
+         (sorted      (haystack--frecent-sort-entries pool 'score))
          (display-map (make-hash-table :test #'equal))
          (candidates  (mapcar (lambda (entry)
                                 (let ((str (haystack--frecency-key-display (car entry))))
@@ -4388,7 +4469,9 @@ argument ALL, show every recorded chain."
          (annot       (lambda (str)
                         (when-let* ((chain (gethash str display-map))
                                     (entry (assoc chain haystack--frecency-data)))
-                          (format "  %.1f" (haystack--frecency-score entry)))))
+                          (format "  %s%.1f"
+                                  (if (plist-get (cdr entry) :pinned) "* " "")
+                                  (haystack--frecency-score entry)))))
          (table       (lambda (string pred action)
                         (if (eq action 'metadata)
                             `(metadata (annotation-function . ,annot))
@@ -4868,8 +4951,8 @@ with \"__\".  Negated filters are prefixed \"not-\"; filename filters
 with \"fn-\".  AND queries at the root are flattened inline, so
 \"rust & async\" with filter \"tokio\" produces the same slug as
 \"rust\" filtered by \"async\" then \"tokio\"."
-  (let* ((root-term (plist-get descriptor :root-term))
-         (filters   (plist-get descriptor :filters))
+  (let* ((root-term (haystack-sd-root-term descriptor))
+         (filters   (haystack-sd-filters descriptor))
          ;; Expand AND root into individual tokens; fall back to list of one.
          (root-tokens (or (haystack--parse-and-tokens root-term)
                           (list root-term)))
@@ -4885,7 +4968,7 @@ with \"fn-\".  AND queries at the root are flattened inline, so
     (mapconcat #'identity (append root-slugs filter-slugs) "__")))
 
 (defun haystack--composite-rename-pairs (old-root new-root)
-  "Return (OLD-PATH . NEW-PATH) pairs for composites affected by renaming OLD-ROOT to NEW-ROOT.
+  "Return (OLD-PATH . NEW-PATH) pairs for composites affected by rename.
 Scans `haystack-notes-directory' for `@comp__*.ext' files.  For each,
 splits the slug portion on `__', replaces any segment equal to
 OLD-ROOT's canonical slug with NEW-ROOT's canonical slug, and returns
@@ -5010,10 +5093,10 @@ lines get one section per match.  Returns the compose buffer."
   (add-hook 'write-contents-functions #'haystack--compose-intercept-save nil t))
 
 (defun haystack--compose-intercept-save ()
-  "Intercept manual saves in composite buffers when `haystack-composite-protect' is t.
-Added to `write-contents-functions' in `haystack-compose-mode'.  Returns
-non-nil to signal the save was handled, preventing Emacs from writing the
-file directly."
+  "Intercept manual saves in composite buffers.
+Active when `haystack-composite-protect' is t.  Added to
+`write-contents-functions' in `haystack-compose-mode'.  Returns
+non-nil to prevent Emacs from writing the file directly."
   (when haystack-composite-protect
     (if (y-or-n-p
          "Composite buffers are machine-generated.  Save as a new note instead? ")

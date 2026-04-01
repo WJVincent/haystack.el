@@ -390,7 +390,13 @@ implemented; remaining TODO items are ideas for future development.
 - Removed: font-lock-based highlighting did not render reliably in GUI
   Emacs (grep-mode's fontification machinery interfered).  May revisit
   with a different approach in the future.
-** TODO Saved/pinned search paths (=:pinned t= on frecency entries)
+** DONE Saved/pinned search paths (=:pinned t= on frecency entries)
+- =:pinned t= flag in frecency entry props; stored in =.haystack-frecency.el=
+- =haystack-frecent-toggle-pin= (=p= in frecent buffer): toggle at point
+- =haystack-pin-current-search= (=P= in results buffer): pin/unpin current search chain
+- Pinned entries bypass leaf filtering, sort before non-pinned, show =*= indicator
+- Completing-read annotations prefixed with =*= for pinned entries
+- Merge preserves pin (logical OR); =haystack--frecency-record= preserves pin on bump
 ** DONE New note from region (=haystack-new-note-from-region=)
 - Grabs the active region text, creates a new note via the standard
   slug/extension prompt, inserts the region content after frontmatter
@@ -411,6 +417,26 @@ implemented; remaining TODO items are ideas for future development.
   replaying a chain doesn't count as "visiting" it.  The right answer
   is unclear — use the current behaviour and revisit if the frecency
   list becomes less useful over time.
+** TODO Frecency data format versioning
+- The 0.13.0 key format change silently orphans old frecency data —
+  acceptable pre-1.0, but needs a migration path at 1.0
+- Add a format version marker to =.haystack-frecency.el= so loaders
+  can detect and migrate stale data rather than silently ignoring it
+- Design a migration function that converts old key shapes to the
+  current descriptor-shaped plist format
+** TODO Demo corpus rewrite (pre-release)
+- Fix correctness: update stale command references and outdated
+  interface descriptions in demo notes
+- Fix trust: add 15–20 deliberately messy files — short fragments,
+  =.txt= with no frontmatter, inconsistent terminology, a long
+  multi-section note, files with spaces in names, notes unrelated to
+  Emacs or PKM
+- Add 5–10 non-developer notes (humanistic subject matter) so
+  domain-agnosticism is visible to non-developer audiences
+- Start frecency empty and add a demo seed command so users experience
+  before-and-after rather than inheriting a pre-baked history
+- Confirmed as a word-of-mouth blocker by the most relevant adoption
+  audience (Org-roam migrants, professor persona)
 ** TODO Keymap audit — mnemonic review of all default bindings
 - Revisit both =haystack-prefix-map= and =haystack-results-mode-map=
   bindings with fresh eyes once the feature set has stabilised

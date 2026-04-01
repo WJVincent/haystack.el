@@ -82,7 +82,9 @@ surface together.
 **Frecency memory.** Haystack learns which search paths you use
 most. The chain `rust → bevy → ecs` rises to the top of your
 completion list if you run it often. You can replay common paths in a
-few keystrokes instead of typing them out each time.
+few keystrokes instead of typing them out each time. You can also
+**pin** searches that should always be available, regardless of how
+recently or frequently you've used them.
 
 **Composite notes.** When a search chain consistently surfaces the
 same cluster of notes, you can commit that cluster to a named file —
@@ -153,6 +155,14 @@ four tiers: **Isolated** (0 files, orphan risk), **Sparse** (niche),
 Isolated terms are your vocabulary gaps; ubiquitous terms belong in the stop
 word list. But filling those gaps is your responsibility. This cost is
 permanent and by design.
+
+How much this costs depends on what you write. Research notes, reading
+logs, and essay drafts tend to have rich, searchable vocabulary — for
+these, Haystack is a significant upgrade over raw grep. Journals and
+stream-of-consciousness entries have less overlap and surface less
+reliably — a modest upgrade. Most writing has more searchable
+vocabulary than writers assume, and the entries that stay invisible are
+rarely the ones you search for.
 
 ## The Payoff
 

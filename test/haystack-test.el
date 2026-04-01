@@ -429,34 +429,34 @@ For tests that only need simple unmodified filter terms."
 (ert-deftest haystack-test/date-root-descriptor-has-kind ()
   "Date-root descriptor has :root-kind set to 'date-range."
   (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
-    (should (eq (plist-get d :root-kind) 'date-range))))
+    (should (eq (haystack-sd-root-kind d) 'date-range))))
 
 (ert-deftest haystack-test/date-root-descriptor-stores-raw-bounds ()
   "Descriptor stores raw start/end strings in :root-date-start/:root-date-end."
   (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
-    (should (equal (plist-get d :root-date-start) "2024-01"))
-    (should (equal (plist-get d :root-date-end)   "2024-03"))))
+    (should (equal (haystack-sd-root-date-start d) "2024-01"))
+    (should (equal (haystack-sd-root-date-end d)   "2024-03"))))
 
 (ert-deftest haystack-test/date-root-descriptor-root-term-is-label ()
   ":root-term equals the display label."
   (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
-    (should (equal (plist-get d :root-term) "2024-01..2024-03"))))
+    (should (equal (haystack-sd-root-term d) "2024-01..2024-03"))))
 
 (ert-deftest haystack-test/date-root-descriptor-root-expanded-set ()
   ":root-expanded is set to the broad hs: prefilter pattern."
   (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
-    (should (stringp (plist-get d :root-expanded)))
-    (should (string-prefix-p "hs: " (plist-get d :root-expanded)))))
+    (should (stringp (haystack-sd-root-expanded d)))
+    (should (string-prefix-p "hs: " (haystack-sd-root-expanded d)))))
 
 (ert-deftest haystack-test/date-root-descriptor-literal-flag ()
   ":root-literal is t so the label is not treated as a search term."
   (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
-    (should (plist-get d :root-literal))))
+    (should (haystack-sd-root-literal d))))
 
 (ert-deftest haystack-test/date-root-descriptor-empty-filters ()
   ":filters is nil for a fresh date-root descriptor."
   (let ((d (haystack--date-root-descriptor "2024-01" "2024-03")))
-    (should (null (plist-get d :filters)))))
+    (should (null (haystack-sd-filters d)))))
 
 ;;;; haystack--chain-parts with date root
 
@@ -468,7 +468,7 @@ For tests that only need simple unmodified filter terms."
 
 (ert-deftest haystack-test/chain-parts-renders-date-filter-in-chain ()
   "chain-parts renders a date-range filter entry as date=LABEL."
-  (let* ((desc (list :root-term "rust" :root-filename nil :root-literal nil
+  (let* ((desc (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                      :root-regex nil :root-kind 'text :root-expansion nil
                      :filters (list (list :kind 'date-range
                                           :start "2025-01" :end "2025-03"))
@@ -781,7 +781,7 @@ For tests that only need simple unmodified filter terms."
 (ert-deftest haystack-test/new-note-with-moc-empty-slug-signals-user-error ()
   "`haystack-new-note-with-moc' signals user-error when slug sanitizes to empty."
   (haystack-test--with-notes-dir
-   (let* ((desc (list :root-term "foo" :root-expanded "foo" :root-literal nil
+   (let* ((desc (haystack-sd-create :root-term "foo" :root-expanded "foo" :root-literal nil
                       :root-regex nil :root-filename nil :root-expansion nil
                       :filters nil :composite-filter 'exclude))
           (buf  (get-buffer-create "*haystack:test-slug-guard*")))
@@ -1599,7 +1599,7 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
                (buf (haystack--setup-results-buffer
                      "*haystack:1:coding*"
                      ";;;; test\n" root-output
-                     (list :root-term "coding" :root-expanded "some content"
+                     (haystack-sd-create :root-term "coding" :root-expanded "some content"
                            :root-literal nil :root-regex nil :root-filename nil
                            :root-expansion nil :filters nil :composite-filter 'all))))
           (with-current-buffer buf
@@ -2259,19 +2259,19 @@ function degrades gracefully and returns a non-empty string."
 
 (ert-deftest haystack-test/format-chain-single-filter ()
   "Root + one positive filter shows both terms."
-  (let ((descriptor (list :root-term "rust" :filters nil)))
+  (let ((descriptor (haystack-sd-create :root-term "rust" :filters nil)))
     (should (equal (haystack--format-search-chain descriptor "async" nil)
                    "root=rust > filter=async"))))
 
 (ert-deftest haystack-test/format-chain-negated-filter ()
   "Negated filter shows as exclude=."
-  (let ((descriptor (list :root-term "rust" :filters nil)))
+  (let ((descriptor (haystack-sd-create :root-term "rust" :filters nil)))
     (should (equal (haystack--format-search-chain descriptor "ownership" t)
                    "root=rust > exclude=ownership"))))
 
 (ert-deftest haystack-test/format-chain-deep-chain ()
   "Full chain shows all prior filters plus the current one."
-  (let ((descriptor (list :root-term "rust"
+  (let ((descriptor (haystack-sd-create :root-term "rust"
                           :filters (list (list :term "async"  :negated nil)
                                          (list :term "tokio"  :negated nil)))))
     (should (equal (haystack--format-search-chain descriptor "ownership" t)
@@ -2279,25 +2279,25 @@ function degrades gracefully and returns a non-empty string."
 
 (ert-deftest haystack-test/format-chain-filename-filter ()
   "Filename filter shows as filename=."
-  (let ((descriptor (list :root-term "rust" :filters nil)))
+  (let ((descriptor (haystack-sd-create :root-term "rust" :filters nil)))
     (should (equal (haystack--format-search-chain descriptor "cargo" nil t)
                    "root=rust > filename=cargo"))))
 
 (ert-deftest haystack-test/format-chain-negated-filename-filter ()
   "Negated filename filter shows as !filename=."
-  (let ((descriptor (list :root-term "rust" :filters nil)))
+  (let ((descriptor (haystack-sd-create :root-term "rust" :filters nil)))
     (should (equal (haystack--format-search-chain descriptor "cargo" t t)
                    "root=rust > !filename=cargo"))))
 
 (ert-deftest haystack-test/format-chain-filename-root ()
   "A filename root search shows filename= as the root label."
-  (let ((descriptor (list :root-term "cargo" :root-filename t :filters nil)))
+  (let ((descriptor (haystack-sd-create :root-term "cargo" :root-filename t :filters nil)))
     (should (equal (haystack--format-search-chain descriptor "async" nil)
                    "filename=cargo > filter=async"))))
 
 (ert-deftest haystack-test/format-chain-mixed-filters ()
   "Chain with a filename filter in history renders correctly."
-  (let ((descriptor (list :root-term "rust"
+  (let ((descriptor (haystack-sd-create :root-term "rust"
                           :filters (list (list :term "cargo" :negated nil :filename t)))))
     (should (equal (haystack--format-search-chain descriptor "async" nil)
                    "root=rust > filename=cargo > filter=async"))))
@@ -2306,14 +2306,14 @@ function degrades gracefully and returns a non-empty string."
 
 (ert-deftest haystack-test/child-buffer-name-depth-2 ()
   "First filter produces depth 2 name."
-  (let ((descriptor (list :root-term "rust" :root-filename nil
+  (let ((descriptor (haystack-sd-create :root-term "rust" :root-filename nil
                           :root-literal nil :root-regex nil :filters nil)))
     (should (equal (haystack--child-buffer-name descriptor "async" nil nil nil nil)
                    "*haystack:2:rust:async*"))))
 
 (ert-deftest haystack-test/child-buffer-name-depth-3 ()
   "Second filter produces depth 3 name with full chain."
-  (let ((descriptor (list :root-term "rust" :root-filename nil
+  (let ((descriptor (haystack-sd-create :root-term "rust" :root-filename nil
                           :root-literal nil :root-regex nil
                           :filters (list (list :term "async" :negated nil
                                                :filename nil :literal nil :regex nil)))))
@@ -2322,7 +2322,7 @@ function degrades gracefully and returns a non-empty string."
 
 (ert-deftest haystack-test/child-buffer-name-with-modifiers ()
   "Modifier flags appear as prefixes in the buffer name."
-  (let ((descriptor (list :root-term "rust" :root-filename nil
+  (let ((descriptor (haystack-sd-create :root-term "rust" :root-filename nil
                           :root-literal nil :root-regex nil :filters nil)))
     (should (equal (haystack--child-buffer-name descriptor "async" t nil nil nil)
                    "*haystack:2:rust:!async*"))
@@ -2331,7 +2331,7 @@ function degrades gracefully and returns a non-empty string."
 
 (ert-deftest haystack-test/child-buffer-name-handles-date-filter-in-existing-filters ()
   "child-buffer-name renders a date-range entry in :filters without nil/crash."
-  (let ((descriptor (list :root-term "rust" :root-filename nil
+  (let ((descriptor (haystack-sd-create :root-term "rust" :root-filename nil
                           :root-literal nil :root-regex nil
                           :filters (list (list :kind 'date-range
                                                :start "2025-01" :end "2025-03")))))
@@ -2351,7 +2351,7 @@ function degrades gracefully and returns a non-empty string."
   "Signals user-error when the current buffer has no result files."
   (with-temp-buffer
     (setq haystack--search-descriptor
-          (list :root-term "rust" :root-expanded "rust"
+          (haystack-sd-create :root-term "rust" :root-expanded "rust"
                 :filters nil :composite-filter 'exclude))
     (insert ";;; haystack: root=rust | 0 files, 0 matches\n")
     (should-error (haystack-filter-further "async") :type 'user-error)))
@@ -2499,7 +2499,7 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
   (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
     (with-temp-buffer
       (setq haystack--search-descriptor
-            (list :root-term "programming"
+            (haystack-sd-create :root-term "programming"
                   :root-expanded "(programming|coding|scripting)"
                   :root-expansion '("programming" "coding" "scripting")
                   :filters nil :composite-filter 'exclude))
@@ -2511,7 +2511,7 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
   (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
     (with-temp-buffer
       (setq haystack--search-descriptor
-            (list :root-term "programming"
+            (haystack-sd-create :root-term "programming"
                   :root-expanded "(programming|coding|scripting)"
                   :root-expansion '("programming" "coding" "scripting")
                   :filters nil :composite-filter 'exclude))
@@ -2523,7 +2523,7 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
   (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
     (with-temp-buffer
       (setq haystack--search-descriptor
-            (list :root-term "programming"
+            (haystack-sd-create :root-term "programming"
                   :root-expanded "(programming|coding|scripting)"
                   :root-expansion '("programming" "coding" "scripting")
                   :filters nil :composite-filter 'exclude))
@@ -2782,9 +2782,9 @@ C++ without = prefix should not cause an rg error — the + chars are escaped."
        (should buf)
        (unwind-protect
            (with-current-buffer buf
-             (should (equal (plist-get haystack--search-descriptor :root-term)
+             (should (equal (haystack-sd-root-term haystack--search-descriptor)
                             "nomatchxyz99"))
-             (should (eq (plist-get haystack--search-descriptor :composite-filter)
+             (should (eq (haystack-sd-composite-filter haystack--search-descriptor)
                          'only))
              (should (null haystack--parent-buffer)))
          (kill-buffer buf))))))
@@ -2889,10 +2889,10 @@ C++ without = prefix should not cause an rg error — the + chars are escaped."
          (unwind-protect
              (with-current-buffer buf
                ;; root-term stores stripped-first & raw-rest for frecency replay
-               (should (equal (plist-get haystack--search-descriptor :root-term)
+               (should (equal (haystack-sd-root-term haystack--search-descriptor)
                               "rust & async"))
                ;; root-expanded is the first token's rg pattern
-               (should (equal (plist-get haystack--search-descriptor :root-expanded)
+               (should (equal (haystack-sd-root-expanded haystack--search-descriptor)
                               "rust"))
                (should (null haystack--parent-buffer)))
            (kill-buffer buf)))))))
@@ -2927,7 +2927,7 @@ C++ without = prefix should not cause an rg error — the + chars are escaped."
          (should buf)
          (unwind-protect
              (with-current-buffer buf
-               (should (eq (plist-get haystack--search-descriptor :composite-filter)
+               (should (eq (haystack-sd-composite-filter haystack--search-descriptor)
                            'all)))
            (kill-buffer buf)))))))
 
@@ -2941,7 +2941,7 @@ C++ without = prefix should not cause an rg error — the + chars are escaped."
          (should buf)
          (unwind-protect
              (with-current-buffer buf
-               (should (eq (plist-get haystack--search-descriptor :composite-filter)
+               (should (eq (haystack-sd-composite-filter haystack--search-descriptor)
                            'exclude)))
            (kill-buffer buf)))))))
 
@@ -2970,7 +2970,7 @@ C++ without = prefix should not cause an rg error — the + chars are escaped."
        (should buf)
        (unwind-protect
            (with-current-buffer buf
-             (should (eq (plist-get haystack--search-descriptor :composite-filter)
+             (should (eq (haystack-sd-composite-filter haystack--search-descriptor)
                          'only)))
          (kill-buffer buf))))))
 
@@ -3106,7 +3106,7 @@ Data style is handled at the block level in haystack-yank-moc."
 (ert-deftest haystack-test/copy-moc-errors-on-empty-results ()
   "Signals user-error when the buffer has no match lines."
   (let ((buf (haystack-test--make-results-buf
-              " *hs-copy-empty*" nil '(:root-term "rust"))))
+              " *hs-copy-empty*" nil (haystack-sd-create :root-term "rust"))))
     (unwind-protect
         (with-current-buffer buf
           (should-error (haystack-copy-moc) :type 'user-error))
@@ -3115,7 +3115,7 @@ Data style is handled at the block level in haystack-yank-moc."
 (ert-deftest haystack-test/copy-moc-stores-loci ()
   "Stores (path . line) loci in `haystack--last-moc'."
   (let ((buf (haystack-test--make-results-buf
-              " *hs-copy-moc*" nil '(:root-term "rust")))
+              " *hs-copy-moc*" nil (haystack-sd-create :root-term "rust")))
         (haystack--last-moc nil))
     (unwind-protect
         (with-current-buffer buf
@@ -3132,23 +3132,23 @@ Data style is handled at the block level in haystack-yank-moc."
 (ert-deftest haystack-test/descriptor-chain-string-root-only ()
   "Root-only descriptor produces a single root= segment."
   (should (equal (haystack--descriptor-chain-string
-                  '(:root-term "rust" :root-expansion nil
+                  (haystack-sd-create :root-term "rust" :root-expansion nil
                     :root-filename nil :filters nil))
                  "root=rust")))
 
 (ert-deftest haystack-test/descriptor-chain-string-with-filters ()
   "Descriptor with filters includes all filter segments."
   (should (equal (haystack--descriptor-chain-string
-                  '(:root-term "rust" :root-expansion nil :root-filename nil
-                    :filters ((:term "async" :negated nil :filename nil :expansion nil)
+                  (haystack-sd-create :root-term "rust" :root-expansion nil :root-filename nil
+                    :filters '((:term "async" :negated nil :filename nil :expansion nil)
                                (:term "cargo" :negated t :filename nil :expansion nil))))
                  "root=rust > filter=async > exclude=cargo")))
 
 (ert-deftest haystack-test/descriptor-chain-string-with-expansion ()
   "Root expansion is shown as alternation."
   (should (equal (haystack--descriptor-chain-string
-                  '(:root-term "programming"
-                    :root-expansion ("programming" "coding" "scripting")
+                  (haystack-sd-create :root-term "programming"
+                    :root-expansion '("programming" "coding" "scripting")
                     :root-filename nil :filters nil))
                  "root=(programming|coding|scripting)")))
 
@@ -3324,8 +3324,8 @@ Data style is handled at the block level in haystack-yank-moc."
   "haystack-copy-moc stores the search chain alongside loci."
   (let ((buf (haystack-test--make-results-buf
               " *hs-copy-chain*" nil
-              '(:root-term "rust" :root-expansion nil :root-filename nil
-                :filters ((:term "async" :negated nil :filename nil :expansion nil)))))
+              (haystack-sd-create :root-term "rust" :root-expansion nil :root-filename nil
+                :filters '((:term "async" :negated nil :filename nil :expansion nil)))))
         (haystack--last-moc nil)
         (haystack--last-moc-chain nil))
     (unwind-protect
@@ -3521,7 +3521,7 @@ Returns the buffer; caller is responsible for killing it."
 (ert-deftest haystack-test/all-haystack-buffers-finds-results-buffers ()
   "Returns live haystack buffers and ignores ordinary buffers."
   (let* ((hbuf (haystack-test--make-results-buf
-                " *hs-test-all*" nil '(:root-term "rust")))
+                " *hs-test-all*" nil (haystack-sd-create :root-term "rust")))
          (plain (get-buffer-create " *hs-test-plain*")))
     (unwind-protect
         (should (memq hbuf (haystack--all-haystack-buffers)))
@@ -3539,9 +3539,9 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/children-of-finds-direct-children ()
   "Returns buffers whose parent is exactly BUF."
-  (let* ((root  (haystack-test--make-results-buf " *hs-root*"  nil       '(:root-term "rust")))
-         (child (haystack-test--make-results-buf " *hs-child*" root      '(:root-term "rust")))
-         (other (haystack-test--make-results-buf " *hs-other*" nil       '(:root-term "async"))))
+  (let* ((root  (haystack-test--make-results-buf " *hs-root*"  nil       (haystack-sd-create :root-term "rust")))
+         (child (haystack-test--make-results-buf " *hs-child*" root      (haystack-sd-create :root-term "rust")))
+         (other (haystack-test--make-results-buf " *hs-other*" nil       (haystack-sd-create :root-term "async"))))
     (unwind-protect
         (progn
           (should (memq child (haystack--children-of root)))
@@ -3559,7 +3559,7 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/go-up-messages-on-root ()
   "Messages without switching when there is no parent."
-  (let ((buf (haystack-test--make-results-buf " *hs-go-up-root*" nil '(:root-term "rust")))
+  (let ((buf (haystack-test--make-results-buf " *hs-go-up-root*" nil (haystack-sd-create :root-term "rust")))
         (msgs nil))
     (unwind-protect
         (with-current-buffer buf
@@ -3571,8 +3571,8 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/go-up-messages-on-dead-parent ()
   "Messages without switching when the parent buffer is dead."
-  (let* ((parent (haystack-test--make-results-buf " *hs-dead-parent*" nil '(:root-term "r")))
-         (child  (haystack-test--make-results-buf " *hs-child-dp*" parent '(:root-term "r")))
+  (let* ((parent (haystack-test--make-results-buf " *hs-dead-parent*" nil (haystack-sd-create :root-term "r")))
+         (child  (haystack-test--make-results-buf " *hs-child-dp*" parent (haystack-sd-create :root-term "r")))
          (msgs nil))
     (kill-buffer parent)
     (unwind-protect
@@ -3585,8 +3585,8 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/go-up-switches-to-live-parent ()
   "Switches to the parent buffer when it is live."
-  (let* ((parent (haystack-test--make-results-buf " *hs-live-parent*" nil '(:root-term "r")))
-         (child  (haystack-test--make-results-buf " *hs-child-lp*" parent '(:root-term "r")))
+  (let* ((parent (haystack-test--make-results-buf " *hs-live-parent*" nil (haystack-sd-create :root-term "r")))
+         (child  (haystack-test--make-results-buf " *hs-child-lp*" parent (haystack-sd-create :root-term "r")))
          (switched-to nil))
     (unwind-protect
         (with-current-buffer child
@@ -3605,7 +3605,7 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/go-down-errors-with-no-children ()
   "Signals user-error when the buffer has no children."
-  (let ((buf (haystack-test--make-results-buf " *hs-down-none*" nil '(:root-term "rust"))))
+  (let ((buf (haystack-test--make-results-buf " *hs-down-none*" nil (haystack-sd-create :root-term "rust"))))
     (unwind-protect
         (with-current-buffer buf
           (should-error (haystack-go-down) :type 'user-error))
@@ -3613,8 +3613,8 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/go-down-switches-directly-with-one-child ()
   "With one child, switches to it without showing a picker."
-  (let* ((parent (haystack-test--make-results-buf " *hs-down-p*" nil '(:root-term "rust")))
-         (child  (haystack-test--make-results-buf " *hs-down-c*" parent '(:root-term "rust")))
+  (let* ((parent (haystack-test--make-results-buf " *hs-down-p*" nil (haystack-sd-create :root-term "rust")))
+         (child  (haystack-test--make-results-buf " *hs-down-c*" parent (haystack-sd-create :root-term "rust")))
          (switched-to nil))
     (unwind-protect
         (with-current-buffer parent
@@ -3629,14 +3629,14 @@ Returns the buffer; caller is responsible for killing it."
   "With multiple children, opens *haystack-children* picker."
   (let* ((parent (haystack-test--make-results-buf
                   " *hs-down-mp*" nil
-                  '(:root-term "rust" :root-filename nil :root-literal nil :root-regex nil)))
+                  (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil :root-regex nil)))
          (c1 (haystack-test--make-results-buf
               " *hs-down-mc1*" parent
-              '(:root-term "rust" :filters ((:term "async" :negated nil
+              (haystack-sd-create :root-term "rust" :filters '((:term "async" :negated nil
                                              :filename nil :literal nil :regex nil)))))
          (c2 (haystack-test--make-results-buf
               " *hs-down-mc2*" parent
-              '(:root-term "rust" :filters ((:term "tokio" :negated nil
+              (haystack-sd-create :root-term "rust" :filters '((:term "tokio" :negated nil
                                              :filename nil :literal nil :regex nil))))))
     (unwind-protect
         (with-current-buffer parent
@@ -3657,14 +3657,14 @@ Returns the buffer; caller is responsible for killing it."
   "Each entry in the picker has a haystack-children-buffer property."
   (let* ((parent (haystack-test--make-results-buf
                   " *hs-down-tp*" nil
-                  '(:root-term "rust" :root-filename nil :root-literal nil :root-regex nil)))
+                  (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil :root-regex nil)))
          (c1 (haystack-test--make-results-buf
               " *hs-down-tp1*" parent
-              '(:root-term "rust" :filters ((:term "async" :negated nil
+              (haystack-sd-create :root-term "rust" :filters '((:term "async" :negated nil
                                              :filename nil :literal nil :regex nil)))))
          (c2 (haystack-test--make-results-buf
               " *hs-down-tp2*" parent
-              '(:root-term "rust" :filters ((:term "tokio" :negated nil
+              (haystack-sd-create :root-term "rust" :filters '((:term "tokio" :negated nil
                                              :filename nil :literal nil :regex nil))))))
     (unwind-protect
         (with-current-buffer parent
@@ -3691,8 +3691,8 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/kill-node-kills-current-buffer ()
   "Kills the current haystack buffer and nothing else."
-  (let* ((buf   (haystack-test--make-results-buf " *hs-kill-node*" nil '(:root-term "r")))
-         (child (haystack-test--make-results-buf " *hs-kill-node-child*" buf '(:root-term "r"))))
+  (let* ((buf   (haystack-test--make-results-buf " *hs-kill-node*" nil (haystack-sd-create :root-term "r")))
+         (child (haystack-test--make-results-buf " *hs-kill-node-child*" buf (haystack-sd-create :root-term "r"))))
     (unwind-protect
         (progn
           (with-current-buffer buf (haystack-kill-node))
@@ -3705,10 +3705,10 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/kill-subtree-kills-self-and-descendants ()
   "Kills the buffer and all descendants, leaving unrelated buffers."
-  (let* ((root    (haystack-test--make-results-buf " *hs-ks-root*"    nil     '(:root-term "r")))
-         (child   (haystack-test--make-results-buf " *hs-ks-child*"   root    '(:root-term "r")))
-         (grandch (haystack-test--make-results-buf " *hs-ks-grand*"   child   '(:root-term "r")))
-         (sibling (haystack-test--make-results-buf " *hs-ks-sibling*" nil     '(:root-term "r"))))
+  (let* ((root    (haystack-test--make-results-buf " *hs-ks-root*"    nil     (haystack-sd-create :root-term "r")))
+         (child   (haystack-test--make-results-buf " *hs-ks-child*"   root    (haystack-sd-create :root-term "r")))
+         (grandch (haystack-test--make-results-buf " *hs-ks-grand*"   child   (haystack-sd-create :root-term "r")))
+         (sibling (haystack-test--make-results-buf " *hs-ks-sibling*" nil     (haystack-sd-create :root-term "r"))))
     (unwind-protect
         (progn
           (with-current-buffer child (haystack-kill-subtree))
@@ -3725,10 +3725,10 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/kill-all-from-leaf-kills-entire-tree ()
   "Walking from a leaf kills the whole tree."
-  (let* ((root    (haystack-test--make-results-buf " *hs-ka-root*"  nil   '(:root-term "r")))
-         (child   (haystack-test--make-results-buf " *hs-ka-child*" root  '(:root-term "r")))
-         (grandch (haystack-test--make-results-buf " *hs-ka-grand*" child '(:root-term "r")))
-         (other   (haystack-test--make-results-buf " *hs-ka-other*" nil   '(:root-term "r"))))
+  (let* ((root    (haystack-test--make-results-buf " *hs-ka-root*"  nil   (haystack-sd-create :root-term "r")))
+         (child   (haystack-test--make-results-buf " *hs-ka-child*" root  (haystack-sd-create :root-term "r")))
+         (grandch (haystack-test--make-results-buf " *hs-ka-grand*" child (haystack-sd-create :root-term "r")))
+         (other   (haystack-test--make-results-buf " *hs-ka-other*" nil   (haystack-sd-create :root-term "r"))))
     (unwind-protect
         (progn
           (with-current-buffer grandch (haystack-kill-whole-tree))
@@ -3743,8 +3743,8 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/kill-all-from-root-kills-entire-tree ()
   "Calling kill-all from the root also kills all descendants."
-  (let* ((root  (haystack-test--make-results-buf " *hs-ka2-root*"  nil  '(:root-term "r")))
-         (child (haystack-test--make-results-buf " *hs-ka2-child*" root '(:root-term "r"))))
+  (let* ((root  (haystack-test--make-results-buf " *hs-ka2-root*"  nil  (haystack-sd-create :root-term "r")))
+         (child (haystack-test--make-results-buf " *hs-ka2-child*" root (haystack-sd-create :root-term "r"))))
     (unwind-protect
         (progn
           (with-current-buffer root (haystack-kill-whole-tree))
@@ -3757,9 +3757,9 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/kill-orphans-kills-dead-parent-childless-buffers ()
   "Kills buffers whose parent is dead and have no children."
-  (let* ((dead-parent (haystack-test--make-results-buf " *hs-ko-dead*"   nil          '(:root-term "r")))
-         (orphan      (haystack-test--make-results-buf " *hs-ko-orphan*" dead-parent  '(:root-term "r")))
-         (root        (haystack-test--make-results-buf " *hs-ko-root*"   nil          '(:root-term "r"))))
+  (let* ((dead-parent (haystack-test--make-results-buf " *hs-ko-dead*"   nil          (haystack-sd-create :root-term "r")))
+         (orphan      (haystack-test--make-results-buf " *hs-ko-orphan*" dead-parent  (haystack-sd-create :root-term "r")))
+         (root        (haystack-test--make-results-buf " *hs-ko-root*"   nil          (haystack-sd-create :root-term "r"))))
     (kill-buffer dead-parent)
     (unwind-protect
         (progn
@@ -3771,9 +3771,9 @@ Returns the buffer; caller is responsible for killing it."
 
 (ert-deftest haystack-test/kill-orphans-spares-dead-parent-with-children ()
   "A buffer with a dead parent but living children is left alone."
-  (let* ((dead-parent (haystack-test--make-results-buf " *hs-ko-dead2*"   nil         '(:root-term "r")))
-         (mid         (haystack-test--make-results-buf " *hs-ko-mid*"     dead-parent '(:root-term "r")))
-         (grandch     (haystack-test--make-results-buf " *hs-ko-grand2*"  mid         '(:root-term "r"))))
+  (let* ((dead-parent (haystack-test--make-results-buf " *hs-ko-dead2*"   nil         (haystack-sd-create :root-term "r")))
+         (mid         (haystack-test--make-results-buf " *hs-ko-mid*"     dead-parent (haystack-sd-create :root-term "r")))
+         (grandch     (haystack-test--make-results-buf " *hs-ko-grand2*"  mid         (haystack-sd-create :root-term "r"))))
     (kill-buffer dead-parent)
     (unwind-protect
         (progn
@@ -3858,16 +3858,16 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-root-only ()
   "Root-only descriptor produces a plist with :root kind=text and empty :filters."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "rust" :root-filename nil :root-literal nil
+              (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                 :root-regex nil :filters nil :root-kind nil))))
     (should (equal key (haystack-test--tkey "rust")))))
 
 (ert-deftest haystack-test/frecency-chain-key-with-filters ()
   "Filters produce :filters list with :term and flag plists."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "rust" :root-filename nil :root-literal nil
+              (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                 :root-regex nil :root-kind nil
-                :filters ((:term "async" :negated nil :filename nil
+                :filters '((:term "async" :negated nil :filename nil
                             :literal nil :regex nil)
                            (:term "cargo" :negated t :filename nil
                             :literal nil :regex nil))))))
@@ -3880,9 +3880,9 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-filename-prefix ()
   "Filename filters produce :filename t in the filter plist."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "notes" :root-filename nil :root-literal nil
+              (haystack-sd-create :root-term "notes" :root-filename nil :root-literal nil
                 :root-regex nil :root-kind nil
-                :filters ((:term "cargo" :negated nil :filename t
+                :filters '((:term "cargo" :negated nil :filename t
                             :literal nil :regex nil))))))
     (should (equal (plist-get (plist-get key :root) :term) "notes"))
     (should (plist-get (car (plist-get key :filters)) :filename))))
@@ -3890,7 +3890,7 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-root-modifiers ()
   "Root modifier flags produce :filename t in the root plist."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "cargo" :root-filename t :root-literal nil
+              (haystack-sd-create :root-term "cargo" :root-filename t :root-literal nil
                 :root-regex nil :filters nil :root-kind nil))))
     (should (plist-get (plist-get key :root) :filename))
     (should (equal (plist-get (plist-get key :root) :term) "cargo"))))
@@ -3900,7 +3900,7 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-text-root-plist-shape ()
   "Text root key is a plist with :root kind=text and :filters ()."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "rust" :root-filename nil :root-literal nil
+              (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                 :root-regex nil :filters nil :root-kind nil))))
     (should (equal (plist-get (plist-get key :root) :kind) 'text))
     (should (equal (plist-get (plist-get key :root) :term) "rust"))
@@ -3917,9 +3917,9 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-filters-plist-shape ()
   "Filter terms are plists with at least :term; :negated and :filename when set."
   (let* ((key (haystack--frecency-chain-key
-               '(:root-term "rust" :root-filename nil :root-literal nil
+               (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                  :root-regex nil :root-kind nil
-                 :filters ((:term "async" :negated nil :filename nil
+                 :filters '((:term "async" :negated nil :filename nil
                              :literal nil :regex nil)
                             (:term "cargo" :negated t :filename nil
                              :literal nil :regex nil))))))
@@ -3933,7 +3933,7 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-date-filter-in-filters ()
   "A date-range filter entry passes through as :kind date-range in the key."
   (let* ((key (haystack--frecency-chain-key
-               (list :root-term "rust" :root-filename nil :root-literal nil
+               (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                      :root-regex nil :root-kind 'text :root-expansion nil
                      :filters (list (list :kind 'date-range
                                           :start "2025-01" :end "2025-03")))))
@@ -3945,22 +3945,22 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-chain-key-includes-root-scope ()
   "Root scope is recorded in the frecency chain key."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "rust" :root-filename nil :root-literal nil
-                :root-regex nil :root-kind nil :root-scope body :filters nil))))
+              (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
+                :root-regex nil :root-kind nil :root-scope 'body :filters nil))))
     (should (eq (plist-get (plist-get key :root) :scope) 'body))))
 
 (ert-deftest haystack-test/frecency-chain-key-includes-filter-scope ()
   "Filter scope is recorded in the frecency chain key."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "rust" :root-filename nil :root-literal nil
+              (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                 :root-regex nil :root-kind nil :filters
-                ((:term "title" :scope frontmatter))))))
+                '((:term "title" :scope frontmatter))))))
     (should (eq (plist-get (car (plist-get key :filters)) :scope) 'frontmatter))))
 
 (ert-deftest haystack-test/frecency-chain-key-omits-nil-scope ()
   "Nil scope is not stored in the chain key (backward compat)."
   (let ((key (haystack--frecency-chain-key
-              '(:root-term "rust" :root-filename nil :root-literal nil
+              (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                 :root-regex nil :root-kind nil :root-scope nil :filters nil))))
     (should (null (plist-get (plist-get key :root) :scope)))))
 
@@ -3984,7 +3984,7 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-key-display-text-root ()
   "haystack--frecency-key-display produces a readable string for text roots."
   (let* ((key (haystack--frecency-chain-key
-               '(:root-term "rust" :root-filename nil :root-literal nil
+               (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                  :root-regex nil :root-kind nil :filters nil))))
     (should (equal (haystack--frecency-key-display key) "rust"))))
 
@@ -3997,9 +3997,9 @@ Saves and restores the global and the dirty flag."
 (ert-deftest haystack-test/frecency-key-display-with-filters ()
   "haystack--frecency-key-display includes filters separated by \" > \"."
   (let* ((key (haystack--frecency-chain-key
-               '(:root-term "rust" :root-filename nil :root-literal nil
+               (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                  :root-regex nil :root-kind nil
-                 :filters ((:term "async" :negated nil :filename nil
+                 :filters '((:term "async" :negated nil :filename nil
                              :literal nil :regex nil))))))
     (should (string-match-p " > async" (haystack--frecency-key-display key)))))
 
@@ -4026,7 +4026,7 @@ Saves and restores the global and the dirty flag."
                ((symbol-function 'pop-to-buffer)    #'ignore)
                ((symbol-function 'switch-to-buffer) #'ignore))
        (let* ((key (haystack--frecency-chain-key
-                    '(:root-term "replay-unique-keyword"
+                    (haystack-sd-create :root-term "replay-unique-keyword"
                       :root-filename nil :root-literal nil
                       :root-regex nil :root-kind nil :filters nil)))
               (buf (haystack--frecency-replay key)))
@@ -4118,7 +4118,7 @@ A note within the range must appear; a note outside the range must not."
   "Recording a new descriptor creates an entry with count 1."
   (haystack-test--with-frecency nil
     (haystack--frecency-record
-     '(:root-term "rust" :root-filename nil :root-literal nil
+     (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
        :root-regex nil :filters nil :root-kind nil))
     (let ((entry (assoc (haystack-test--tkey "rust") haystack--frecency-data)))
       (should entry)
@@ -4127,7 +4127,7 @@ A note within the range must appear; a note outside the range must not."
 (ert-deftest haystack-test/frecency-record-increments-count ()
   "Recording the same descriptor a second time increments the count."
   (haystack-test--with-frecency nil
-    (let ((desc '(:root-term "rust" :root-filename nil :root-literal nil
+    (let ((desc (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
                   :root-regex nil :filters nil :root-kind nil)))
       (haystack--frecency-record desc)
       (haystack--frecency-record desc)
@@ -4138,7 +4138,7 @@ A note within the range must appear; a note outside the range must not."
   "Recording sets `haystack--frecency-dirty'."
   (haystack-test--with-frecency nil
     (haystack--frecency-record
-     '(:root-term "rust" :root-filename nil :root-literal nil
+     (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
        :root-regex nil :filters nil))
     (should haystack--frecency-dirty)))
 
@@ -4146,10 +4146,10 @@ A note within the range must appear; a note outside the range must not."
   "Different chains are stored as separate entries."
   (haystack-test--with-frecency nil
     (haystack--frecency-record
-     '(:root-term "rust" :root-filename nil :root-literal nil
+     (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
        :root-regex nil :filters nil))
     (haystack--frecency-record
-     '(:root-term "python" :root-filename nil :root-literal nil
+     (haystack-sd-create :root-term "python" :root-filename nil :root-literal nil
        :root-regex nil :filters nil))
     (should (= 2 (length haystack--frecency-data)))))
 
@@ -4159,7 +4159,7 @@ A note within the range must appear; a note outside the range must not."
     (haystack-test--with-frecency nil
       (let ((haystack-frecency-save-interval nil))
         (haystack--frecency-record
-         '(:root-term "rust" :root-filename nil :root-literal nil
+         (haystack-sd-create :root-term "rust" :root-filename nil :root-literal nil
            :root-regex nil :filters nil))
         (should (not haystack--frecency-dirty))
         (should (file-exists-p (haystack--frecency-file)))))))
@@ -4201,6 +4201,18 @@ A note within the range must appear; a note outside the range must not."
       (should     (member child leaves))
       (should     (member other leaves))
       (should-not (member root  leaves)))))
+
+(ert-deftest haystack-test/frecent-leaves-equal-score-both-survive ()
+  "When parent and child have equal scores, both survive as leaves.
+The <= comparison in `haystack--frecent-leaves' means a descendant
+must strictly dominate its ancestor to prune it."
+  (let* ((now    (float-time))
+         (root  (cons (haystack-test--tkey "rust")         (list :count 5 :last-access now)))
+         (child (cons (haystack-test--tkey "rust" "async") (list :count 5 :last-access now)))
+         (entries (list root child)))
+    (let ((leaves (haystack--frecent-leaves entries)))
+      (should (assoc (haystack-test--tkey "rust") leaves))
+      (should (assoc (haystack-test--tkey "rust" "async") leaves)))))
 
 ;;; haystack--frecency-score
 
@@ -4564,15 +4576,15 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/descriptor-leaf-label-no-filters ()
   "Returns root term label when descriptor has no filters."
-  (let ((descriptor '(:root-term "rust" :root-filename nil
+  (let ((descriptor (haystack-sd-create :root-term "rust" :root-filename nil
                       :root-literal t :root-regex nil :filters nil)))
     (should (string= (haystack--descriptor-leaf-label descriptor) "=rust"))))
 
 (ert-deftest haystack-test/descriptor-leaf-label-with-filters ()
   "Returns last filter label when descriptor has filters."
-  (let ((descriptor `(:root-term "rust" :root-filename nil
+  (let ((descriptor (haystack-sd-create :root-term "rust" :root-filename nil
                       :root-literal nil :root-regex nil
-                      :filters ((:term "async" :negated nil
+                      :filters '((:term "async" :negated nil
                                  :filename nil :literal nil :regex nil)
                                 (:term "cargo" :negated t
                                  :filename nil :literal nil :regex nil)))))
@@ -4582,8 +4594,8 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-roots-finds-root-buffers ()
   "Returns buffers with no live parent."
-  (let* ((root  (haystack-test--make-results-buf " *hs-tree-root*"  nil '(:root-term "rust" :filters nil)))
-         (child (haystack-test--make-results-buf " *hs-tree-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+  (let* ((root  (haystack-test--make-results-buf " *hs-tree-root*"  nil (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-tree-child*" root (haystack-sd-create :root-term "rust" :filters '((:term "async"))))))
     (unwind-protect
         (let ((roots (haystack--tree-roots)))
           (should     (memq root  roots))
@@ -4593,8 +4605,8 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-roots-treats-dead-parent-as-root ()
   "A buffer whose parent is dead is treated as a root."
-  (let* ((dead-parent (haystack-test--make-results-buf " *hs-tree-dead*" nil '(:root-term "x" :filters nil)))
-         (orphan      (haystack-test--make-results-buf " *hs-tree-orphan*" dead-parent '(:root-term "x" :filters ((:term "y"))))))
+  (let* ((dead-parent (haystack-test--make-results-buf " *hs-tree-dead*" nil (haystack-sd-create :root-term "x" :filters nil)))
+         (orphan      (haystack-test--make-results-buf " *hs-tree-orphan*" dead-parent (haystack-sd-create :root-term "x" :filters '((:term "y"))))))
     (kill-buffer dead-parent)
     (unwind-protect
         (should (memq orphan (haystack--tree-roots)))
@@ -4602,8 +4614,8 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-render-node-leaf-term ()
   "Renders the leaf filter term for child buffers."
-  (let* ((root  (haystack-test--make-results-buf " *hs-rn-root*" nil '(:root-term "rust" :filters nil)))
-         (child (haystack-test--make-results-buf " *hs-rn-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+  (let* ((root  (haystack-test--make-results-buf " *hs-rn-root*" nil (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-rn-child*" root (haystack-sd-create :root-term "rust" :filters '((:term "async"))))))
     (unwind-protect
         (with-temp-buffer
           (haystack--tree-render-node root nil "" "" 0)
@@ -4614,7 +4626,7 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-render-node-marks-current ()
   "Current buffer line contains ←."
-  (let ((root (haystack-test--make-results-buf " *hs-rn-cur*" nil '(:root-term "rust" :filters nil))))
+  (let ((root (haystack-test--make-results-buf " *hs-rn-cur*" nil (haystack-sd-create :root-term "rust" :filters nil))))
     (unwind-protect
         (with-temp-buffer
           (haystack--tree-render-node root root "" "" 0)
@@ -4623,8 +4635,8 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-render-node-indents-children ()
   "Child nodes are indented relative to their parent."
-  (let* ((root  (haystack-test--make-results-buf " *hs-ind-root*" nil '(:root-term "rust" :filters nil)))
-         (child (haystack-test--make-results-buf " *hs-ind-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+  (let* ((root  (haystack-test--make-results-buf " *hs-ind-root*" nil (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-ind-child*" root (haystack-sd-create :root-term "rust" :filters '((:term "async"))))))
     (unwind-protect
         (with-temp-buffer
           (haystack--tree-render-node root nil "" "" 0)
@@ -4636,8 +4648,8 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-render-node-depth-property ()
   "Each rendered line carries the correct haystack-tree-depth property."
-  (let* ((root  (haystack-test--make-results-buf " *hs-dp-root*" nil '(:root-term "rust" :filters nil)))
-         (child (haystack-test--make-results-buf " *hs-dp-child*" root '(:root-term "rust" :filters ((:term "async"))))))
+  (let* ((root  (haystack-test--make-results-buf " *hs-dp-root*" nil (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf " *hs-dp-child*" root (haystack-sd-create :root-term "rust" :filters '((:term "async"))))))
     (unwind-protect
         (with-temp-buffer
           (haystack--tree-render-node root nil "" "" 0)
@@ -4653,15 +4665,15 @@ A note within the range must appear; a note outside the range must not."
   (declare (indent 0))
   `(let* ((root   (haystack-test--make-results-buf
                    " *hs-nav-root*" nil
-                   '(:root-term "rust" :root-filename nil
+                   (haystack-sd-create :root-term "rust" :root-filename nil
                      :root-literal nil :root-regex nil :filters nil)))
            (child1 (haystack-test--make-results-buf
                     " *hs-nav-c1*" root
-                    '(:root-term "rust" :filters ((:term "async" :negated nil
+                    (haystack-sd-create :root-term "rust" :filters '((:term "async" :negated nil
                                                    :filename nil :literal nil :regex nil)))))
            (child2 (haystack-test--make-results-buf
                     " *hs-nav-c2*" root
-                    '(:root-term "rust" :filters ((:term "ownership" :negated nil
+                    (haystack-sd-create :root-term "rust" :filters '((:term "ownership" :negated nil
                                                    :filename nil :literal nil :regex nil))))))
      (unwind-protect
          (progn
@@ -4713,7 +4725,7 @@ A note within the range must appear; a note outside the range must not."
 
 (ert-deftest haystack-test/tree-render-node-text-property ()
   "Each rendered line carries a haystack-tree-buffer text property."
-  (let ((root (haystack-test--make-results-buf " *hs-tp-root*" nil '(:root-term "rust" :filters nil))))
+  (let ((root (haystack-test--make-results-buf " *hs-tp-root*" nil (haystack-sd-create :root-term "rust" :filters nil))))
     (unwind-protect
         (with-temp-buffer
           (haystack--tree-render-node root nil "" "" 0)
@@ -4736,7 +4748,7 @@ A note within the range must appear; a note outside the range must not."
           (haystack--apply-header-buttons)
           (let ((inhibit-read-only t))
             (put-text-property (point-min) header-end 'read-only t))
-          (setq haystack--search-descriptor '(:root-term "rust" :filters nil)
+          (setq haystack--search-descriptor (haystack-sd-create :root-term "rust" :filters nil)
                 haystack--parent-buffer nil))))
     buf))
 
@@ -4763,7 +4775,7 @@ A note within the range must appear; a note outside the range must not."
 (ert-deftest haystack-test/go-root-at-root-is-noop ()
   "haystack-go-root messages when already at root."
   (let ((buf (haystack-test--make-results-buf " *hs-root-nav*" nil
-                                              '(:root-term "rust" :filters nil))))
+                                              (haystack-sd-create :root-term "rust" :filters nil))))
     (unwind-protect
         (with-current-buffer buf
           (haystack-go-root)
@@ -4773,9 +4785,9 @@ A note within the range must appear; a note outside the range must not."
 (ert-deftest haystack-test/go-root-walks-to-root ()
   "haystack-go-root switches to the root buffer from a child."
   (let* ((root  (haystack-test--make-results-buf " *hs-r-root*" nil
-                                                 '(:root-term "rust" :filters nil)))
+                                                 (haystack-sd-create :root-term "rust" :filters nil)))
          (child (haystack-test--make-results-buf " *hs-r-child*" root
-                                                 '(:root-term "rust" :filters ((:term "async"))))))
+                                                 (haystack-sd-create :root-term "rust" :filters '((:term "async"))))))
     (unwind-protect
         (with-current-buffer child
           (haystack-go-root)
@@ -5264,14 +5276,14 @@ Cleans up both the results buffer and the compose buffer."
 (ert-deftest haystack-test/find-composite-returns-nil-when-absent ()
   "Returns nil when no composite file exists for the descriptor."
   (haystack-test--with-notes-dir
-   (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+   (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                      :root-filename nil :filters nil)))
      (should-not (haystack--find-composite desc)))))
 
 (ert-deftest haystack-test/find-composite-returns-path-when-present ()
   "Returns the absolute path when the composite file exists."
   (haystack-test--with-notes-dir
-   (let* ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+   (let* ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                       :root-filename nil :filters nil))
           (path (haystack--composite-filename desc)))
      (with-temp-file path (insert "placeholder"))
@@ -5280,9 +5292,9 @@ Cleans up both the results buffer and the compose buffer."
 (ert-deftest haystack-test/find-composite-nil-for-different-chain ()
   "Returns nil when a composite exists for a different chain."
   (haystack-test--with-notes-dir
-   (let* ((desc-rust  (list :root-term "rust"   :root-literal nil :root-regex nil
+   (let* ((desc-rust  (haystack-sd-create :root-term "rust"   :root-literal nil :root-regex nil
                             :root-filename nil :filters nil))
-          (desc-async (list :root-term "async"  :root-literal nil :root-regex nil
+          (desc-async (haystack-sd-create :root-term "async"  :root-literal nil :root-regex nil
                             :root-filename nil :filters nil)))
      (with-temp-file (haystack--composite-filename desc-rust) (insert "placeholder"))
      (should-not (haystack--find-composite desc-async)))))
@@ -5292,7 +5304,7 @@ Cleans up both the results buffer and the compose buffer."
 (ert-deftest haystack-test/composite-filename-basic ()
   "Returns absolute path @comp__SLUG.org in the notes directory."
   (haystack-test--with-notes-dir
-   (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+   (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                      :root-filename nil :filters nil)))
      (should (equal (haystack--composite-filename desc)
                     (expand-file-name "@comp__rust.org" haystack-notes-directory))))))
@@ -5300,14 +5312,14 @@ Cleans up both the results buffer and the compose buffer."
 (ert-deftest haystack-test/composite-filename-extension-is-always-org ()
   "Composite files always use the .org extension — the format is always org."
   (haystack-test--with-notes-dir
-   (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+   (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                      :root-filename nil :filters nil)))
      (should (string-suffix-p ".org" (haystack--composite-filename desc))))))
 
 (ert-deftest haystack-test/composite-filename-chain-in-name ()
   "Filter terms appear in the filename joined by __."
   (haystack-test--with-notes-dir
-   (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+   (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                      :root-filename nil
                      :filters (list (list :term "async" :negated nil
                                           :filename nil :literal nil :regex nil)))))
@@ -5319,20 +5331,20 @@ Cleans up both the results buffer and the compose buffer."
 
 (ert-deftest haystack-test/canonical-chain-slug-single-bare-term ()
   "A single bare term is lowercased and slugified."
-  (let ((desc (list :root-term "Rust" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "Rust" :root-literal nil :root-regex nil
                     :root-filename nil :filters nil)))
     (should (equal (haystack--canonical-chain-slug desc) "rust"))))
 
 (ert-deftest haystack-test/canonical-chain-slug-resolves-group-root ()
   "A synonym resolves to its expansion group root."
   (haystack-test--with-groups '(("programming" . ("coding" "scripting")))
-    (let ((desc (list :root-term "coding" :root-literal nil :root-regex nil
+    (let ((desc (haystack-sd-create :root-term "coding" :root-literal nil :root-regex nil
                       :root-filename nil :filters nil)))
       (should (equal (haystack--canonical-chain-slug desc) "programming")))))
 
 (ert-deftest haystack-test/canonical-chain-slug-with-filters ()
   "Filter terms are appended after the root, joined with __."
-  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                     :root-filename nil
                     :filters (list (list :term "async" :negated nil
                                          :filename nil :literal nil :regex nil)
@@ -5342,7 +5354,7 @@ Cleans up both the results buffer and the compose buffer."
 
 (ert-deftest haystack-test/canonical-chain-slug-negated-filter ()
   "Negated filter terms are prefixed with not-."
-  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                     :root-filename nil
                     :filters (list (list :term "async" :negated t
                                          :filename nil :literal nil :regex nil)))))
@@ -5350,7 +5362,7 @@ Cleans up both the results buffer and the compose buffer."
 
 (ert-deftest haystack-test/canonical-chain-slug-filename-filter ()
   "Filename filter terms are prefixed with fn-."
-  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                     :root-filename nil
                     :filters (list (list :term "cargo" :negated nil
                                          :filename t :literal nil :regex nil)))))
@@ -5358,17 +5370,17 @@ Cleans up both the results buffer and the compose buffer."
 
 (ert-deftest haystack-test/canonical-chain-slug-and-root ()
   "AND root terms are flattened into the slug with __ between them."
-  (let ((desc (list :root-term "rust & async" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "rust & async" :root-literal nil :root-regex nil
                     :root-filename nil :filters nil)))
     (should (equal (haystack--canonical-chain-slug desc) "rust__async"))))
 
 (ert-deftest haystack-test/canonical-chain-slug-and-root-with-filter ()
   "AND root + filter produces same slug as equivalent sequential filter chain."
-  (let ((desc-and (list :root-term "rust & async" :root-literal nil :root-regex nil
+  (let ((desc-and (haystack-sd-create :root-term "rust & async" :root-literal nil :root-regex nil
                          :root-filename nil
                          :filters (list (list :term "tokio" :negated nil
                                               :filename nil :literal nil :regex nil))))
-        (desc-seq (list :root-term "rust" :root-literal nil :root-regex nil
+        (desc-seq (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                          :root-filename nil
                          :filters (list (list :term "async" :negated nil
                                               :filename nil :literal nil :regex nil)
@@ -5379,13 +5391,13 @@ Cleans up both the results buffer and the compose buffer."
 
 (ert-deftest haystack-test/canonical-chain-slug-multi-word-term ()
   "Multi-word terms have spaces replaced with hyphens."
-  (let ((desc (list :root-term "emacs lisp" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "emacs lisp" :root-literal nil :root-regex nil
                     :root-filename nil :filters nil)))
     (should (equal (haystack--canonical-chain-slug desc) "emacs-lisp"))))
 
 (ert-deftest haystack-test/canonical-chain-slug-literal-prefix-stripped ()
   "The = literal prefix on a filter term does not appear in the slug."
-  (let ((desc (list :root-term "rust" :root-literal nil :root-regex nil
+  (let ((desc (haystack-sd-create :root-term "rust" :root-literal nil :root-regex nil
                     :root-filename nil
                     :filters (list (list :term "async" :negated nil
                                          :filename nil :literal t :regex nil)))))
@@ -5401,7 +5413,7 @@ Cleans up both the results buffer and the compose buffer."
 (ert-deftest haystack-test/new-note-with-moc-errors-on-empty-results ()
   "Signals user-error when the results buffer has no match lines."
   (let ((buf (haystack-test--make-results-buf
-              " *hs-nwm-empty*" nil '(:root-term "rust" :filters nil))))
+              " *hs-nwm-empty*" nil (haystack-sd-create :root-term "rust" :filters nil))))
     (unwind-protect
         (with-current-buffer buf
           (should-error (haystack-new-note-with-moc) :type 'user-error))
@@ -5411,7 +5423,7 @@ Cleans up both the results buffer and the compose buffer."
   "Creates a timestamped note file in the notes directory."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf
-               " *hs-nwm-creates*" nil '(:root-term "rust" :filters nil))))
+               " *hs-nwm-creates*" nil (haystack-sd-create :root-term "rust" :filters nil))))
      (unwind-protect
          (with-current-buffer buf
            (setq default-directory haystack-notes-directory)
@@ -5430,7 +5442,7 @@ Cleans up both the results buffer and the compose buffer."
   "The created file contains the haystack sentinel."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf
-               " *hs-nwm-fm*" nil '(:root-term "rust" :filters nil))))
+               " *hs-nwm-fm*" nil (haystack-sd-create :root-term "rust" :filters nil))))
      (unwind-protect
          (with-current-buffer buf
            (setq default-directory haystack-notes-directory)
@@ -5452,7 +5464,7 @@ Cleans up both the results buffer and the compose buffer."
   "The opened buffer contains the MOC text after creation."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf
-               " *hs-nwm-insert*" nil '(:root-term "rust" :filters nil)))
+               " *hs-nwm-insert*" nil (haystack-sd-create :root-term "rust" :filters nil)))
          opened-buf)
      (unwind-protect
          (with-current-buffer buf
@@ -5477,7 +5489,7 @@ Cleans up both the results buffer and the compose buffer."
   "MOC text is pushed to the kill ring."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf
-               " *hs-nwm-kr*" nil '(:root-term "rust" :filters nil))))
+               " *hs-nwm-kr*" nil (haystack-sd-create :root-term "rust" :filters nil))))
      (unwind-protect
          (with-current-buffer buf
            (setq default-directory haystack-notes-directory)
@@ -5496,7 +5508,7 @@ Cleans up both the results buffer and the compose buffer."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf
                " *hs-nwm-state*" nil
-               '(:root-term "rust" :root-expansion nil :root-filename nil
+               (haystack-sd-create :root-term "rust" :root-expansion nil :root-filename nil
                  :filters nil)))
          (haystack--last-moc nil)
          (haystack--last-moc-chain nil))
@@ -5517,7 +5529,7 @@ Cleans up both the results buffer and the compose buffer."
   "Runs haystack-after-create-hook after the note is created."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf
-               " *hs-nwm-hook*" nil '(:root-term "rust" :filters nil)))
+               " *hs-nwm-hook*" nil (haystack-sd-create :root-term "rust" :filters nil)))
          (hook-ran nil))
      (unwind-protect
          (with-current-buffer buf
@@ -5826,9 +5838,8 @@ Cleans up both the results buffer and the compose buffer."
                ((symbol-function 'pop-to-buffer) #'ignore))
        (let ((buf (haystack-run-root-search "the")))
          (unwind-protect
-             (should (plist-get
-                      (buffer-local-value 'haystack--search-descriptor buf)
-                      :root-literal))
+             (should (haystack-sd-root-literal
+                      (buffer-local-value 'haystack--search-descriptor buf)))
            (when (buffer-live-p buf) (kill-buffer buf))))))))
 
 (ert-deftest haystack-test/stop-word-prompt-r-removes-and-searches-literally ()
@@ -5844,9 +5855,8 @@ matching the behavior of ?s (search anyway)."
          (unwind-protect
              (progn
                (should-not (member "the" haystack--stop-words))
-               (should (plist-get
-                        (buffer-local-value 'haystack--search-descriptor buf)
-                        :root-literal)))
+               (should (haystack-sd-root-literal
+                        (buffer-local-value 'haystack--search-descriptor buf))))
            (when (buffer-live-p buf) (kill-buffer buf))))))))
 
 (ert-deftest haystack-test/stop-word-prompt-q-aborts ()
@@ -6462,7 +6472,7 @@ matching the behavior of ?s (search anyway)."
   "Signal user-error when called from a non-mentions results buffer."
   (haystack-test--with-notes-dir
    (let ((buf (haystack-test--make-results-buf " *hs-not-mentions*" nil
-                                               '(:root-term "rust"))))
+                                               (haystack-sd-create :root-term "rust"))))
      (unwind-protect
          (with-current-buffer buf
            (setq-local haystack--buffer-notes-dir
@@ -6478,14 +6488,14 @@ matching the behavior of ?s (search anyway)."
      (write-region "initial content\n" nil origin)
      (write-region "ref content here\n" nil note)
      (let ((buf (haystack-test--make-results-buf " *hs-mentions-yank*" nil
-                                                 '(:root-term "ref"
+                                                 (haystack-sd-create :root-term "ref"
                                                    :root-expanded "ref"
                                                    :root-literal t
                                                    :root-regex nil
                                                    :root-filename nil
                                                    :root-expansion nil
                                                    :filters nil
-                                                   :composite-filter exclude))))
+                                                   :composite-filter 'exclude))))
        (unwind-protect
            (with-current-buffer buf
              (setq-local haystack--buffer-notes-dir
@@ -6511,14 +6521,14 @@ matching the behavior of ?s (search anyway)."
    (let* ((origin (expand-file-name "origin.org" haystack-notes-directory)))
      (write-region "initial content\n" nil origin)
      (let ((buf (haystack-test--make-results-buf " *hs-mentions-empty*" nil
-                                                 '(:root-term "xyzzy"
+                                                 (haystack-sd-create :root-term "xyzzy"
                                                    :root-expanded "xyzzy"
                                                    :root-literal t
                                                    :root-regex nil
                                                    :root-filename nil
                                                    :root-expansion nil
                                                    :filters nil
-                                                   :composite-filter exclude))))
+                                                   :composite-filter 'exclude))))
        (unwind-protect
            (with-current-buffer buf
              (setq-local haystack--buffer-notes-dir
@@ -6542,25 +6552,25 @@ matching the behavior of ?s (search anyway)."
    (let* ((origin (expand-file-name "origin.org" haystack-notes-directory)))
      (write-region "content\n" nil origin)
      (let* ((root  (haystack-test--make-results-buf " *hs-mref-root*" nil
-                                                    '(:root-term "x"
+                                                    (haystack-sd-create :root-term "x"
                                                       :root-expanded "x"
                                                       :root-literal t
                                                       :root-regex nil
                                                       :root-filename nil
                                                       :root-expansion nil
                                                       :filters nil
-                                                      :composite-filter exclude)))
+                                                      :composite-filter 'exclude)))
             (child (haystack-test--make-results-buf " *hs-mref-child*" root
-                                                    '(:root-term "x"
+                                                    (haystack-sd-create :root-term "x"
                                                       :root-expanded "x"
                                                       :root-literal t
                                                       :root-regex nil
                                                       :root-filename nil
                                                       :root-expansion nil
-                                                      :filters ((:term "y" :negated nil
+                                                      :filters '((:term "y" :negated nil
                                                                  :filename nil :literal t
                                                                  :regex nil :expansion nil))
-                                                      :composite-filter exclude))))
+                                                      :composite-filter 'exclude))))
        (with-current-buffer root
          (setq-local haystack--buffer-notes-dir
                      (expand-file-name haystack-notes-directory))
@@ -6757,7 +6767,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-view*"
                 ";;;; test header\n"
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (should (eq haystack--view-mode 'full)))
@@ -6770,7 +6780,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-cycle*"
                 ";;;; test header\n"
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (should (eq haystack--view-mode 'full))
@@ -6789,7 +6799,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-clear*"
                 ";;;; test header\n"
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             ;; Manually add some overlays to simulate view mode state.
@@ -6808,7 +6818,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-direct*"
                 ";;;; test header\n"
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-compact)
@@ -6826,7 +6836,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-marker*"
                 ";;;; test header\n"
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (should (markerp haystack--header-end-marker))
@@ -6843,7 +6853,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-compact*"
                 ";;;; header\n"
                 "20240101120000-my-note.org:1:some content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-compact)
@@ -6861,7 +6871,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-compact-raw*"
                 ";;;; header\n"
                 raw-output
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-compact)
@@ -6876,7 +6886,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-compact-hdr*"
                 ";;;; header\n"
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-compact)
@@ -6899,7 +6909,7 @@ matching the behavior of ?s (search anyway)."
                         "fileA.org:3:line three\n"
                         "fileB.org:1:line one\n"
                         "fileB.org:2:line two\n")
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (cl-letf (((symbol-function 'haystack--pretty-title)
@@ -6924,7 +6934,7 @@ matching the behavior of ?s (search anyway)."
                         "fileA.org:3:line three\n"
                         "fileB.org:1:line one\n"
                         "fileB.org:4:line four\n")
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-files)
@@ -6948,7 +6958,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-files-raw*"
                 ";;;; header\n"
                 raw-output
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-files)
@@ -6962,7 +6972,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-files-title*"
                 ";;;; header\n"
                 "20240101120000-my-note.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-files)
@@ -6980,7 +6990,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-files-content*"
                 ";;;; header\n"
                 "file.org:1:some content here\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-files)
@@ -7003,7 +7013,7 @@ matching the behavior of ?s (search anyway)."
                 "*haystack:1:test-hdr-view*"
                 (haystack--format-header "root=test" 1 1)
                 "file.org:1:content\n"
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             ;; Default: underlying text says "Full", no overlay yet.
@@ -7035,7 +7045,7 @@ matching the behavior of ?s (search anyway)."
                         "fileA.org:2:line two\n"
                         "fileA.org:3:line three\n"
                         "fileB.org:1:line one\n")
-                (list :root-term "test" :filters nil))))
+                (haystack-sd-create :root-term "test" :filters nil))))
       (unwind-protect
           (with-current-buffer buf
             (haystack-view-files)
@@ -7052,6 +7062,195 @@ matching the behavior of ?s (search anyway)."
                                     (buffer-substring (line-beginning-position)
                                                       (line-end-position)))))
         (kill-buffer buf)))))
+
+;;; Pinned search paths
+
+(ert-deftest haystack-test/frecency-rename-merge-preserves-pin ()
+  "When rename merges two entries and one is pinned, result is pinned."
+  (let* ((k1 (haystack-test--tkey "coding"))
+         (k2 (haystack-test--tkey "programming"))
+         (data (list (cons k1 '(:count 4 :last-access 2000.0 :pinned t))
+                     (cons k2 '(:count 3 :last-access 1000.0))))
+         (result (haystack--frecency-rename-in-data data "programming" "coding")))
+    (should (= (length result) 1))
+    (let ((entry (assoc k1 result)))
+      (should (= (plist-get (cdr entry) :count) 7))
+      (should (eq (plist-get (cdr entry) :pinned) t)))))
+
+(ert-deftest haystack-test/frecency-rename-merge-preserves-pin-reverse ()
+  "When the second (existing) entry is pinned, merged result is still pinned."
+  (let* ((k1 (haystack-test--tkey "coding"))
+         (k2 (haystack-test--tkey "programming"))
+         (data (list (cons k1 '(:count 4 :last-access 2000.0))
+                     (cons k2 '(:count 3 :last-access 1000.0 :pinned t))))
+         (result (haystack--frecency-rename-in-data data "programming" "coding")))
+    (should (= (length result) 1))
+    (let ((entry (assoc k1 result)))
+      (should (eq (plist-get (cdr entry) :pinned) t)))))
+
+(ert-deftest haystack-test/frecent-toggle-pin-sets-flag ()
+  "Toggling pin on an unpinned entry sets :pinned t and marks dirty."
+  (let* ((k1 (haystack-test--tkey "rust"))
+         (haystack--frecency-data
+          (list (cons k1 '(:count 5 :last-access 1000.0))))
+         (haystack--frecency-dirty nil))
+    (with-temp-buffer
+      (haystack-frecent-mode)
+      (let ((inhibit-read-only t))
+        (insert "  test line\n")
+        (put-text-property (line-beginning-position 0) (point)
+                           'haystack-frecent-chain k1))
+      (forward-line -1)
+      (cl-letf (((symbol-function 'haystack--frecent-render) #'ignore))
+        (haystack-frecent-toggle-pin))
+      (let ((entry (assoc k1 haystack--frecency-data)))
+        (should (eq (plist-get (cdr entry) :pinned) t))
+        (should haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/frecent-toggle-pin-unsets-flag ()
+  "Toggling pin on a pinned entry removes :pinned and marks dirty."
+  (let* ((k1 (haystack-test--tkey "rust"))
+         (haystack--frecency-data
+          (list (cons k1 '(:count 5 :last-access 1000.0 :pinned t))))
+         (haystack--frecency-dirty nil))
+    (with-temp-buffer
+      (haystack-frecent-mode)
+      (let ((inhibit-read-only t))
+        (insert "  test line\n")
+        (put-text-property (line-beginning-position 0) (point)
+                           'haystack-frecent-chain k1))
+      (forward-line -1)
+      (cl-letf (((symbol-function 'haystack--frecent-render) #'ignore))
+        (haystack-frecent-toggle-pin))
+      (let ((entry (assoc k1 haystack--frecency-data)))
+        (should-not (plist-get (cdr entry) :pinned))
+        (should haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/frecent-leaves-includes-pinned ()
+  "A pinned entry that is NOT a leaf still appears in the leaf pool."
+  (let* ((k-root   (haystack-test--tkey "rust"))
+         (k-deep   (haystack-test--tkey "rust" "async"))
+         ;; k-root is dominated by k-deep (higher score), so it's not a leaf.
+         ;; But it's pinned, so it must still appear.
+         (now      (float-time))
+         (data     (list (cons k-root (list :count 1 :last-access now :pinned t))
+                         (cons k-deep (list :count 100 :last-access now)))))
+    ;; Without pinning, k-root would be pruned because k-deep dominates it.
+    (let ((leaves (haystack--frecent-leaves data)))
+      (should (assoc k-root leaves))
+      (should (assoc k-deep leaves)))))
+
+(ert-deftest haystack-test/frecent-sort-pinned-first ()
+  "Pinned entries sort before non-pinned even with lower score."
+  (let* ((k1 (haystack-test--tkey "rust"))
+         (k2 (haystack-test--tkey "emacs"))
+         (k3 (haystack-test--tkey "python"))
+         (now (float-time))
+         ;; k1: pinned, low score.  k2: not pinned, high score.  k3: pinned, mid score.
+         (data (list (cons k1 (list :count 1 :last-access (- now 9999) :pinned t))
+                     (cons k2 (list :count 500 :last-access now))
+                     (cons k3 (list :count 10 :last-access now :pinned t))))
+         (sorted (haystack--frecent-sort-entries data 'score)))
+    ;; First two should be pinned (k3 higher score than k1 among pinned)
+    (should (eq (plist-get (cdr (nth 0 sorted)) :pinned) t))
+    (should (eq (plist-get (cdr (nth 1 sorted)) :pinned) t))
+    ;; Third should be non-pinned k2
+    (should-not (plist-get (cdr (nth 2 sorted)) :pinned))
+    ;; Within pinned group, k3 (higher score) comes before k1
+    (should (equal (car (nth 0 sorted)) k3))
+    (should (equal (car (nth 1 sorted)) k1))))
+
+(ert-deftest haystack-test/frecent-render-shows-pin-indicator ()
+  "Pinned entries display a * indicator, non-pinned display a space."
+  (let* ((k1 (haystack-test--tkey "rust"))
+         (k2 (haystack-test--tkey "emacs"))
+         (now (float-time))
+         (haystack--frecency-data
+          (list (cons k1 (list :count 10 :last-access now :pinned t))
+                (cons k2 (list :count 5  :last-access now))))
+         (haystack--frecent-sort-order 'score)
+         (haystack--frecent-leaf-only nil))
+    (with-temp-buffer
+      (haystack-frecent-mode)
+      (haystack--frecent-render)
+      (goto-char (point-min))
+      ;; Pinned entry line should contain "*"
+      (should (search-forward "* " nil t))
+      ;; Find the non-pinned entry — its line should not start with *
+      ;; The pinned entry (rust) sorts first, then emacs
+      (goto-char (point-min))
+      (let ((found-pinned nil)
+            (found-unpinned nil))
+        (while (not (eobp))
+          (when (get-text-property (point) 'haystack-frecent-chain)
+            (let ((line (buffer-substring (line-beginning-position) (line-end-position))))
+              (if (equal (get-text-property (point) 'haystack-frecent-chain) k1)
+                  (progn (setq found-pinned t)
+                         (should (string-match-p "^  \\*" line)))
+                (setq found-unpinned t)
+                (should (string-match-p "^   " line))
+                (should-not (string-match-p "^  \\*" line)))))
+          (forward-line 1))
+        (should found-pinned)
+        (should found-unpinned)))))
+
+(ert-deftest haystack-test/pin-current-search-existing-entry ()
+  "Pinning from results buffer when chain exists sets :pinned t."
+  (let* ((desc (haystack-sd-create :root-term "rust" :filters nil))
+         (key  (haystack--frecency-chain-key desc))
+         (haystack--frecency-data
+          (list (cons key (list :count 5 :last-access 1000.0))))
+         (haystack--frecency-dirty nil))
+    (with-temp-buffer
+      (setq-local haystack--search-descriptor desc)
+      (haystack-pin-current-search)
+      (let ((entry (assoc key haystack--frecency-data)))
+        (should (eq (plist-get (cdr entry) :pinned) t))
+        (should (= (plist-get (cdr entry) :count) 5))
+        (should haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/pin-current-search-new-entry ()
+  "Pinning from results buffer when chain does not exist creates it."
+  (let* ((desc (haystack-sd-create :root-term "novel-search" :filters nil))
+         (key  (haystack--frecency-chain-key desc))
+         (haystack--frecency-data nil)
+         (haystack--frecency-dirty nil))
+    (with-temp-buffer
+      (setq-local haystack--search-descriptor desc)
+      (haystack-pin-current-search)
+      (let ((entry (assoc key haystack--frecency-data)))
+        (should entry)
+        (should (eq (plist-get (cdr entry) :pinned) t))
+        (should (= (plist-get (cdr entry) :count) 0))
+        (should haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/pin-current-search-unpin ()
+  "Pinning an already-pinned search from results buffer unpins it."
+  (let* ((desc (haystack-sd-create :root-term "rust" :filters nil))
+         (key  (haystack--frecency-chain-key desc))
+         (haystack--frecency-data
+          (list (cons key (list :count 5 :last-access 1000.0 :pinned t))))
+         (haystack--frecency-dirty nil))
+    (with-temp-buffer
+      (setq-local haystack--search-descriptor desc)
+      (haystack-pin-current-search)
+      (let ((entry (assoc key haystack--frecency-data)))
+        (should-not (plist-get (cdr entry) :pinned))
+        (should haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/frecency-record-preserves-pin ()
+  "Recording a search preserves the :pinned flag on an existing entry."
+  (let* ((desc (haystack-sd-create :root-term "rust" :filters nil))
+         (key  (haystack--frecency-chain-key desc))
+         (haystack--frecency-data
+          (list (cons key (list :count 5 :last-access 1000.0 :pinned t))))
+         (haystack--frecency-dirty nil)
+         (haystack--suppress-frecency-recording nil)
+         (haystack-frecency-save-interval 300))
+    (haystack--frecency-record desc)
+    (let ((entry (assoc key haystack--frecency-data)))
+      (should (= (plist-get (cdr entry) :count) 6))
+      (should (eq (plist-get (cdr entry) :pinned) t)))))
 
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

@@ -1,29 +1,27 @@
 #+TITLE: Haystack Frecency Engine
 #+DATE: 2025-03-25
 # %%% haystack-end-frontmatter %%%
-Frecency is a portmanteau of "frequency" and "recency," and Haystack's frecency
-engine uses both signals to rank search results beyond simple text relevance.
-The frecency score for a note increases each time you open it and decays over
-time: a note visited three times last week ranks higher than one visited three
-times last year, even if both have identical visit counts. The decay function is
-typically exponential: the score contribution of a visit halves (or decreases by
-some configurable factor) with each passing time period, ensuring old visits
-contribute progressively less to current ranking. Frecency ranking addresses the
-core limitation of pure text relevance: in a large zettelkasten, many notes may
-match a query equally well, and text relevance alone cannot distinguish "the
-note I usually want" from "a note that happens to contain these words." The
-frecency data is stored in ~haystack-frecency-file~, a simple association list
-mapping note filenames to their visit records; this file is updated on every
-note open and used during result ranking. Unlike a full-text index, the frecency
-store is tiny: it only contains note identifiers and visit timestamps, not any
-content, keeping it fast to read and write on every interaction. The frecency
-engine adapts to changing work patterns: if you spent last month on emacs-lisp
-and this month shift to pkm topics, the ranking automatically reflects your
-current focus within a few sessions. Haystack's frecency model is inspired by
-the Firefox URL bar's frecency algorithm and by z/zoxide's directory navigation
-frecency, both of which have proven highly effective in practice. When search
-results are identical in text relevance, frecency breaks the tie in a way that
-reflects genuine utility: the note you actually use most often floats to the
-top. The combination of rg's complete recall (ripgrep finds everything that
-matches) and frecency's precision ranking (the most relevant result appears
-first) is the core value proposition of Haystack.
+Frecency is a portmanteau of "frequency" and "recency." Haystack's frecency
+engine tracks /search chains/, not individual notes: the chain =rust → bevy →
+ecs= is the unit that gains score each time you run it. Score is a simple
+recency-weighted count — visits divided by days since last access — so chains
+you use often and recently float to the top while old chains gradually decay.
+
+The frecency data is stored in =.haystack-frecency.el= as an association list
+mapping chain keys to visit records. Each chain key is a descriptor-shaped
+plist recording the root term, any filters, and their modifiers. The file is
+updated on idle or shutdown, not on every search, keeping interaction fast.
+
+Frecency addresses the core limitation of text search: in a large corpus, many
+chains may be valid, and text relevance alone cannot distinguish "the chain I
+usually run" from "a chain that happens to work." When you call
+=haystack-frecent=, only /leaf/ chains appear by default — chains where no
+deeper extension has a higher score. This keeps the list focused on your actual
+exploration endpoints rather than intermediate steps.
+
+The engine adapts to changing work patterns: if you spent last month on
+emacs-lisp and this month shift to pkm topics, the ranking automatically
+reflects your current focus within a few sessions. Haystack's frecency model
+is inspired by the Firefox URL bar's frecency algorithm and by z/zoxide's
+directory navigation frecency, both proven effective for recall-heavy
+interfaces.

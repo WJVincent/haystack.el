@@ -12,6 +12,15 @@ tree you can traverse, compare, and kill at will.
 
 No categories, no tags, no upfront organisation required.
 
+**New to the idea?** Read [How to Think About Haystack](docs/how-to-think-about-haystack.md)
+before diving into the reference below — it explains the mental model,
+the workflow, and the tradeoffs in five minutes.
+
+The filter tree works the same way whether you're searching code
+(`rust → bevy → ecs`) or life (`grief → dad → phone call →
+thanksgiving`). The examples below lean technical, but the workflow is
+domain-agnostic.
+
 ## Requirements
 
 - Emacs 28.1+
@@ -241,6 +250,14 @@ root=(rust|rustlang)   ← shown in the buffer header
 Groups are stored in `.expansion-groups.el` in your notes directory
 and loaded automatically.
 
+**A word of discipline:** Expansion groups need to be rare. They are
+for genuine synonyms — different words your notes actually use for the
+same concept. Over-using them kills the granularity that makes
+progressive filtering work: if your "programming" group expands to
+ten terms, every search starts broad and every filter step removes
+less signal. When in doubt, don't create a group — use `=` to search
+literally and let the filter tree do the narrowing.
+
 ### Building Groups
 
 `haystack-associate` links two terms into a group. Run it
@@ -292,6 +309,7 @@ instead. This prevents pointless redundant filters.
 | `D` | Analyze term discoverability for the current note |
 | `Y` | Append mentions MOC to origin note and kill tree (mentions buffers only) |
 | `C-c C-c` | Compose a composite note from this buffer's results |
+| `P` | Toggle pin on this search (frecency) |
 | `v` | Cycle view mode (Full → Compact → Files) |
 | `1` / `2` / `3` | Jump to Full / Compact / Files view directly |
 | `?`  | Show help |
@@ -356,7 +374,9 @@ The current buffer is marked with `←`. Tree navigation:
 ## MOC Generator
 
 A Map of Content (MOC) is a list of links to your search results —
-useful for assembling an index note from a set of search hits.
+useful for assembling an index note from a set of search hits. A MOC
+captures *where* your results are (links to files); a composite
+captures *what they say* (excerpted content committed to a file).
 
 - `c` — copy MOC links to kill ring (deduplicated by file, one link
   per file)
@@ -632,6 +652,21 @@ Selecting an entry replays the full chain internally and surfaces only
 the final result buffer — the intermediate steps are never shown. The
 replayed buffer stands alone in the tree with no parent.
 
+### Pinned Searches
+
+Frecency is great for organically surfacing frequent searches, but it
+can't express "I always want this search available."  Pinning fills
+that gap:
+
+- **`P`** in a results buffer pins or unpins the current search chain.
+  If the chain doesn't exist in frecency data yet, it is created with
+  zero visits.
+- **`p`** in the frecent diagnostic buffer toggles pin at point.
+
+Pinned entries always appear in `haystack-frecent` completing-read
+(annotated with `*`), bypass leaf filtering, and sort before
+non-pinned entries.
+
 ### Inspecting and Managing Frecency
 
 `haystack-describe-frecent` opens a diagnostic buffer showing all
@@ -643,12 +678,16 @@ access:
 ;;;;  Haystack — frecent searches  [sort: score  view: leaf  |  ?=help]
 ;;;;------------------------------------------------------------
 
-  score     visits  days    chain
-  --------  ------  ------  ----
-      8.00       8     1.0  rust > async
-      3.00       9     3.0  python > django
-      1.00       1     1.0  lua
+   score     visits  days    chain
+   --------  ------  ------  ----
+  *    8.00       8     1.0  rust > async
+       3.00       9     3.0  python > django
+       1.00       1     1.0  lua
 ```
+
+Entries marked with `*` are **pinned** — they always appear in
+`haystack-frecent` completing-read and bypass leaf filtering regardless
+of score.  Press `p` to toggle pin at point.
 
 | Key | Action |
 |-----|--------|
@@ -657,6 +696,7 @@ access:
 | `f` | Sort by frequency (visit count) |
 | `r` | Sort by recency (last accessed) |
 | `v` | Toggle between all entries and leaf-only view |
+| `p` | Toggle pin at point |
 | `k` | Kill the entry at point (with confirmation) |
 | `?` | Show help |
 
@@ -804,8 +844,31 @@ properties, no required YAML schema, no custom markup
 language. Haystack works on any text file Ripgrep can read. It
 generates lightweight frontmatter on notes it creates, but it searches
 everything in the directory identically — your `.md`, `.org`, `.lua`,
-`.c`, and `.txt` files are all first-class citizens.
+`.c`, and `.txt` files are all first-class citizens. Haystack does
+have optional conventions that improve specific features — the `%%%
+haystack-end-frontmatter %%%` sentinel enables scope filtering, `hs:`
+timestamps enable date-range search, composite filenames follow an
+`@comp__` naming scheme — but none are required for basic search and
+filtering to work.
  
+**One gap to name explicitly:** Org-roam's `org-roam-node-find` lets
+you browse your notes without articulating a search term — "I want to
+work on something" is enough to start. Haystack has no equivalent.
+Every entry point requires a search term or a frecent chain to replay.
+If undirected browsing is central to your workflow, this is a real gap.
+
+**If you have an existing capture workflow, keep it.** Haystack is
+orthogonal to `org-capture`, `denote`, or whatever else creates your
+files. It works on whatever notes end up in your notes directory
+regardless of how they got there.
+
+**Haystack coexists at zero cost with Org-roam, Denote, and similar
+tools.** Point `haystack-notes-directory` at your existing notes
+directory. The only files Haystack creates are three dotfiles
+(`.expansion-groups.el`, `.haystack-frecency.el`,
+`.haystack-stop-words.el`) and optional composite notes (`@comp__*`).
+The packages never interact.
+
 If you read this list and thought "those are all features I need," you
 want a different tool. Org-roam, Obsidian, Logseq, and Notion are
 excellent at the things Haystack refuses to do. The gap Haystack fills

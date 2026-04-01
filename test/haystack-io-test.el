@@ -132,7 +132,7 @@ expanded count exceeds the literal count."
              (with-current-buffer exp-buf
                (should (string-match-p "(lisp|common-lisp|cl|scheme|clojure)"
                                        (buffer-string)))
-               (should (plist-get haystack--search-descriptor :root-expansion))))
+               (should (haystack-sd-root-expansion haystack--search-descriptor))))
          (when (buffer-live-p exp-buf) (kill-buffer exp-buf))
          (when (buffer-live-p lit-buf) (kill-buffer lit-buf)))))))
 
@@ -182,10 +182,9 @@ haystack-filtering.org (the canonical haystack+filtering note)."
              (should (>= child-count 1))
              (should (< child-count root-count))
              (with-current-buffer child-buf
-               (should (equal (plist-get haystack--search-descriptor :root-term)
+               (should (equal (haystack-sd-root-term haystack--search-descriptor)
                               "haystack"))
-               (should (equal (plist-get (car (plist-get haystack--search-descriptor
-                                                         :filters))
+               (should (equal (plist-get (car (haystack-sd-filters haystack--search-descriptor))
                                          :term)
                               "filtering"))
                (should (eq haystack--parent-buffer root-buf))
@@ -264,10 +263,9 @@ the demo corpus's pre-built frecency data is coherent."
            (progn
              (should (buffer-live-p buf))
              (with-current-buffer buf
-               (should (equal (plist-get haystack--search-descriptor :root-term)
+               (should (equal (haystack-sd-root-term haystack--search-descriptor)
                               "haystack"))
-               (should (equal (plist-get (car (plist-get haystack--search-descriptor
-                                                         :filters))
+               (should (equal (plist-get (car (haystack-sd-filters haystack--search-descriptor))
                                          :term)
                               "filtering"))
                (should (null haystack--parent-buffer))
@@ -444,7 +442,7 @@ records :root-regex t to prove the prefix was parsed correctly."
            (progn
              (should (buffer-live-p buf))
              (with-current-buffer buf
-               (should (plist-get haystack--search-descriptor :root-regex))
+               (should (haystack-sd-root-regex haystack--search-descriptor))
                (should (>= (car (haystack--count-search-stats (buffer-string))) 1))))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
 
@@ -490,8 +488,8 @@ that the descriptor carries both filter terms in order."
              (should (buffer-live-p child2-buf))
              (with-current-buffer child2-buf
                (let* ((desc    haystack--search-descriptor)
-                      (filters (plist-get desc :filters)))
-                 (should (equal (plist-get desc :root-term) "haystack"))
+                      (filters (haystack-sd-filters desc)))
+                 (should (equal (haystack-sd-root-term desc) "haystack"))
                  (should (= (length filters) 2))
                  (should (equal (plist-get (nth 0 filters) :term) "filtering"))
                  (should (equal (plist-get (nth 1 filters) :term) "stop"))
@@ -539,7 +537,7 @@ files match the glob — the empty-results path must be graceful."
              (should (buffer-live-p buf))
              (with-current-buffer buf
                (should (= (car (haystack--count-search-stats (buffer-string))) 0))
-               (should (eq (plist-get haystack--search-descriptor :composite-filter)
+               (should (eq (haystack-sd-composite-filter haystack--search-descriptor)
                            'only))))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
 
@@ -587,7 +585,7 @@ Confirms that haystack--frecency-replay does not error out on zero results
              (should (buffer-live-p buf))
              (with-current-buffer buf
                (should (= (car (haystack--count-search-stats (buffer-string))) 0))
-               (should (equal (plist-get haystack--search-descriptor :root-term)
+               (should (equal (haystack-sd-root-term haystack--search-descriptor)
                               "xyzzy-no-such-term-42"))
                ;; Replayed buffer has no parent (it stands alone)
                (should (null haystack--parent-buffer))))
@@ -655,7 +653,7 @@ with `wrong-type-argument' because `haystack-run-root-search' returns nil."
                (should-not prompt-called)
                (should (buffer-live-p buf))
                (with-current-buffer buf
-                 (should (equal (plist-get haystack--search-descriptor :root-term)
+                 (should (equal (haystack-sd-root-term haystack--search-descriptor)
                                 "haystack"))))
            (when (buffer-live-p buf) (kill-buffer buf))))))))
 
@@ -1014,6 +1012,30 @@ for standard haystack frontmatter: TITLE, DATE, sentinel)."
                   (when (buffer-live-p body-neg-buf) (kill-buffer body-neg-buf))
                   (when (buffer-live-p unscoped-neg-buf) (kill-buffer unscoped-neg-buf)))))
           (when (buffer-live-p root-buf) (kill-buffer root-buf)))))))
+
+(ert-deftest haystack-io-test/frecency-pin-round-trip ()
+  "Pin an entry, flush to disk, reload, verify :pinned t survives."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     ;; Run a search to create a frecency entry
+     (let ((buf (haystack-run-root-search "emacs")))
+       (when (buffer-live-p buf) (kill-buffer buf)))
+     (should haystack--frecency-dirty)
+     ;; Pin the entry we just created
+     (let* ((key (caar haystack--frecency-data))
+            (entry (assoc key haystack--frecency-data)))
+       (plist-put (cdr entry) :pinned t)
+       (setq haystack--frecency-dirty t)
+       ;; Flush and reload
+       (haystack--frecency-flush)
+       (should-not haystack--frecency-dirty)
+       (haystack--load-frecency)
+       ;; Verify pinned survived
+       (let ((reloaded (assoc key haystack--frecency-data)))
+         (should reloaded)
+         (should (eq (plist-get (cdr reloaded) :pinned) t)))))))
 
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here
