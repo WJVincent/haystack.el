@@ -647,6 +647,137 @@ Accepted shapes and their expansions:
      (t
       (user-error "Haystack: invalid date bound %S" s)))))
 
+;;;; Relative date offsets and keywords
+
+(defun haystack--resolve-relative-date (input)
+  "If INPUT is a relative offset like -7d, return a YYYY-MM-DD string.
+Accepted suffixes: d (days), w (weeks), m (months), y (years).
+Returns nil if INPUT is not a relative offset."
+  (when (string-match "\\`-\\([0-9]+\\)\\([dwmy]\\)\\'" input)
+    (let* ((n    (string-to-number (match-string 1 input)))
+           (unit (match-string 2 input))
+           (now  (decode-time))
+           (day  (nth 3 now))
+           (mon  (nth 4 now))
+           (year (nth 5 now)))
+      (pcase unit
+        ("d" (let ((time (time-subtract (current-time) (days-to-time n))))
+               (format-time-string "%Y-%m-%d" time)))
+        ("w" (let ((time (time-subtract (current-time) (days-to-time (* n 7)))))
+               (format-time-string "%Y-%m-%d" time)))
+        ("m" (let* ((total-months (+ (* year 12) (1- mon)))
+                    (new-total   (- total-months n))
+                    (new-year    (/ new-total 12))
+                    (new-mon     (1+ (mod new-total 12)))
+                    (max-day     (haystack--days-in-month new-year new-mon))
+                    (new-day     (min day max-day)))
+               (format "%04d-%02d-%02d" new-year new-mon new-day)))
+        ("y" (let* ((new-year (- year n))
+                    (max-day  (haystack--days-in-month new-year mon))
+                    (new-day  (min day max-day)))
+               (format "%04d-%02d-%02d" new-year mon new-day)))))))
+
+(defun haystack--date-keyword-today ()
+  "Return today's date as a cons filling both bounds."
+  (let ((d (format-time-string "%Y-%m-%d")))
+    (cons d d)))
+
+(defun haystack--date-keyword-yesterday ()
+  "Return yesterday's date as a cons filling both bounds."
+  (let ((d (format-time-string "%Y-%m-%d"
+                               (time-subtract (current-time) (days-to-time 1)))))
+    (cons d d)))
+
+(defun haystack--date-keyword-this-week ()
+  "Return this week's Monday..Sunday as a cons."
+  (let* ((now  (decode-time))
+         (dow  (nth 6 now))
+         (days-since-mon (mod (- dow 1) 7))
+         (mon  (time-subtract (current-time) (days-to-time days-since-mon)))
+         (sun  (time-add mon (days-to-time 6))))
+    (cons (format-time-string "%Y-%m-%d" mon)
+          (format-time-string "%Y-%m-%d" sun))))
+
+(defun haystack--date-keyword-last-week ()
+  "Return last week's Monday..Sunday as a cons."
+  (let* ((now  (decode-time))
+         (dow  (nth 6 now))
+         (days-since-mon (mod (- dow 1) 7))
+         (this-mon (time-subtract (current-time) (days-to-time days-since-mon)))
+         (last-mon (time-subtract this-mon (days-to-time 7)))
+         (last-sun (time-add last-mon (days-to-time 6))))
+    (cons (format-time-string "%Y-%m-%d" last-mon)
+          (format-time-string "%Y-%m-%d" last-sun))))
+
+(defun haystack--date-keyword-this-month ()
+  "Return this month's first..last day as a cons."
+  (let* ((now  (decode-time))
+         (mon  (nth 4 now))
+         (year (nth 5 now))
+         (last (haystack--days-in-month year mon)))
+    (cons (format "%04d-%02d-01" year mon)
+          (format "%04d-%02d-%02d" year mon last))))
+
+(defun haystack--date-keyword-last-month ()
+  "Return last month's first..last day as a cons."
+  (let* ((now        (decode-time))
+         (mon        (nth 4 now))
+         (year       (nth 5 now))
+         (prev-total (+ (* year 12) (1- mon) -1))
+         (prev-year  (/ prev-total 12))
+         (prev-mon   (1+ (mod prev-total 12)))
+         (last       (haystack--days-in-month prev-year prev-mon)))
+    (cons (format "%04d-%02d-01" prev-year prev-mon)
+          (format "%04d-%02d-%02d" prev-year prev-mon last))))
+
+(defcustom haystack-date-keywords
+  '(("today"      . haystack--date-keyword-today)
+    ("yesterday"  . haystack--date-keyword-yesterday)
+    ("this-week"  . haystack--date-keyword-this-week)
+    ("last-week"  . haystack--date-keyword-last-week)
+    ("this-month" . haystack--date-keyword-this-month)
+    ("last-month" . haystack--date-keyword-last-month))
+  "Alist mapping keyword strings to date resolver functions.
+Each function takes no arguments and returns either:
+  - A string (YYYY-MM-DD) — fills only the bound the keyword was entered in.
+  - A cons (START . END) — fills both bounds of the date range."
+  :type '(alist :key-type string :value-type function)
+  :group 'haystack)
+
+(defun haystack--resolve-date-input (input)
+  "Resolve INPUT through relative offsets and keywords.
+Returns:
+  - A string: resolved date (or passthrough of original input).
+  - A cons (START . END): keyword filled both bounds.
+Empty/whitespace input is returned as-is."
+  (let ((s (string-trim input)))
+    (cond
+     ((string= s "") s)
+     ;; Relative offset: -7d, -2w, -3m, -1y
+     ((haystack--resolve-relative-date s))
+     ;; Keyword lookup
+     ((cdr (assoc s haystack-date-keywords))
+      (funcall (cdr (assoc s haystack-date-keywords))))
+     ;; Passthrough
+     (t s))))
+
+(defun haystack--read-date-range ()
+  "Read start and end date bounds interactively with offset/keyword support.
+Returns a list (START END) suitable for `haystack-search-date-range'.
+When a keyword returns a cons, both bounds are filled from it."
+  (let* ((raw-start (read-string "Date start (-Nd/w/m/y, keyword, or YYYY[-MM[-DD]]): "))
+         (resolved  (haystack--resolve-date-input raw-start)))
+    (if (consp resolved)
+        ;; Keyword filled both bounds
+        (list (car resolved) (cdr resolved))
+      ;; Single bound — prompt for end
+      (let* ((raw-end   (read-string "Date end   (-Nd/w/m/y, keyword, or YYYY[-MM[-DD]]): "))
+             (res-end   (haystack--resolve-date-input raw-end)))
+        (if (consp res-end)
+            ;; End keyword returned cons — use its end, keep resolved start
+            (list resolved (cdr res-end))
+          (list resolved res-end))))))
+
 (defun haystack--resolve-date-range (start end)
   "Resolve raw START and END strings to a (LO . HI) float-time pair.
 Empty START uses -1.0e+INF (unbounded low); empty END uses 1.0e+INF.
@@ -2096,13 +2227,13 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
 (defun haystack-filter-further-by-date (start end)
   "Narrow the current haystack results buffer to lines within a date range.
 START and END are date strings: YYYY, YYYY-MM, YYYY-MM-DD, or
-YYYY-MM-DD HH:MM.  Either may be empty for an open (unbounded) range.
+YYYY-MM-DD HH:MM.  Relative offsets (-7d, -2w, -3m, -1y) and keywords
+(today, yesterday, this-week, last-week, this-month, last-month) are
+also accepted.  Either may be empty for an open (unbounded) range.
 Only lines already in the buffer that contain an hs: timestamp within
 [START, END] are kept; no rg re-run is performed.
 The child buffer supports `haystack-filter-further' as usual."
-  (interactive
-   (list (read-string "Date-filter start (YYYY[-MM[-DD[ HH:MM]]]): ")
-         (read-string "Date-filter end   (YYYY[-MM[-DD[ HH:MM]]]): ")))
+  (interactive (haystack--read-date-range))
   (haystack--frecency-ensure)
   (unless (bound-and-true-p haystack--search-descriptor)
     (user-error "Haystack: not in a haystack results buffer"))
@@ -2712,12 +2843,12 @@ and returns a plist with :buf-name, :header, :output, :descriptor."
 (defun haystack-search-date-range (start end)
   "Search for notes with hs: timestamps in [START, END].
 START and END are date strings: YYYY, YYYY-MM, YYYY-MM-DD, or
-YYYY-MM-DD HH:MM.  Either may be empty for an open (unbounded) range.
+YYYY-MM-DD HH:MM.  Relative offsets (-7d, -2w, -3m, -1y) and keywords
+(today, yesterday, this-week, last-week, this-month, last-month) are
+also accepted.  Either may be empty for an open (unbounded) range.
 Results appear in a grep-mode buffer; `haystack-filter-further' works
 as usual on the resulting buffer."
-  (interactive
-   (list (read-string "Date start (YYYY[-MM[-DD[ HH:MM]]] or blank): ")
-         (read-string "Date end   (YYYY[-MM[-DD[ HH:MM]]] or blank): ")))
+  (interactive (haystack--read-date-range))
   (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
   (let* ((result     (haystack--search-date-range-internal start end))

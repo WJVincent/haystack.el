@@ -539,7 +539,18 @@ Each accepts any of:
 | `2025-06` | June 2025 |
 | `2025-06-15` | A single day |
 | `2025-06-15 14:30` | An exact minute |
+| `-7d` | 7 days ago (also `-2w`, `-3m`, `-1y`) |
+| `today` | Today (fills both bounds) |
+| `yesterday` | Yesterday (fills both bounds) |
+| `this-week` | Monday..Sunday of current week |
+| `last-week` | Monday..Sunday of previous week |
+| `this-month` | First..last of current month |
+| `last-month` | First..last of previous month |
 | *(blank)* | Open (no lower or upper limit) |
+
+Keywords that return a range (like `this-week`) fill both the start and
+end bounds automatically — no second prompt.  Add custom keywords via
+the `haystack-date-keywords` defcustom.
 
 Results appear in a grep-mode buffer.  `haystack-filter-further` works
 normally — you can narrow a date-range result set by keyword exactly as

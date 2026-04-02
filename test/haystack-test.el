@@ -280,6 +280,137 @@ For tests that only need simple unmodified filter terms."
     (should (= lo (float-time (encode-time 0 0 0 15 6 2024))))
     (should (= hi (float-time (encode-time 59 59 23 15 6 2024))))))
 
+;;;; haystack--resolve-relative-date
+
+(ert-deftest haystack-test/resolve-relative-date-days ()
+  "-7d returns a date 7 days ago."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 15 6 2025))))
+    (should (equal (haystack--resolve-relative-date "-7d") "2025-06-08"))))
+
+(ert-deftest haystack-test/resolve-relative-date-weeks ()
+  "-2w returns a date 14 days ago."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 15 6 2025))))
+    (should (equal (haystack--resolve-relative-date "-2w") "2025-06-01"))))
+
+(ert-deftest haystack-test/resolve-relative-date-months ()
+  "-3m returns 3 months ago."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 15 6 2025)))
+            ((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 15 6 2025 0 nil 0))))
+    (should (equal (haystack--resolve-relative-date "-3m") "2025-03-15"))))
+
+(ert-deftest haystack-test/resolve-relative-date-months-clamp ()
+  "-1m on March 31 clamps to Feb 28."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 31 3 2025)))
+            ((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 31 3 2025 1 nil 0))))
+    (should (equal (haystack--resolve-relative-date "-1m") "2025-02-28"))))
+
+(ert-deftest haystack-test/resolve-relative-date-years ()
+  "-1y returns 1 year ago."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 15 6 2025)))
+            ((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 15 6 2025 0 nil 0))))
+    (should (equal (haystack--resolve-relative-date "-1y") "2024-06-15"))))
+
+(ert-deftest haystack-test/resolve-relative-date-years-leap-clamp ()
+  "-1y from Feb 29 leap year clamps to Feb 28."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 29 2 2024)))
+            ((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 29 2 2024 4 nil 0))))
+    (should (equal (haystack--resolve-relative-date "-1y") "2023-02-28"))))
+
+(ert-deftest haystack-test/resolve-relative-date-nil-for-non-offset ()
+  "Non-offset input returns nil."
+  (should-not (haystack--resolve-relative-date "2025-06-15"))
+  (should-not (haystack--resolve-relative-date "today"))
+  (should-not (haystack--resolve-relative-date "foo")))
+
+;;;; haystack--resolve-date-input
+
+(ert-deftest haystack-test/resolve-date-input-offset ()
+  "Relative offset is resolved to a date string."
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 15 6 2025))))
+    (should (equal (haystack--resolve-date-input "-7d") "2025-06-08"))))
+
+(ert-deftest haystack-test/resolve-date-input-keyword-cons ()
+  "Keyword returning cons is returned as-is."
+  (let ((haystack-date-keywords
+         '(("test-range" . (lambda () (cons "2025-01-01" "2025-01-31"))))))
+    (should (equal (haystack--resolve-date-input "test-range")
+                   '("2025-01-01" . "2025-01-31")))))
+
+(ert-deftest haystack-test/resolve-date-input-keyword-string ()
+  "Keyword returning string is returned as a string."
+  (let ((haystack-date-keywords
+         '(("test-day" . (lambda () "2025-06-15")))))
+    (should (equal (haystack--resolve-date-input "test-day") "2025-06-15"))))
+
+(ert-deftest haystack-test/resolve-date-input-passthrough ()
+  "Non-offset, non-keyword input passes through unchanged."
+  (should (equal (haystack--resolve-date-input "2025-06-15") "2025-06-15"))
+  (should (equal (haystack--resolve-date-input "2025") "2025")))
+
+(ert-deftest haystack-test/resolve-date-input-empty ()
+  "Empty input passes through."
+  (should (equal (haystack--resolve-date-input "") ""))
+  (should (equal (haystack--resolve-date-input "  ") "")))
+
+;;;; Built-in date keywords
+
+(ert-deftest haystack-test/date-keyword-today-returns-cons ()
+  "today returns a cons where both sides are the same YYYY-MM-DD."
+  (let ((result (haystack--date-keyword-today)))
+    (should (consp result))
+    (should (equal (car result) (cdr result)))
+    (should (string-match-p "\\`[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\'" (car result)))))
+
+(ert-deftest haystack-test/date-keyword-yesterday-returns-cons ()
+  "yesterday returns a cons where both sides are the same date, before today."
+  (let ((result (haystack--date-keyword-yesterday)))
+    (should (consp result))
+    (should (equal (car result) (cdr result)))
+    (should (string-match-p "\\`[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\'" (car result)))
+    ;; Yesterday should be different from today
+    (should-not (equal (car result) (car (haystack--date-keyword-today))))))
+
+(ert-deftest haystack-test/date-keyword-this-week-returns-cons ()
+  "this-week returns Monday..Sunday of current week."
+  ;; 2025-06-15 is a Sunday (dow=0)
+  (cl-letf (((symbol-function 'current-time)
+             (lambda () (encode-time 0 0 12 15 6 2025)))
+            ((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 15 6 2025 0 nil 0))))
+    (let ((result (haystack--date-keyword-this-week)))
+      (should (consp result))
+      (should (equal (car result) "2025-06-09"))
+      (should (equal (cdr result) "2025-06-15")))))
+
+(ert-deftest haystack-test/date-keyword-this-month-returns-cons ()
+  "this-month returns first..last of current month."
+  (cl-letf (((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 15 6 2025 0 nil 0))))
+    (let ((result (haystack--date-keyword-this-month)))
+      (should (consp result))
+      (should (equal (car result) "2025-06-01"))
+      (should (equal (cdr result) "2025-06-30")))))
+
+(ert-deftest haystack-test/date-keyword-last-month-returns-cons ()
+  "last-month returns first..last of previous month."
+  (cl-letf (((symbol-function 'decode-time)
+             (lambda (&optional _time) '(0 0 12 15 6 2025 0 nil 0))))
+    (let ((result (haystack--date-keyword-last-month)))
+      (should (consp result))
+      (should (equal (car result) "2025-05-01"))
+      (should (equal (cdr result) "2025-05-31")))))
+
 ;;;; haystack--parse-hs-timestamp
 
 (ert-deftest haystack-test/parse-hs-timestamp-active-with-time ()

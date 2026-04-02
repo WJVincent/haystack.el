@@ -19,6 +19,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Date parser** — `haystack-search-date-range` and
+  `haystack-filter-further-by-date` now accept relative offsets
+  (`-7d`, `-2w`, `-3m`, `-1y`) and keywords (`today`, `yesterday`,
+  `this-week`, `last-week`, `this-month`, `last-month`).  Keywords
+  returning a cons fill both bounds; user-extensible via
+  `haystack-date-keywords` defcustom.
 - **OR operator** (`A | B`) — ad-hoc alternation via single rg call.
   `rust | python` finds files matching either term.  Multi-way OR
   (`A | B | C`) supported.  Precedence: `!` > `&` > `|`.  Mixed
