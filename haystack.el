@@ -3792,6 +3792,11 @@ markdown, html, and htm use HTML comment syntax."
 
 ;;;; Frecency engine
 
+(defconst haystack--frecency-format-version 1
+  "Current on-disk format version for `.haystack-frecency.el'.
+Increment when the data shape changes.  The loader checks this
+value and calls `haystack--frecency-migrate' on mismatch.")
+
 (defcustom haystack-frecency-save-interval 60
   "Idle seconds before frecency data is flushed to disk.
 When nil, data is written immediately on every buffer visit instead of
@@ -3841,17 +3846,54 @@ Interval set by `haystack-frecency-save-interval'.")
   "Return the absolute path of the frecency data file."
   (expand-file-name ".haystack-frecency.el" haystack-notes-directory))
 
+(defun haystack--frecency-migrate (raw-data file-version)
+  "Attempt to migrate frecency data from FILE-VERSION to current.
+RAW-DATA is the parsed file contents.  Returns the entry list on
+success, nil on failure.  Currently only handles version 0 (bare
+alist from pre-0.16 Haystack)."
+  (cond
+   ((eq file-version 0)
+    ;; Pre-versioned format: raw-data is the bare alist.  Lossless.
+    (message "Haystack: migrating frecency data from unversioned to v%d"
+             haystack--frecency-format-version)
+    raw-data)
+   (t
+    (message "Haystack: frecency file is version %d, this Haystack supports v%d — data not loaded"
+             file-version haystack--frecency-format-version)
+    nil)))
+
 (defun haystack--load-frecency ()
   "Load frecency data from disk into `haystack--frecency-data'.
-On failure: warn, set nil, continue."
+Handles three cases:
+  - Versioned plist with matching version: extract `:entries'.
+  - Bare alist (pre-0.16): auto-migrate to current version, mark dirty.
+  - Version mismatch: warn, set nil, continue.
+On read failure: warn, set nil, continue."
   (setq haystack--frecency-data
         (condition-case err
-            (let ((path (haystack--frecency-file)))
-              (if (file-exists-p path)
-                  (with-temp-buffer
-                    (insert-file-contents path)
-                    (read (current-buffer)))
-                nil))
+            (let* ((path (haystack--frecency-file))
+                   (raw  (when (file-exists-p path)
+                           (with-temp-buffer
+                             (insert-file-contents path)
+                             (read (current-buffer))))))
+              (cond
+               ((null raw) nil)
+               ;; Versioned plist: has :version key
+               ((plist-get raw :version)
+                (let ((v (plist-get raw :version)))
+                  (if (= v haystack--frecency-format-version)
+                      (plist-get raw :entries)
+                    (haystack--frecency-migrate raw v))))
+               ;; Bare alist: pre-versioned format (v0)
+               ((listp raw)
+                (let ((entries (haystack--frecency-migrate raw 0)))
+                  (when entries
+                    (setq haystack--frecency-dirty t))
+                  entries))
+               ;; Unexpected shape
+               (t
+                (message "Haystack: frecency file has unexpected format — data not loaded")
+                nil)))
           (error
            (message "Haystack: failed to load frecency: %s"
                     (error-message-string err))
@@ -3867,7 +3909,9 @@ On failure: warn, set nil, continue."
           (with-temp-file (haystack--frecency-file)
             (let ((print-level nil)
                   (print-length nil))
-              (pp haystack--frecency-data (current-buffer))))
+              (pp (list :version haystack--frecency-format-version
+                        :entries haystack--frecency-data)
+                  (current-buffer))))
           (setq haystack--frecency-dirty nil))
       (error
        (message "Haystack: failed to save frecency: %s"
@@ -4211,6 +4255,29 @@ bypass leaf filtering.  Sets `haystack--frecency-dirty'."
       (haystack--frecent-render)
       (message "Haystack: removed frecency entry"))))
 
+(defun haystack-frecent-kill-region (beg end)
+  "Kill all frecency entries in the region from BEG to END.
+Collects unique entries covered by the region and removes them
+after confirmation."
+  (interactive "r")
+  (let ((chains nil)
+        (pos beg))
+    (while (< pos end)
+      (let ((chain (get-text-property pos 'haystack-frecent-chain)))
+        (when (and chain (not (member chain chains)))
+          (push chain chains)))
+      (setq pos (next-single-property-change pos 'haystack-frecent-chain nil end)))
+    (unless chains
+      (user-error "Haystack: no frecency entries in region"))
+    (let ((n (length chains)))
+      (when (y-or-n-p (format "Kill %d frecency %s? " n (if (= n 1) "entry" "entries")))
+        (setq haystack--frecency-data
+              (cl-remove-if (lambda (e) (member (car e) chains))
+                            haystack--frecency-data))
+        (setq haystack--frecency-dirty t)
+        (haystack--frecent-render)
+        (message "Haystack: removed %d frecency %s" n (if (= n 1) "entry" "entries"))))))
+
 (defun haystack-pin-current-search ()
   "Toggle pin on the current results buffer's search chain.
 If the chain already exists in frecency data, toggle its :pinned flag.
@@ -4262,6 +4329,7 @@ If it does not exist, create a new entry with :count 0 and :pinned t."
                      ";;;;  Entries"
                      (format ";;;;    %-8s  toggle pin at point"        (funcall key 'haystack-frecent-toggle-pin))
                      (format ";;;;    %-8s  kill entry at point"        (funcall key 'haystack-frecent-kill-entry))
+                     (format ";;;;    %-8s  kill entries in region"     (funcall key 'haystack-frecent-kill-region))
                      ""
                      ";;;;    q         close this window"
                      rule)
@@ -4291,6 +4359,7 @@ If it does not exist, create a new entry with :count 0 and :pinned t."
     (define-key map "r" #'haystack-frecent-sort-recency)
     (define-key map "p" #'haystack-frecent-toggle-pin)
     (define-key map "k" #'haystack-frecent-kill-entry)
+    (define-key map "K" #'haystack-frecent-kill-region)
     (define-key map "?" #'haystack-frecent-help)
     map)
   "Keymap for `haystack-frecent-mode'.")

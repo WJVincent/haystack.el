@@ -3837,6 +3837,77 @@ Returns the buffer; caller is responsible for killing it."
       (haystack--frecency-ensure)
       (should-not called))))
 
+;;;; Frecency format versioning
+
+(ert-deftest haystack-test/frecency-load-versioned-v1 ()
+  "Loading a versioned v1 file extracts :entries correctly."
+  (haystack-test--with-notes-dir
+   (let ((path (expand-file-name ".haystack-frecency.el"
+                                 haystack-notes-directory))
+         (entries '((("=foo") :count 3 :last-access 1700000000.0))))
+     (with-temp-file path
+       (let ((print-level nil) (print-length nil))
+         (pp (list :version 1 :entries entries) (current-buffer))))
+     (let ((haystack--frecency-data nil)
+           (haystack--frecency-dirty nil))
+       (haystack--load-frecency)
+       (should (equal haystack--frecency-data entries))
+       (should-not haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/frecency-load-bare-alist-migrates ()
+  "Loading a pre-versioned bare alist auto-migrates and marks dirty."
+  (haystack-test--with-notes-dir
+   (let ((path (expand-file-name ".haystack-frecency.el"
+                                 haystack-notes-directory))
+         (entries '((("=foo") :count 5 :last-access 1700000000.0))))
+     (with-temp-file path
+       (let ((print-level nil) (print-length nil))
+         (pp entries (current-buffer))))
+     (let ((haystack--frecency-data nil)
+           (haystack--frecency-dirty nil))
+       (haystack--load-frecency)
+       (should (equal haystack--frecency-data entries))
+       (should haystack--frecency-dirty)))))
+
+(ert-deftest haystack-test/frecency-load-future-version-warns ()
+  "Loading a file with version > current sets data to nil."
+  (haystack-test--with-notes-dir
+   (let ((path (expand-file-name ".haystack-frecency.el"
+                                 haystack-notes-directory)))
+     (with-temp-file path
+       (let ((print-level nil) (print-length nil))
+         (pp (list :version 999 :entries '((("=x") :count 1 :last-access 0.0)))
+             (current-buffer))))
+     (let ((haystack--frecency-data nil)
+           (haystack--frecency-dirty nil))
+       (haystack--load-frecency)
+       (should-not haystack--frecency-data)))))
+
+(ert-deftest haystack-test/frecency-flush-writes-versioned ()
+  "Flushing writes a versioned plist with :version and :entries."
+  (haystack-test--with-notes-dir
+   (let ((haystack--frecency-data '((("=bar") :count 2 :last-access 1700000000.0)))
+         (haystack--frecency-dirty t))
+     (haystack--frecency-flush)
+     (let* ((path (haystack--frecency-file))
+            (raw  (with-temp-buffer
+                    (insert-file-contents path)
+                    (read (current-buffer)))))
+       (should (= (plist-get raw :version) 1))
+       (should (equal (plist-get raw :entries) haystack--frecency-data))))))
+
+(ert-deftest haystack-test/frecency-round-trip ()
+  "Flush then load preserves data identity."
+  (haystack-test--with-notes-dir
+   (let ((entries '((("=baz" "qux") :count 7 :last-access 1700000000.0)
+                    (("=quux") :count 1 :last-access 1700000001.0)))
+         (haystack--frecency-dirty t))
+     (setq haystack--frecency-data entries)
+     (haystack--frecency-flush)
+     (setq haystack--frecency-data nil)
+     (haystack--load-frecency)
+     (should (equal haystack--frecency-data entries)))))
+
 ;;;; Frecency engine
 
 (defmacro haystack-test--with-frecency (initial-data &rest body)
@@ -4442,6 +4513,69 @@ must strictly dominate its ancestor to prune it."
   (haystack-test--with-frecent-buf nil
     (goto-char (point-min))
     (should-error (haystack-frecent-kill-entry) :type 'user-error)))
+
+(ert-deftest haystack-test/frecent-kill-region-removes-entries ()
+  "K on a region removes all entries in the region."
+  (let* ((now  (float-time))
+         (k1   (haystack-test--tkey "rust"))
+         (k2   (haystack-test--tkey "emacs"))
+         (k3   (haystack-test--tkey "lisp"))
+         (data (list (cons k1 (list :count 5 :last-access now))
+                     (cons k2 (list :count 3 :last-access now))
+                     (cons k3 (list :count 1 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      ;; Find first and last entry lines to form a region covering all three
+      (goto-char (point-min))
+      (let ((first-entry nil) (last-entry nil))
+        (while (not (eobp))
+          (when (get-text-property (point) 'haystack-frecent-chain)
+            (unless first-entry (setq first-entry (line-beginning-position)))
+            (setq last-entry (line-end-position)))
+          (forward-line 1))
+        (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
+          (haystack-frecent-kill-region first-entry last-entry))
+        (should (null haystack--frecency-data))))))
+
+(ert-deftest haystack-test/frecent-kill-region-preserves-outside ()
+  "K on a region only removes entries inside the region."
+  (let* ((now  (float-time))
+         (k1   (haystack-test--tkey "aaa"))
+         (k2   (haystack-test--tkey "bbb"))
+         (data (list (cons k1 (list :count 5 :last-access now))
+                     (cons k2 (list :count 3 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      ;; Select only the first entry line
+      (goto-char (point-min))
+      (while (and (not (get-text-property (point) 'haystack-frecent-chain))
+                  (not (eobp)))
+        (forward-line 1))
+      (let ((beg (line-beginning-position))
+            (end (line-end-position)))
+        (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
+          (haystack-frecent-kill-region beg end))
+        (should (= 1 (length haystack--frecency-data)))))))
+
+(ert-deftest haystack-test/frecent-kill-region-aborts-on-no ()
+  "K leaves data intact when user answers no."
+  (let* ((now  (float-time))
+         (k1   (haystack-test--tkey "rust"))
+         (data (list (cons k1 (list :count 5 :last-access now)))))
+    (haystack-test--with-frecent-buf data
+      (goto-char (point-min))
+      (while (and (not (get-text-property (point) 'haystack-frecent-chain))
+                  (not (eobp)))
+        (forward-line 1))
+      (let ((beg (line-beginning-position))
+            (end (line-end-position)))
+        (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) nil)))
+          (haystack-frecent-kill-region beg end))
+        (should (= 1 (length haystack--frecency-data)))))))
+
+(ert-deftest haystack-test/frecent-kill-region-errors-empty ()
+  "K on a region with no entries signals user-error."
+  (haystack-test--with-frecent-buf nil
+    (should-error (haystack-frecent-kill-region (point-min) (point-max))
+                  :type 'user-error)))
 
 (ert-deftest haystack-test/frecent-toggle-leaf-toggles ()
   "a toggles haystack--frecent-leaf-only and rerenders."
@@ -6698,6 +6832,146 @@ matching the behavior of ?s (search anyway)."
       (let ((before (buffer-string)))
         (haystack--mentions-exclude-origin "/path/to/origin.org")
         (should (equal before (buffer-string)))))))
+
+;;;; haystack-insert-mentions
+
+(ert-deftest haystack-test/insert-mentions-errors-without-file ()
+  "Signal user-error when called from a non-file buffer."
+  (with-temp-buffer
+    (should-error (haystack-insert-mentions) :type 'user-error)))
+
+(ert-deftest haystack-test/insert-mentions-y-appends-to-origin ()
+  "Choosing y appends MOC links to the origin file."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "20240101000000-origin.org"
+                                    haystack-notes-directory))
+          (ref    (expand-file-name "20240101000001-ref.org"
+                                    haystack-notes-directory))
+          (result-buf nil))
+     (write-region "origin content\n" nil origin)
+     (write-region "mentions origin slug\n" nil ref)
+     ;; Create a fake results buffer that haystack-run-root-search would return
+     (setq result-buf (get-buffer-create " *hs-insert-mentions-test*"))
+     (with-current-buffer result-buf
+       (let ((marker (point-marker)))
+         (insert ";;;; header\n")
+         (set-marker marker (point))
+         (insert (format "%s:1:mentions origin slug\n"
+                         (file-name-nondirectory ref)))
+         (setq-local haystack--header-end-marker marker)
+         (setq-local haystack--search-descriptor
+                     (haystack-sd-create :root-term "origin"
+                       :root-expanded "origin" :root-literal t
+                       :root-regex nil :root-filename nil
+                       :root-expansion nil :filters nil
+                       :composite-filter 'exclude))
+         (setq-local default-directory
+                     (file-name-as-directory
+                      (expand-file-name haystack-notes-directory)))))
+     (unwind-protect
+         (let ((buf (find-file-noselect origin)))
+           (unwind-protect
+               (with-current-buffer buf
+                 (cl-letf (((symbol-function 'haystack-run-root-search)
+                            (lambda (_input &optional _cf) result-buf))
+                           ((symbol-function 'read-char-choice)
+                            (lambda (_prompt _chars) ?y))
+                           ((symbol-function 'pop-to-buffer) #'ignore)
+                           ((symbol-function 'switch-to-buffer) #'ignore))
+                   (haystack-insert-mentions)
+                   (let ((content (with-temp-buffer
+                                    (insert-file-contents origin)
+                                    (buffer-string))))
+                     (should (string-match-p "ref" content)))))
+             (kill-buffer buf)))
+       (when (buffer-live-p result-buf) (kill-buffer result-buf))))))
+
+(ert-deftest haystack-test/insert-mentions-q-aborts ()
+  "Choosing q kills the search buffer without modifying origin."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "20240101000000-origin.org"
+                                    haystack-notes-directory))
+          (result-buf nil))
+     (write-region "origin content\n" nil origin)
+     (setq result-buf (get-buffer-create " *hs-insert-mentions-abort*"))
+     (with-current-buffer result-buf
+       (let ((marker (point-marker)))
+         (insert ";;;; header\n")
+         (set-marker marker (point))
+         (insert "other.org:1:stuff\n")
+         (setq-local haystack--header-end-marker marker)
+         (setq-local haystack--search-descriptor
+                     (haystack-sd-create :root-term "origin"
+                       :root-expanded "origin" :root-literal t
+                       :root-regex nil :root-filename nil
+                       :root-expansion nil :filters nil
+                       :composite-filter 'exclude))
+         (setq-local default-directory
+                     (file-name-as-directory
+                      (expand-file-name haystack-notes-directory)))))
+     (unwind-protect
+         (let ((buf (find-file-noselect origin)))
+           (unwind-protect
+               (with-current-buffer buf
+                 (cl-letf (((symbol-function 'haystack-run-root-search)
+                            (lambda (_input &optional _cf) result-buf))
+                           ((symbol-function 'read-char-choice)
+                            (lambda (_prompt _chars) ?q))
+                           ((symbol-function 'pop-to-buffer) #'ignore)
+                           ((symbol-function 'switch-to-buffer) #'ignore))
+                   (haystack-insert-mentions)
+                   ;; Origin file should be unchanged
+                   (let ((content (with-temp-buffer
+                                    (insert-file-contents origin)
+                                    (buffer-string))))
+                     (should (equal content "origin content\n")))))
+             (kill-buffer buf)))
+       (when (buffer-live-p result-buf) (kill-buffer result-buf))))))
+
+(ert-deftest haystack-test/insert-mentions-spc-opens-buffer ()
+  "Choosing SPC opens the mentions results buffer instead of inserting."
+  (haystack-test--with-notes-dir
+   (let* ((origin (expand-file-name "20240101000000-origin.org"
+                                    haystack-notes-directory))
+          (result-buf nil))
+     (write-region "origin content\n" nil origin)
+     (setq result-buf (get-buffer-create "*haystack:1:=origin*"))
+     (with-current-buffer result-buf
+       (let ((marker (point-marker)))
+         (insert ";;;; header\n")
+         (set-marker marker (point))
+         (insert "other.org:1:stuff\n")
+         (setq-local haystack--header-end-marker marker)
+         (setq-local haystack--search-descriptor
+                     (haystack-sd-create :root-term "origin"
+                       :root-expanded "origin" :root-literal t
+                       :root-regex nil :root-filename nil
+                       :root-expansion nil :filters nil
+                       :composite-filter 'exclude))
+         (setq-local default-directory
+                     (file-name-as-directory
+                      (expand-file-name haystack-notes-directory)))))
+     (unwind-protect
+         (let ((buf (find-file-noselect origin)))
+           (unwind-protect
+               (with-current-buffer buf
+                 (cl-letf (((symbol-function 'haystack-run-root-search)
+                            (lambda (_input &optional _cf) result-buf))
+                           ((symbol-function 'read-char-choice)
+                            (lambda (_prompt _chars) ?\s))
+                           ((symbol-function 'pop-to-buffer) #'ignore)
+                           ((symbol-function 'switch-to-buffer) #'ignore))
+                   (haystack-insert-mentions)
+                   ;; Buffer should still be alive and renamed
+                   (should (buffer-live-p result-buf))
+                   (should (buffer-local-value 'haystack--mentions-origin result-buf))
+                   ;; Origin file should be unchanged
+                   (let ((content (with-temp-buffer
+                                    (insert-file-contents origin)
+                                    (buffer-string))))
+                     (should (equal content "origin content\n")))))
+             (kill-buffer buf)))
+       (when (buffer-live-p result-buf) (kill-buffer result-buf))))))
 
 ;;;; haystack--comment-prefix
 

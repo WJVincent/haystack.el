@@ -19,12 +19,23 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Frecent kill-region** (`K`) — kill all frecency entries in the
+  active region for bulk cleanup.  Complements the single-entry `k`.
 - **Mentions origin exclusion** — `haystack-find-mentions` and
   `haystack-insert-mentions` now exclude the origin file from results,
   preventing a note from appearing as its own mention.
 - **`haystack-prefix-map` autoload** — the prefix keymap now has an
   `;;;###autoload` cookie for proper lazy loading.
 - **Frecency dirty flag** preserved across demo mode transitions.
+- **DD-7 Phase 1: Keymap consistency audit** — verified all commands
+  shared between `haystack-prefix-map` and `haystack-results-mode-map`
+  use consistent keys.  Only `haystack-compose` differs (`w` vs
+  `C-c C-c`), intentionally: `C-c C-c` follows the Emacs "do it"
+  convention in context buffers.
+- **Frecency format versioning** — `.haystack-frecency.el` now uses a
+  versioned plist wrapper `(:version 1 :entries ...)`.  Bare alists
+  from pre-0.16 are auto-migrated on load.  Future format changes
+  have a clean migration path via `haystack--frecency-migrate`.
 
 ### Fixed
 

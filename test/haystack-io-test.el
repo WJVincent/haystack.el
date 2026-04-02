@@ -559,13 +559,15 @@ that subsequent haystack--load-frecency can read it back."
      (should-not haystack--frecency-dirty)
      (let ((ffile (haystack--frecency-file)))
        (should (file-exists-p ffile))
-       ;; File must be readable as an elisp alist
+       ;; File must be readable as a versioned plist
        (let ((data (with-temp-buffer
                      (insert-file-contents ffile)
                      (read (current-buffer)))))
          (should (listp data))
-         (should (> (length data) 0))
-         (should (listp (caar data))))))))
+         (should (= (plist-get data :version) 1))
+         (let ((entries (plist-get data :entries)))
+           (should (> (length entries) 0))
+           (should (listp (caar entries)))))))))
 
 ;;;; Test 20 — Frecency replay with zero-result chain
 
@@ -1036,6 +1038,63 @@ for standard haystack frontmatter: TITLE, DATE, sentinel)."
        (let ((reloaded (assoc key haystack--frecency-data)))
          (should reloaded)
          (should (eq (plist-get (cdr reloaded) :pinned) t)))))))
+
+;;;; Mentions IO tests
+
+(ert-deftest haystack-io-test/find-mentions-returns-results ()
+  "haystack-find-mentions returns a results buffer with mentions."
+  (haystack-io-test--with-corpus
+   ;; Create a note whose slug appears in other files
+   (let* ((slug "haystack")
+          (origin (expand-file-name
+                   (concat "20260401000000-" slug ".org")
+                   haystack-notes-directory)))
+     (write-region "#+TITLE: haystack\nThis note is about haystack.\n" nil origin)
+     (let ((buf (find-file-noselect origin)))
+       (unwind-protect
+           (with-current-buffer buf
+             (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+                       ((symbol-function 'switch-to-buffer) #'ignore))
+               (let ((result (haystack-find-mentions)))
+                 (unwind-protect
+                     (progn
+                       (should (buffer-live-p result))
+                       ;; Should have results (many demo files mention "haystack")
+                       (with-current-buffer result
+                         (should (> (count-lines (point-min) (point-max)) 5))))
+                   (when (buffer-live-p result) (kill-buffer result))))))
+         (kill-buffer buf)
+         (when (file-exists-p origin) (delete-file origin)))))))
+
+(ert-deftest haystack-io-test/find-mentions-excludes-origin ()
+  "haystack-find-mentions does not include the origin file in results."
+  (haystack-io-test--with-corpus
+   ;; Create a note that contains its own slug
+   (let* ((slug "haystack")
+          (origin (expand-file-name
+                   (concat "20260401000000-" slug ".org")
+                   haystack-notes-directory)))
+     (write-region "#+TITLE: haystack\nhaystack is mentioned here too.\n" nil origin)
+     (let ((buf (find-file-noselect origin)))
+       (unwind-protect
+           (with-current-buffer buf
+             (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+                       ((symbol-function 'switch-to-buffer) #'ignore))
+               (let ((result (haystack-find-mentions)))
+                 (unwind-protect
+                     (with-current-buffer result
+                       (let ((content (buffer-substring-no-properties
+                                       (point-min) (point-max))))
+                         ;; Origin basename should NOT appear in results
+                         (should-not
+                          (string-match-p
+                           (concat "^" (regexp-quote
+                                        (file-name-nondirectory origin))
+                                   ":")
+                           content))))
+                   (when (buffer-live-p result) (kill-buffer result))))))
+         (kill-buffer buf)
+         (when (file-exists-p origin) (delete-file origin)))))))
 
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here
