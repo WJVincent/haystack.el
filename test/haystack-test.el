@@ -2666,6 +2666,94 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
   (should-not (haystack--parse-and-tokens " & "))
   (should-not (haystack--parse-and-tokens "rust & ")))
 
+;;;; haystack--parse-or-tokens
+
+(ert-deftest haystack-test/parse-or-tokens-returns-nil-without-pipe ()
+  "Returns nil when input contains no ' | '."
+  (should-not (haystack--parse-or-tokens "rust"))
+  (should-not (haystack--parse-or-tokens "rust async"))
+  (should-not (haystack--parse-or-tokens "rust|async")))
+
+(ert-deftest haystack-test/parse-or-tokens-splits-on-spaced-pipe ()
+  "Splits on ' | ' and returns a list of trimmed tokens."
+  (should (equal (haystack--parse-or-tokens "rust | python")
+                 '("rust" "python"))))
+
+(ert-deftest haystack-test/parse-or-tokens-three-terms ()
+  "Works with three or more terms."
+  (should (equal (haystack--parse-or-tokens "rust | python | go")
+                 '("rust" "python" "go"))))
+
+(ert-deftest haystack-test/parse-or-tokens-preserves-prefixes ()
+  "Prefix characters on tokens are preserved in the returned list."
+  (should (equal (haystack--parse-or-tokens "=rust | ~async")
+                 '("=rust" "~async"))))
+
+(ert-deftest haystack-test/parse-or-tokens-returns-nil-for-single-token ()
+  "Returns nil when splitting produces fewer than two non-empty tokens."
+  (should-not (haystack--parse-or-tokens " | "))
+  (should-not (haystack--parse-or-tokens "rust | ")))
+
+;;;; haystack--run-or-query
+
+(ert-deftest haystack-test/run-or-query-alternation ()
+  "Returns results matching either term."
+  (haystack-test--with-notes-dir
+   (let ((only-a (expand-file-name "a.org" haystack-notes-directory))
+         (only-b (expand-file-name "b.org" haystack-notes-directory))
+         (neither (expand-file-name "c.org" haystack-notes-directory)))
+     (with-temp-file only-a  (insert "rust is fast\n"))
+     (with-temp-file only-b  (insert "python is flexible\n"))
+     (with-temp-file neither (insert "nothing relevant here\n"))
+     (let ((output (haystack--run-root-search-or '("rust" "python") 'all)))
+       (let ((out (plist-get output :output)))
+         (should (string-match-p "a\\.org" out))
+         (should (string-match-p "b\\.org" out))
+         (should-not (string-match-p "c\\.org" out)))))))
+
+(ert-deftest haystack-test/run-or-query-rejects-negation ()
+  "Signals user-error when a token has the ! prefix."
+  (haystack-test--with-notes-dir
+   (let ((f (expand-file-name "x.org" haystack-notes-directory)))
+     (with-temp-file f (insert "content\n"))
+     (should-error (haystack--run-root-search-or '("!rust" "python") 'all)
+                   :type 'user-error))))
+
+(ert-deftest haystack-test/run-or-query-descriptor-root-term ()
+  "Descriptor root-term stores the full OR expression."
+  (haystack-test--with-notes-dir
+   (let ((f (expand-file-name "x.org" haystack-notes-directory)))
+     (with-temp-file f (insert "rust or python\n"))
+     (let* ((result (haystack--run-root-search-or '("rust" "python") 'all))
+            (desc   (plist-get result :descriptor)))
+       (should (equal (haystack-sd-root-term desc) "rust | python"))))))
+
+;;;; Mixed & and | guard
+
+(ert-deftest haystack-test/mixed-and-or-errors ()
+  "Signals user-error when both & and | appear in input."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore))
+     (should-error (haystack-run-root-search "rust & async | python")
+                   :type 'user-error))))
+
+;;;; OR frecency recording
+
+(ert-deftest haystack-test/or-query-records-frecency ()
+  "OR queries produce a frecency entry."
+  (haystack-test--with-notes-dir
+   (let ((f (expand-file-name "x.org" haystack-notes-directory))
+         (haystack--frecency-data nil)
+         (haystack--frecency-dirty nil))
+     (with-temp-file f (insert "rust python\n"))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore))
+       (let ((buf (haystack-run-root-search "rust | python")))
+         (unwind-protect
+             (should (= 1 (length haystack--frecency-data)))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
 ;;;; haystack--run-and-query
 
 (ert-deftest haystack-test/run-and-query-intersection ()

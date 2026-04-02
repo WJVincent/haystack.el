@@ -181,6 +181,17 @@ token survive — then shows content matches for the first term. Prefix
 modifiers (`=`, `~`) work per token. The `!` prefix is not supported
 inside `&` queries; use `filter-further` for negation after the root.
 
+#### OR (alternation)
+
+```
+rust | python
+rust | python | go
+```
+
+Haystack builds a single regex alternation and runs one rg call. Files
+matching any term appear in results. Prefix modifiers work per branch.
+`!` and mixing `&` with `|` are not supported in a single query.
+
 ### Search at Point
 
 `haystack-run-root-search-at-point` (`C-c h .`, also `.` in results buffers)

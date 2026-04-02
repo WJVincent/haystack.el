@@ -19,6 +19,10 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **OR operator** (`A | B`) — ad-hoc alternation via single rg call.
+  `rust | python` finds files matching either term.  Multi-way OR
+  (`A | B | C`) supported.  Precedence: `!` > `&` > `|`.  Mixed
+  `&` and `|` in a single query deferred to Phase 3 (grouping).
 - **Frecent kill-region** (`K`) — kill all frecency entries in the
   active region for bulk cleanup.  Complements the single-entry `k`.
 - **Mentions origin exclusion** — `haystack-find-mentions` and

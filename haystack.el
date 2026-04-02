@@ -2227,6 +2227,94 @@ tokens are treated as a normal search and return nil."
       (when (>= (length tokens) 2)
         tokens))))
 
+(defun haystack--parse-or-tokens (raw)
+  "Split RAW on \" | \" and return a list of token strings, or nil.
+Returns nil when RAW does not contain \" | \" (no OR query).  Each
+token is whitespace-trimmed; results with fewer than two non-empty
+tokens are treated as a normal search and return nil."
+  (when (string-match-p " | " raw)
+    (let ((tokens (cl-remove-if #'string-empty-p
+                                (mapcar #'string-trim
+                                        (split-string raw " | " t)))))
+      (when (>= (length tokens) 2)
+        tokens))))
+
+(defun haystack--run-root-search-or (or-tokens cf)
+  "Handle the OR query path for `haystack-run-root-search'.
+OR-TOKENS is a list of raw token strings; CF is the composite filter.
+Builds a single rg alternation pattern from the branches and runs one
+search.  Returns a plist with :buf-name :header :output :descriptor
+:composite-path for the dispatcher to use.
+Signals `user-error' if any token carries the ! negation prefix."
+  (let* ((parsed-list   (mapcar #'haystack--parse-input or-tokens))
+         (first-parsed  (car parsed-list))
+         (scope         (plist-get first-parsed :scope)))
+    ;; Negation in OR queries is not supported in Phase 1.
+    (when (cl-some (lambda (p) (plist-get p :negated)) parsed-list)
+      (user-error
+       "Haystack: ! prefix is not supported in | queries"))
+    ;; Build alternation pattern: (pat1|pat2|...)
+    (let* ((alt-pattern   (concat "("
+                                  (mapconcat (lambda (p) (plist-get p :pattern))
+                                             parsed-list "|")
+                                  ")"))
+           (raw-output    (with-temp-buffer
+                            (let ((exit-code
+                                   (apply #'call-process "rg" nil t nil
+                                          (haystack--rg-args
+                                           :composite-filter cf
+                                           :file-glob t
+                                           :pattern alt-pattern
+                                           :extra-args (list (expand-file-name
+                                                              haystack-notes-directory))))))
+                              (when (= exit-code 2)
+                                (user-error "Haystack: rg error: %s" (buffer-string))))
+                            (buffer-string)))
+           (raw-output    (if scope
+                              (haystack--apply-scope-filter raw-output scope)
+                            raw-output))
+           (stats         (haystack--count-search-stats raw-output))
+           (first-emacs   (plist-get first-parsed :emacs-pattern))
+           (output        (haystack--strip-notes-prefix
+                           (haystack--truncate-output raw-output first-emacs)))
+           (buf-name      (format "*haystack:1:%s*"
+                                  (mapconcat
+                                   (lambda (p)
+                                     (haystack--tree-term-label
+                                      (plist-get p :term) nil
+                                      (plist-get p :filename)
+                                      (plist-get p :literal)
+                                      (plist-get p :regex)
+                                      (plist-get p :scope)))
+                                   parsed-list "|")))
+           (display-parts (mapcar (lambda (p)
+                                    (concat (pcase (plist-get p :scope)
+                                              ('body ">")
+                                              ('frontmatter "<")
+                                              (_ ""))
+                                            (haystack--format-term-display
+                                             (plist-get p :term)
+                                             (plist-get p :expansion))))
+                                  parsed-list))
+           (chain-label   (format "root=%s"
+                                  (mapconcat #'identity display-parts " | ")))
+           (root-term-str (concat (plist-get first-parsed :term) " | "
+                                  (mapconcat (lambda (tok) tok) (cdr or-tokens) " | ")))
+           (descriptor    (haystack-sd-create
+                           :root-term        root-term-str
+                           :root-expanded    alt-pattern
+                           :root-literal     (plist-get first-parsed :literal)
+                           :root-regex       (plist-get first-parsed :regex)
+                           :root-expansion   (plist-get first-parsed :expansion)
+                           :root-scope       scope
+                           :composite-filter cf))
+           (composite-path (haystack--find-composite descriptor))
+           (header         (haystack--format-header chain-label (car stats) (cdr stats)
+                                                    composite-path)))
+      (haystack--frecency-record descriptor)
+      (list :buf-name buf-name :header header :output output
+            :descriptor descriptor :composite-path composite-path))))
+
 (defun haystack--run-root-search-and (and-tokens cf)
   "Handle the AND query path for `haystack-run-root-search'.
 AND-TOKENS is a list of raw token strings; CF is the composite filter.
@@ -2333,11 +2421,12 @@ results buffer named *haystack:1:TERM* with a statistics header.
 
 Prefix RAW-INPUT with / to match against filenames instead of content.
 Prefix RAW-INPUT with TERM1 & TERM2 for a file-level AND intersection.
+Prefix RAW-INPUT with TERM1 | TERM2 for an OR alternation (single rg call).
 COMPOSITE-FILTER is a symbol controlling how @* composite files are
 treated: \\='exclude (default), \\='only, or \\='all.
 Interactively, a \\[universal-argument] prefix sets COMPOSITE-FILTER to \\='all,
 including composite files in the search."
-  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [>]body  [<]frontmatter  [A & B]AND\nSearch: ")
+  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [>]body  [<]frontmatter  [A & B]AND  [A | B]OR\nSearch: ")
                      (when current-prefix-arg 'all)))
   (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
@@ -2351,6 +2440,7 @@ including composite files in the search."
                (not (plist-get pre-parsed :literal))
                (not (plist-get pre-parsed :regex))
                (not (haystack--parse-and-tokens raw-input))
+               (not (haystack--parse-or-tokens raw-input))
                (haystack--stop-word-p pre-term))
       (pcase (haystack--stop-word-prompt pre-term)
         (?s (setq raw-input (concat "=" pre-term)))
@@ -2359,21 +2449,41 @@ including composite files in the search."
         (_  (setq stop-abort t))))
     (unless stop-abort
       (let* ((cf     (or composite-filter 'exclude))
-             (parsed (haystack--parse-input raw-input)))
-        (if-let ((and-tokens (haystack--parse-and-tokens raw-input)))
-            ;; AND query path.
-            (let* ((result         (haystack--run-root-search-and and-tokens cf))
-                   (buf-name       (plist-get result :buf-name))
-                   (header         (plist-get result :header))
-                   (output         (plist-get result :output))
-                   (descriptor     (plist-get result :descriptor))
-                   (composite-path (plist-get result :composite-path))
-                   (buf (haystack--setup-results-buffer buf-name header output descriptor nil
-                                                        composite-path)))
-              (unless haystack--suppress-display
-                (pop-to-buffer buf))
-              buf)
-          ;; Single-term or filename query path.
+             (parsed (haystack--parse-input raw-input))
+             (and-tokens (haystack--parse-and-tokens raw-input))
+             (or-tokens  (haystack--parse-or-tokens raw-input)))
+        ;; Guard: mixed & and | not supported until Phase 3 grouping.
+        (when (and and-tokens or-tokens)
+          (user-error "Haystack: mixed & and | in a single query is not yet supported — use filter-further to combine"))
+        (cond
+         ;; AND query path.
+         (and-tokens
+          (let* ((result         (haystack--run-root-search-and and-tokens cf))
+                 (buf-name       (plist-get result :buf-name))
+                 (header         (plist-get result :header))
+                 (output         (plist-get result :output))
+                 (descriptor     (plist-get result :descriptor))
+                 (composite-path (plist-get result :composite-path))
+                 (buf (haystack--setup-results-buffer buf-name header output descriptor nil
+                                                      composite-path)))
+            (unless haystack--suppress-display
+              (pop-to-buffer buf))
+            buf))
+         ;; OR query path.
+         (or-tokens
+          (let* ((result         (haystack--run-root-search-or or-tokens cf))
+                 (buf-name       (plist-get result :buf-name))
+                 (header         (plist-get result :header))
+                 (output         (plist-get result :output))
+                 (descriptor     (plist-get result :descriptor))
+                 (composite-path (plist-get result :composite-path))
+                 (buf (haystack--setup-results-buffer buf-name header output descriptor nil
+                                                      composite-path)))
+            (unless haystack--suppress-display
+              (pop-to-buffer buf))
+            buf))
+         ;; Single-term or filename query path.
+         (t
           (let* ((term      (plist-get parsed :term))
                  (pattern   (plist-get parsed :pattern))
                  (emacs-pat (plist-get parsed :emacs-pattern))
@@ -2450,7 +2560,7 @@ including composite files in the search."
                                                          composite-path)))
                 (unless haystack--suppress-display
                   (pop-to-buffer buf))
-                buf))))))))
+                buf)))))))))
 
 ;;;###autoload
 (defun haystack-search-region ()
@@ -2908,6 +3018,7 @@ columns a two-column layout is used to reduce the required height."
                      ";;;;    >term     body only (after frontmatter sentinel)"
                      ";;;;    <term     frontmatter only (before sentinel)"
                      ";;;;    A & B     AND (file-level intersection)"
+                     ";;;;    A | B     OR  (alternation)"
                      ""
                      (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")
                      rule)
@@ -2953,7 +3064,7 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
                       (haystack--help-section "Search/Filter Prefixes")
                       ";;;;    = literal  / filename  ~ regex"
                       ";;;;    ! negate   > body      < frontmatter"
-                      ";;;;    A & B  AND intersection"
+                      ";;;;    A & B  AND   A | B  OR"
                       ""
                       (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")))
          (col-w 50)

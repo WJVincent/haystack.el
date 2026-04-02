@@ -1096,5 +1096,23 @@ for standard haystack frontmatter: TITLE, DATE, sentinel)."
          (kill-buffer buf)
          (when (file-exists-p origin) (delete-file origin)))))))
 
+;;;; OR query IO tests
+
+(ert-deftest haystack-io-test/or-query-returns-union ()
+  "OR query returns files matching either term from the demo corpus."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "magit | dired")))
+       (unwind-protect
+           (with-current-buffer buf
+             (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+               ;; Should include results from both magit and dired notes
+               (should (string-match-p "magit\\|dired" content))
+               ;; Should have more results than either term alone
+               (should (> (count-lines (point-min) (point-max)) 5))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here
