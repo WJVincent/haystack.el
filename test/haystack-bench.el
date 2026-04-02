@@ -3,8 +3,9 @@
 ;;; Commentary:
 ;; Timing assertions integrated into the ERT suite.  Each test generates
 ;; synthetic rg output at a given scale and asserts that the function under
-;; test completes in under 1 second.  A failure means something has gone
-;; wrong algorithmically -- not that the machine is slow.
+;; test completes within a time budget.  Local thresholds: 250ms for 10k
+;; scale, 500ms for 100k scale.  On CI (detected via $CI env var), budgets
+;; are tripled (750ms / 1.5s) to accommodate slower runners.
 ;;
 ;; Scales tested:
 ;;   10k lines  — realistic ceiling for a large corpus with a broad search term
@@ -45,36 +46,43 @@ that the truncation path is exercised, not just the short-circuit."
                     (make-string 40 ?b))))
     (mapconcat #'identity lines "\n")))
 
-(defmacro haystack-bench--within-500ms (label &rest body)
-  "Evaluate BODY once, assert it completes in under 500ms, print LABEL.
-Used for realistic-scale tests (10k lines).  A failure here means the
-function is too slow for normal interactive use."
-  (declare (indent 1))
-  `(let ((elapsed (car (benchmark-run 1 ,@body))))
-     (message "haystack-bench: %s — %.4fs" ,label elapsed)
-     (should (< elapsed 0.5))))
+(defvar haystack-bench--ci-multiplier
+  (if (getenv "CI") 3.0 1.0)
+  "Time budget multiplier for CI runners, which are typically slower.
+Set to 3× when the CI environment variable is present.")
 
-(defmacro haystack-bench--within-2s (label &rest body)
-  "Evaluate BODY once, assert it completes in under 2 seconds, print LABEL.
-Used for stress-scale tests (100k lines).  A failure here means something
-has gone algorithmically wrong — O(N²) or worse — not just a slow machine."
+(defmacro haystack-bench--within-250ms (label &rest body)
+  "Evaluate BODY once, assert it completes in under 250ms locally, print LABEL.
+Used for realistic-scale tests (10k lines).  A failure here means the
+function is too slow for normal interactive use.
+The threshold is scaled by `haystack-bench--ci-multiplier' on CI (750ms)."
   (declare (indent 1))
   `(let ((elapsed (car (benchmark-run 1 ,@body))))
      (message "haystack-bench: %s — %.4fs" ,label elapsed)
-     (should (< elapsed 2.0))))
+     (should (< elapsed (* 0.25 haystack-bench--ci-multiplier)))))
+
+(defmacro haystack-bench--within-500ms (label &rest body)
+  "Evaluate BODY once, assert it completes in under 500ms locally, print LABEL.
+Used for stress-scale tests (100k lines).  A failure here means something
+has gone algorithmically wrong — O(N²) or worse — not just a slow machine.
+The threshold is scaled by `haystack-bench--ci-multiplier' on CI (1.5s)."
+  (declare (indent 1))
+  `(let ((elapsed (car (benchmark-run 1 ,@body))))
+     (message "haystack-bench: %s — %.4fs" ,label elapsed)
+     (should (< elapsed (* 0.5 haystack-bench--ci-multiplier)))))
 
 ;;;; haystack--count-search-stats
 
 (ert-deftest haystack-bench/count-stats-10k ()
   "haystack--count-search-stats handles 10,000 lines in under 1 second."
   (let ((output (haystack-bench--make-rg-output 10000 "rust")))
-    (haystack-bench--within-500ms "count-stats 10k lines"
+    (haystack-bench--within-250ms "count-stats 10k lines"
       (haystack--count-search-stats output))))
 
 (ert-deftest haystack-bench/count-stats-100k ()
-  "haystack--count-search-stats handles 100,000 lines in under 2 seconds."
+  "haystack--count-search-stats handles 100,000 lines in under 500ms."
   (let ((output (haystack-bench--make-rg-output 100000 "rust")))
-    (haystack-bench--within-2s "count-stats 100k lines"
+    (haystack-bench--within-500ms "count-stats 100k lines"
       (haystack--count-search-stats output))))
 
 ;;;; haystack--truncate-output
@@ -82,13 +90,13 @@ has gone algorithmically wrong — O(N²) or worse — not just a slow machine."
 (ert-deftest haystack-bench/truncate-output-10k ()
   "haystack--truncate-output handles 10,000 lines in under 1 second."
   (let ((output (haystack-bench--make-rg-output 10000 "rust")))
-    (haystack-bench--within-500ms "truncate-output 10k lines"
+    (haystack-bench--within-250ms "truncate-output 10k lines"
       (haystack--truncate-output output "rust"))))
 
 (ert-deftest haystack-bench/truncate-output-100k ()
-  "haystack--truncate-output handles 100,000 lines in under 2 seconds."
+  "haystack--truncate-output handles 100,000 lines in under 500ms."
   (let ((output (haystack-bench--make-rg-output 100000 "rust")))
-    (haystack-bench--within-2s "truncate-output 100k lines"
+    (haystack-bench--within-500ms "truncate-output 100k lines"
       (haystack--truncate-output output "rust"))))
 
 ;;;; haystack--extract-filenames
@@ -101,14 +109,14 @@ has gone algorithmically wrong — O(N²) or worse — not just a slow machine."
   "haystack--extract-filenames handles 10,000 lines in under 1 second."
   (let ((output (haystack-bench--make-rg-output 10000 "rust"))
         (default-directory "/notes/"))
-    (haystack-bench--within-500ms "extract-filenames 10k lines"
+    (haystack-bench--within-250ms "extract-filenames 10k lines"
       (haystack--extract-filenames output))))
 
 (ert-deftest haystack-bench/extract-filenames-100k ()
-  "haystack--extract-filenames handles 100,000 lines in under 2 seconds."
+  "haystack--extract-filenames handles 100,000 lines in under 500ms."
   (let ((output (haystack-bench--make-rg-output 100000 "rust"))
         (default-directory "/notes/"))
-    (haystack-bench--within-2s "extract-filenames 100k lines"
+    (haystack-bench--within-500ms "extract-filenames 100k lines"
       (haystack--extract-filenames output))))
 
 ;;;; haystack--strip-notes-prefix
@@ -121,14 +129,14 @@ has gone algorithmically wrong — O(N²) or worse — not just a slow machine."
   "haystack--strip-notes-prefix handles 10,000 lines in under 1 second."
   (let ((output (haystack-bench--make-rg-output 10000 "rust"))
         (haystack-notes-directory "/notes"))
-    (haystack-bench--within-500ms "strip-notes-prefix 10k lines"
+    (haystack-bench--within-250ms "strip-notes-prefix 10k lines"
       (haystack--strip-notes-prefix output))))
 
 (ert-deftest haystack-bench/strip-notes-prefix-100k ()
-  "haystack--strip-notes-prefix handles 100,000 lines in under 2 seconds."
+  "haystack--strip-notes-prefix handles 100,000 lines in under 500ms."
   (let ((output (haystack-bench--make-rg-output 100000 "rust"))
         (haystack-notes-directory "/notes"))
-    (haystack-bench--within-2s "strip-notes-prefix 100k lines"
+    (haystack-bench--within-500ms "strip-notes-prefix 100k lines"
       (haystack--strip-notes-prefix output))))
 
 ;;;; haystack--extract-file-loci
@@ -142,14 +150,14 @@ has gone algorithmically wrong — O(N²) or worse — not just a slow machine."
   "haystack--extract-file-loci handles 10,000 lines in under 1 second."
   (let ((output (haystack-bench--make-rg-output 10000 "rust"))
         (default-directory "/notes/"))
-    (haystack-bench--within-500ms "extract-file-loci 10k lines"
+    (haystack-bench--within-250ms "extract-file-loci 10k lines"
       (haystack--extract-file-loci output))))
 
 (ert-deftest haystack-bench/extract-file-loci-100k ()
-  "haystack--extract-file-loci handles 100,000 lines in under 2 seconds."
+  "haystack--extract-file-loci handles 100,000 lines in under 500ms."
   (let ((output (haystack-bench--make-rg-output 100000 "rust"))
         (default-directory "/notes/"))
-    (haystack-bench--within-2s "extract-file-loci 100k lines"
+    (haystack-bench--within-500ms "extract-file-loci 100k lines"
       (haystack--extract-file-loci output))))
 
 ;;;; haystack--tree-render-node
@@ -231,7 +239,7 @@ even if an error occurs during setup."
 (ert-deftest haystack-bench/tree-render-realistic ()
   "Tree renderer handles a realistic session (~65 buffers) in under 500ms."
   (haystack-bench--with-forest roots (5 3 3)
-    (haystack-bench--within-500ms "tree-render realistic (~65 bufs)"
+    (haystack-bench--within-250ms "tree-render realistic (~65 bufs)"
       (haystack-bench--render-forest roots))))
 
 ;; Aggressive: 10 roots × 7 children × 7 grandchildren = 10+70+490 = 570 buffers
@@ -267,19 +275,19 @@ path: split, downcase, stop-word filter, dedup."
     (mapconcat #'identity parts " ")))
 
 (ert-deftest haystack-bench/discoverability-tokenize-10k-words ()
-  "haystack--discoverability-tokenize handles a 10k-word note in under 500ms."
+  "haystack--discoverability-tokenize handles a 10k-word note in under 250ms."
   (let ((text (haystack-bench--make-note-text 10000))
         (haystack--stop-words haystack--default-stop-words)
         (haystack-discoverability-split-compound-words nil))
-    (haystack-bench--within-500ms "discoverability-tokenize 10k words"
+    (haystack-bench--within-250ms "discoverability-tokenize 10k words"
       (haystack--discoverability-tokenize text))))
 
 (ert-deftest haystack-bench/discoverability-tokenize-100k-words ()
-  "haystack--discoverability-tokenize handles a 100k-word note in under 2s."
+  "haystack--discoverability-tokenize handles a 100k-word note in under 500ms."
   (let ((text (haystack-bench--make-note-text 100000))
         (haystack--stop-words haystack--default-stop-words)
         (haystack-discoverability-split-compound-words nil))
-    (haystack-bench--within-2s "discoverability-tokenize 100k words"
+    (haystack-bench--within-500ms "discoverability-tokenize 100k words"
       (haystack--discoverability-tokenize text))))
 
 ;;;; haystack--discoverability-render
@@ -304,22 +312,22 @@ path: split, downcase, stop-word filter, dedup."
     result))
 
 (ert-deftest haystack-bench/discoverability-render-1k-terms ()
-  "haystack--discoverability-render handles 1k terms in under 500ms."
+  "haystack--discoverability-render handles 1k terms in under 250ms."
   (let ((tc (haystack-bench--make-term-counts 1000))
         (haystack-discoverability-sparse-max 3)
         (haystack-discoverability-ubiquitous-min 500)
         (haystack-notes-directory "/notes"))
-    (haystack-bench--within-500ms "discoverability-render 1k terms"
+    (haystack-bench--within-250ms "discoverability-render 1k terms"
       (haystack--discoverability-render
        tc "/notes/20241215120000-bench-note.org"))))
 
 (ert-deftest haystack-bench/discoverability-render-10k-terms ()
-  "haystack--discoverability-render handles 10k terms in under 2s."
+  "haystack--discoverability-render handles 10k terms in under 500ms."
   (let ((tc (haystack-bench--make-term-counts 10000))
         (haystack-discoverability-sparse-max 3)
         (haystack-discoverability-ubiquitous-min 500)
         (haystack-notes-directory "/notes"))
-    (haystack-bench--within-2s "discoverability-render 10k terms"
+    (haystack-bench--within-500ms "discoverability-render 10k terms"
       (haystack--discoverability-render
        tc "/notes/20241215120000-bench-note.org"))))
 
@@ -342,63 +350,63 @@ Returns the buffer; caller must kill it."
      (haystack-sd-create :root-term "bench"))))
 
 (ert-deftest haystack-bench/compact-overlays-10k ()
-  "Compact overlays on 10k lines in under 500ms."
+  "Compact overlays on 10k lines in under 250ms."
   (let ((buf (haystack-bench--make-view-buffer 10000)))
     (unwind-protect
         (with-current-buffer buf
-          (haystack-bench--within-500ms "compact-overlays 10k lines"
+          (haystack-bench--within-250ms "compact-overlays 10k lines"
             (haystack-view-compact)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/compact-overlays-100k ()
-  "Compact overlays on 100k lines in under 2s."
+  "Compact overlays on 100k lines in under 500ms."
   (let ((buf (haystack-bench--make-view-buffer 100000)))
     (unwind-protect
         (with-current-buffer buf
-          (haystack-bench--within-2s "compact-overlays 100k lines"
+          (haystack-bench--within-500ms "compact-overlays 100k lines"
             (haystack-view-compact)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/files-overlays-10k ()
-  "Files overlays on 10k lines in under 500ms."
+  "Files overlays on 10k lines in under 250ms."
   (let ((buf (haystack-bench--make-view-buffer 10000)))
     (unwind-protect
         (with-current-buffer buf
-          (haystack-bench--within-500ms "files-overlays 10k lines"
+          (haystack-bench--within-250ms "files-overlays 10k lines"
             (haystack-view-files)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/files-overlays-100k ()
-  "Files overlays on 100k lines in under 2s."
+  "Files overlays on 100k lines in under 500ms."
   (let ((buf (haystack-bench--make-view-buffer 100000)))
     (unwind-protect
         (with-current-buffer buf
-          (haystack-bench--within-2s "files-overlays 100k lines"
+          (haystack-bench--within-500ms "files-overlays 100k lines"
             (haystack-view-files)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/view-clear-10k ()
-  "Clearing 10k view overlays in under 500ms."
+  "Clearing 10k view overlays in under 250ms."
   (let ((buf (haystack-bench--make-view-buffer 10000)))
     (unwind-protect
         (with-current-buffer buf
           (haystack-view-compact)
-          (haystack-bench--within-500ms "view-clear 10k overlays"
+          (haystack-bench--within-250ms "view-clear 10k overlays"
             (haystack--view-clear)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/view-clear-100k ()
-  "Clearing 100k view overlays in under 2s."
+  "Clearing 100k view overlays in under 500ms."
   (let ((buf (haystack-bench--make-view-buffer 100000)))
     (unwind-protect
         (with-current-buffer buf
           (haystack-view-compact)
-          (haystack-bench--within-2s "view-clear 100k overlays"
+          (haystack-bench--within-500ms "view-clear 100k overlays"
             (haystack--view-clear)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/font-lock-highlight-10k ()
-  "Font-lock-ensure with 3 highlight specs on 10k lines in under 500ms."
+  "Font-lock-ensure with 3 highlight specs on 10k lines in under 250ms."
   (let ((buf (haystack-bench--make-view-buffer 10000)))
     (unwind-protect
         (with-current-buffer buf
@@ -409,12 +417,14 @@ Returns the buffer; caller must kill it."
              ("note" 0 'haystack-match-literal keep)
              ("aaa" 0 'haystack-match-regex keep))
            'append)
-          (haystack-bench--within-500ms "font-lock-highlight 10k lines"
+          (haystack-bench--within-250ms "font-lock-highlight 10k lines"
             (font-lock-ensure)))
       (kill-buffer buf))))
 
 (ert-deftest haystack-bench/font-lock-highlight-100k ()
-  "Font-lock-ensure with 3 highlight specs on 100k lines in under 2s."
+  "Font-lock-ensure with 3 highlight specs on 100k lines in under 2s.
+Font-lock is Emacs-internal and significantly slower than haystack's own
+functions, so it gets a 4× budget (2s local, 6s CI)."
   (let ((buf (haystack-bench--make-view-buffer 100000)))
     (unwind-protect
         (with-current-buffer buf
@@ -424,8 +434,9 @@ Returns the buffer; caller must kill it."
              ("note" 0 'haystack-match-literal keep)
              ("aaa" 0 'haystack-match-regex keep))
            'append)
-          (haystack-bench--within-2s "font-lock-highlight 100k lines"
-            (font-lock-ensure)))
+          (let ((elapsed (car (benchmark-run 1 (font-lock-ensure)))))
+            (message "haystack-bench: font-lock-highlight 100k lines — %.4fs" elapsed)
+            (should (< elapsed (* 2.0 haystack-bench--ci-multiplier)))))
       (kill-buffer buf))))
 
 (provide 'haystack-bench)

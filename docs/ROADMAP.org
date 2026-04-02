@@ -437,6 +437,18 @@ implemented; remaining TODO items are ideas for future development.
   before-and-after rather than inheriting a pre-baked history
 - Confirmed as a word-of-mouth blocker by the most relevant adoption
   audience (Org-roam migrants, professor persona)
+** TODO Font-lock performance — adaptive highlighting for large buffers
+- =font-lock-ensure= on 100k-line results buffers takes ~1.9s locally,
+  well above the 500ms target for other 100k-scale operations
+- Investigate whether font-lock keywords can be conditionally reduced
+  or disabled above a line-count threshold (e.g., skip match
+  highlighting when the buffer exceeds =haystack-font-lock-max-lines=)
+- Alternatives: lazy/viewport-only fontification via
+  =jit-lock-register=, coarser regex patterns at scale, or deferring
+  highlight to an idle timer so the buffer appears instantly
+- Goal: results buffers should feel instant regardless of size; syntax
+  highlighting is cosmetic and should degrade gracefully rather than
+  block display
 ** TODO Keymap audit — mnemonic review of all default bindings
 - Revisit both =haystack-prefix-map= and =haystack-results-mode-map=
   bindings with fresh eyes once the feature set has stabilised
