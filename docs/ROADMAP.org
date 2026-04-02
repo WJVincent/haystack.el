@@ -410,7 +410,11 @@ implemented; remaining TODO items are ideas for future development.
 - Composes with all existing prefixes: =!>=, =>==, =>=~=, =<==, etc.
 - Integrated into root search, filter-further, frecency chain keys, and replay
 - Files without a sentinel are all-body (=>= matches everything, =<= returns nothing)
-** TODO Discoverability save-hook mode
+** DONE Discoverability save-hook mode
+- =haystack-save-hook= — generic hook run after saving a note in the notes directory
+- =haystack-save-mode= — buffer-local minor mode that wires =after-save-hook=
+- Gate: only fires when file is inside =haystack-notes-directory=
+- No consumers yet — plumbing only
 ** TODO Frecency replay recording semantics
 - Currently replay suppresses recording for all intermediate steps and
   records only the leaf.  This prevents score inflation but also means
@@ -424,7 +428,7 @@ implemented; remaining TODO items are ideas for future development.
   can detect and migrate stale data rather than silently ignoring it
 - Design a migration function that converts old key shapes to the
   current descriptor-shaped plist format
-** TODO Demo corpus rewrite (pre-release)
+** DONE Demo corpus rewrite (pre-release)
 - Fix correctness: update stale command references and outdated
   interface descriptions in demo notes
 - Fix trust: add 15–20 deliberately messy files — short fragments,

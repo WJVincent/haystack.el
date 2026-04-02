@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.15.0] — 2026-04-01
+
 ### Changed
 
 - **Internal: search descriptor is now a `cl-defstruct`** —
@@ -53,6 +57,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   entries bypass leaf filtering and sort before non-pinned entries.
   The `*` indicator marks pinned entries in both the frecent buffer
   and completing-read annotations.
+- **`haystack-save-mode`** — buffer-local minor mode that runs
+  `haystack-save-hook` after saving a note inside
+  `haystack-notes-directory`.  No default hook functions yet;
+  provides plumbing for future on-save features.
+
+---
 
 ## [0.14.0] — 2026-03-30
 
@@ -98,6 +108,7 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - **Frecency replay score inflation** — replaying a multi-step chain no
   longer records intermediate steps; only the final leaf is recorded.
 
+---
 
 ## [0.13.0] — 2026-03-29
 
@@ -178,6 +189,8 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   A four-step chain that previously wrapped mid-line at standard frame
   width now reads as a scannable vertical list with indented
   continuation lines.
+
+---
 
 ## [0.12.0] — 2026-03-28
 
@@ -987,6 +1000,8 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - `haystack--descriptor-chain-string` — formats the complete search
   chain from a stored descriptor without appending a current term;
   used by `haystack-copy-moc`.
+
+---
 
 ## [0.3.0] — 2026-03-25
 

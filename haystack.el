@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: William Vincent <william@william-vincent.dev>
-;; Version: 0.14.0
+;; Version: 0.15.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, files, outlines
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -5441,6 +5441,33 @@ Gate: only works from file-backed buffers whose file is inside
       (message "Haystack: discoverability analysis complete (%d terms)" (length tokens))
       (pop-to-buffer buf)
       buf)))
+
+;;;; Save hook
+
+(defcustom haystack-save-hook nil
+  "Hook run after saving a note file inside `haystack-notes-directory'.
+Only fires when `haystack-save-mode' is active and the saved file
+is inside the notes directory."
+  :type 'hook
+  :group 'haystack)
+
+(defun haystack--save-mode-handler ()
+  "Run `haystack-save-hook' if the current file is in the notes directory."
+  (when (and haystack-notes-directory
+             (buffer-file-name)
+             (file-in-directory-p (buffer-file-name)
+                                  (expand-file-name haystack-notes-directory)))
+    (run-hooks 'haystack-save-hook)))
+
+;;;###autoload
+(define-minor-mode haystack-save-mode
+  "Minor mode that runs `haystack-save-hook' after saving notes.
+When enabled in a buffer, saving the file will run `haystack-save-hook'
+if the file is inside `haystack-notes-directory'."
+  :lighter " hs-save"
+  (if haystack-save-mode
+      (add-hook 'after-save-hook #'haystack--save-mode-handler nil t)
+    (remove-hook 'after-save-hook #'haystack--save-mode-handler t)))
 
 ;;;; Global prefix map
 

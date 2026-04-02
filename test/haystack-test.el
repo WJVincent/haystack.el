@@ -7252,5 +7252,85 @@ matching the behavior of ?s (search anyway)."
       (should (= (plist-get (cdr entry) :count) 6))
       (should (eq (plist-get (cdr entry) :pinned) t)))))
 
+;;;; haystack-save-mode
+
+(ert-deftest haystack-test/save-hook-is-defcustom ()
+  "haystack-save-hook should be a hook variable."
+  (should (boundp 'haystack-save-hook))
+  (should (custom-variable-p 'haystack-save-hook)))
+
+(ert-deftest haystack-test/save-mode-exists ()
+  "haystack-save-mode should be a minor mode."
+  (should (fboundp 'haystack-save-mode)))
+
+(ert-deftest haystack-test/save-mode-runs-hook-in-notes-dir ()
+  "Saving a file inside the notes directory runs `haystack-save-hook'."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test.org"
+                                  haystack-notes-directory))
+          (ran nil))
+     (write-region "initial" nil file)
+     (let ((buf (find-file-noselect file)))
+       (unwind-protect
+           (with-current-buffer buf
+             (haystack-save-mode 1)
+             (let ((haystack-save-hook (list (lambda () (setq ran t)))))
+               (insert "change")
+               (save-buffer))
+             (should ran))
+         (when (buffer-live-p buf) (kill-buffer buf))
+         (when (file-exists-p file) (delete-file file)))))))
+
+(ert-deftest haystack-test/save-mode-skips-outside-notes-dir ()
+  "Saving a file outside the notes directory does not run `haystack-save-hook'."
+  (haystack-test--with-notes-dir
+   (let* ((file (make-temp-file "haystack-outside-" nil ".org"))
+          (ran nil))
+     (let ((buf (find-file-noselect file)))
+       (unwind-protect
+           (with-current-buffer buf
+             (haystack-save-mode 1)
+             (let ((haystack-save-hook (list (lambda () (setq ran t)))))
+               (insert "change")
+               (save-buffer))
+             (should-not ran))
+         (when (buffer-live-p buf) (kill-buffer buf))
+         (when (file-exists-p file) (delete-file file)))))))
+
+(ert-deftest haystack-test/save-mode-skips-when-no-notes-dir ()
+  "When `haystack-notes-directory' is nil the hook does not run."
+  (let* ((file (make-temp-file "haystack-nodir-" nil ".org"))
+         (haystack-notes-directory nil)
+         (ran nil))
+    (let ((buf (find-file-noselect file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (haystack-save-mode 1)
+            (let ((haystack-save-hook (list (lambda () (setq ran t)))))
+              (insert "change")
+              (save-buffer))
+            (should-not ran))
+        (when (buffer-live-p buf) (kill-buffer buf))
+        (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/save-mode-off-removes-hook ()
+  "Disabling the mode prevents the hook from running on subsequent saves."
+  (haystack-test--with-notes-dir
+   (let* ((file (expand-file-name "20241215120000-test.org"
+                                  haystack-notes-directory))
+          (ran nil))
+     (write-region "initial" nil file)
+     (let ((buf (find-file-noselect file)))
+       (unwind-protect
+           (with-current-buffer buf
+             (haystack-save-mode 1)
+             (haystack-save-mode -1)
+             (let ((haystack-save-hook (list (lambda () (setq ran t)))))
+               (insert "change")
+               (save-buffer))
+             (should-not ran))
+         (when (buffer-live-p buf) (kill-buffer buf))
+         (when (file-exists-p file) (delete-file file)))))))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here
