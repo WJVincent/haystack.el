@@ -5956,6 +5956,27 @@ matching the behavior of ?s (search anyway)."
   (let ((haystack--stop-words '()))
     (should (null (haystack--discoverability-tokenize "")))))
 
+(ert-deftest haystack-test/discoverability-tokenize-latin-diacritics ()
+  "Latin diacritics are preserved as tokens."
+  (let ((haystack--stop-words '()))
+    (should (member "café" (haystack--discoverability-tokenize "café résumé")))))
+
+(ert-deftest haystack-test/discoverability-tokenize-emoji-splits ()
+  "Emoji are treated as separators, not tokens (not alphanumeric)."
+  (let ((haystack--stop-words '()))
+    (let ((tokens (haystack--discoverability-tokenize "search 🔍 here")))
+      (should (member "search" tokens))
+      (should (member "here" tokens))
+      (should-not (member "🔍" tokens)))))
+
+(ert-deftest haystack-test/discoverability-tokenize-unicode-words ()
+  "Non-ASCII alphabetic words are kept."
+  (let ((haystack--stop-words '()))
+    (let ((tokens (haystack--discoverability-tokenize "über straße naïve")))
+      (should (member "über" tokens))
+      (should (member "straße" tokens))
+      (should (member "naïve" tokens)))))
+
 ;;;; haystack--discoverability-tier
 
 (ert-deftest haystack-test/discoverability-tier-isolated ()
@@ -6180,6 +6201,54 @@ matching the behavior of ?s (search anyway)."
                  (when (buffer-live-p result) (kill-buffer result))))))
        (kill-buffer buf)
        (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/discoverability-at-point-creates-buffer ()
+  "D in results buffer analyzes the file at point."
+  (haystack-test--with-notes-dir
+   (let* ((fname "20241215120000-test-note.org")
+          (file  (expand-file-name fname haystack-notes-directory))
+          (rbuf  (get-buffer-create "*haystack:test-discov-at-point*")))
+     (with-temp-buffer
+       (insert "uniqueterm12345 anotherterm67890")
+       (write-region nil nil file))
+     (unwind-protect
+         (with-current-buffer rbuf
+           (setq-local haystack--search-descriptor
+                       (haystack-sd-create :root-term "test"))
+           (setq-local haystack--buffer-notes-dir
+                       (expand-file-name haystack-notes-directory))
+           (insert (concat fname ":1:uniqueterm12345\n"))
+           (goto-char (point-min))
+           (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+             (let ((result (haystack-describe-discoverability-at-point)))
+               (unwind-protect
+                   (progn
+                     (should (buffer-live-p result))
+                     (should (eq (buffer-local-value 'major-mode result)
+                                 'haystack-discoverability-mode)))
+                 (when (buffer-live-p result) (kill-buffer result))))))
+       (kill-buffer rbuf)
+       (when (file-exists-p file) (delete-file file))))))
+
+(ert-deftest haystack-test/discoverability-at-point-errors-not-results ()
+  "D outside results buffer signals user-error."
+  (with-temp-buffer
+    (should-error (haystack-describe-discoverability-at-point)
+                  :type 'user-error)))
+
+(ert-deftest haystack-test/discoverability-at-point-errors-no-file ()
+  "D on a non-grep line signals user-error."
+  (haystack-test--with-notes-dir
+   (let ((rbuf (get-buffer-create "*haystack:test-discov-no-file*")))
+     (unwind-protect
+         (with-current-buffer rbuf
+           (setq-local haystack--search-descriptor
+                       (haystack-sd-create :root-term "test"))
+           (insert "this is not a grep line\n")
+           (goto-char (point-min))
+           (should-error (haystack-describe-discoverability-at-point)
+                         :type 'user-error))
+       (kill-buffer rbuf)))))
 
 ;;;; haystack--note-slug
 
@@ -6583,6 +6652,52 @@ matching the behavior of ?s (search anyway)."
          (haystack-mentions-yank-to-origin))
        (should-not (buffer-live-p root))
        (should-not (buffer-live-p child))))))
+
+;;;; haystack--mentions-exclude-origin
+
+(ert-deftest haystack-test/mentions-exclude-origin-removes-matching-lines ()
+  "Origin file's lines are removed from the results buffer."
+  (with-temp-buffer
+    (let ((marker (point-marker)))
+      (insert "Header line\n")
+      (set-marker marker (point))
+      (insert "origin.org:1:some match\n"
+              "other.org:2:another match\n"
+              "origin.org:5:second match\n")
+      (setq-local haystack--header-end-marker marker)
+      (setq-local haystack--search-descriptor (haystack-sd-create :root-term "x"))
+      (haystack--mentions-exclude-origin "/path/to/origin.org")
+      (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "other.org:2:another match" content))
+        (should-not (string-match-p "origin.org" content))))))
+
+(ert-deftest haystack-test/mentions-exclude-origin-preserves-header ()
+  "Header content is untouched even if it mentions the origin filename."
+  (with-temp-buffer
+    (let ((marker (point-marker)))
+      (insert "Header: origin.org stuff\n")
+      (set-marker marker (point))
+      (insert "origin.org:1:content\n"
+              "other.org:2:content\n")
+      (setq-local haystack--header-end-marker marker)
+      (setq-local haystack--search-descriptor (haystack-sd-create :root-term "x"))
+      (haystack--mentions-exclude-origin "/path/to/origin.org")
+      (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "Header: origin.org stuff" content))
+        (should-not (string-match-p "origin.org:1:" content))))))
+
+(ert-deftest haystack-test/mentions-exclude-origin-noop-when-absent ()
+  "No changes when the origin file does not appear in results."
+  (with-temp-buffer
+    (let ((marker (point-marker)))
+      (insert "Header\n")
+      (set-marker marker (point))
+      (insert "foo.org:1:text\nbar.org:2:text\n")
+      (setq-local haystack--header-end-marker marker)
+      (setq-local haystack--search-descriptor (haystack-sd-create :root-term "x"))
+      (let ((before (buffer-string)))
+        (haystack--mentions-exclude-origin "/path/to/origin.org")
+        (should (equal before (buffer-string)))))))
 
 ;;;; haystack--comment-prefix
 

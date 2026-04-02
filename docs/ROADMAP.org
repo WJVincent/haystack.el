@@ -318,7 +318,7 @@ Originally deferred from the phased roadmap.  Most have since been
 implemented; remaining TODO items are ideas for future development.
 
 ** DONE Demo mode (=haystack-demo= / =haystack-demo-stop=)
-- 84 notes bundled under =demo/notes/= covering Emacs, Lisp, PKM, Haystack
+- 110 notes bundled under =demo/notes/= covering Emacs, Lisp, PKM, Haystack
 - Eight file types: .org .md .el .py .js .lua .rb .rs
 - Pre-built =.expansion-groups.el= and =.haystack-frecency.el=
 - =haystack-demo= copies corpus to temp dir and redirects =haystack-notes-directory=

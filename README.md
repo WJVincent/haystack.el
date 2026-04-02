@@ -66,7 +66,7 @@ before touching your own notes:
 M-x haystack-demo
 ```
 
-This copies 84 ai-generated notes into a temporary directory and points
+This copies 110 notes into a temporary directory and points
 Haystack there. Your real `haystack-notes-directory` is untouched. A
 warning banner appears in every results buffer as a reminder. When
 you're done:
@@ -298,6 +298,7 @@ instead. This prevents pointless redundant filters.
 | `p` | Previous match (preview in other window) |
 | `.` | Search word at point (or active region) as a new root search |
 | `f` | Filter further |
+| `r` | Filter further by date range |
 | `u` | Go up to parent buffer |
 | `d` | Go down to child buffer |
 | `t` | Show the buffer tree |
@@ -306,7 +307,7 @@ instead. This prevents pointless redundant filters.
 | `M-k` | Kill the whole tree (walk to root, then kill) |
 | `c` | Copy MOC to kill ring |
 | `N` | Create a new note and insert the current results MOC into it |
-| `D` | Analyze term discoverability for the current note |
+| `D` | Describe discoverability for file at point |
 | `Y` | Append mentions MOC to origin note and kill tree (mentions buffers only) |
 | `C-c C-c` | Compose a composite note from this buffer's results |
 | `P` | Toggle pin on this search (frecency) |

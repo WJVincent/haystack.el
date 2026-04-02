@@ -5,6 +5,44 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`D` in results buffers** — now analyzes the file at point instead
+  of the current buffer's file.  Extracts the filename from the
+  grep-format line and runs discoverability analysis on it.
+- **Unicode tokenizer** — discoverability tokenizer now preserves
+  non-ASCII alphanumeric characters (Latin diacritics, Cyrillic, etc.)
+  instead of discarding them.  Split pattern changed from ASCII
+  `[a-zA-Z0-9]` to POSIX `[:alnum:]`.
+- **`haystack-after-create-hook`** — changed from `defvar` to
+  `defcustom` so it appears in Customize.
+
+### Added
+
+- **Mentions origin exclusion** — `haystack-find-mentions` and
+  `haystack-insert-mentions` now exclude the origin file from results,
+  preventing a note from appearing as its own mention.
+- **`haystack-prefix-map` autoload** — the prefix keymap now has an
+  `;;;###autoload` cookie for proper lazy loading.
+- **Frecency dirty flag** preserved across demo mode transitions.
+
+### Fixed
+
+- **View deduplication** — `haystack--view-apply-files` now deduplicates
+  by full file path instead of basename, preventing incorrect hiding
+  when files in different directories share a name.
+- **`haystack-search-composites` interactive spec** — replaced raw `"s"`
+  spec with `(list (read-string ...))` for consistency.
+- **Demo corpus count** — documentation updated from 84 to 110 notes.
+- **`haystack-associate` docstring** — removed stale "Multi-word terms
+  are rejected" sentence.
+
+### Removed
+
+- Dead code: `haystack--frecency-key-filter-terms`,
+  `haystack--match-highlight-specs` (zero callers).
+- Excessive `;;;###autoload` cookies on ~11 non-entry-point functions.
+
 ---
 
 ## [0.15.0] — 2026-04-01

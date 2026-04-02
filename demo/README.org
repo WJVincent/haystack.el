@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory contains a pre-built corpus of 84 sample notes for
+This directory contains a pre-built corpus of 110 sample notes for
 trying out Haystack without touching your own notes.
 
 Run ~M-x haystack-demo~ to activate demo mode.  Haystack will copy
