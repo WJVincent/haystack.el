@@ -33,6 +33,19 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   Scope is stored in frecency chain keys and replayed correctly.
 - **`haystack-new-note-from-region`** (`C-c h x`) — create a new note
   and insert the active region text after frontmatter.
+- **Demo corpus rewrite** — expanded from 87 to 110 notes.  Added 15
+  deliberately messy files (spaces in filenames, `.txt` without
+  frontmatter, non-timestamped slugs, a 150-line brain dump) and 8
+  humanistic notes (philosophy, music, literature, etymology, urban
+  planning, film, art history, recipes) so non-developer audiences can
+  see themselves in the corpus.  Frecency data now ships empty;
+  `haystack-demo-seed-frecency` populates a realistic history on
+  demand.  New `writing` expansion group spans humanistic notes.
+  Fixed conceptual inaccuracies across demo notes: corrected
+  descriptions of the tree view, frecency engine, composites,
+  progressive filtering, expansion groups, note creation, and
+  frontmatter sentinel.  Replaced references to non-existent
+  variables and functions with their actual counterparts.
 - **Pinned search paths** — frecency entries can be pinned so they
   always appear in `haystack-frecent` completing-read, regardless of
   score decay.  `p` in the frecent buffer toggles pin at point; `P`

@@ -2,4 +2,5 @@
  ("elisp" . ("emacs-lisp" "emacs lisp"))
  ("pkm" . ("zettelkasten" "knowledge-management" "second-brain"))
  ("search" . ("ripgrep" "rg"))
- ("note" . ("notes" "zettel")))
+ ("note" . ("notes" "zettel"))
+ ("writing" . ("composition" "essay" "draft")))

@@ -2,7 +2,7 @@
 ;; date: 2025-04-09
 ;; %%% haystack-end-frontmatter %%%
 
-;; Complete reference for all Haystack configuration variables.
+;; Complete reference for key Haystack configuration variables.
 ;; These are all defcustom variables in the haystack group,
 ;; accessible via M-x customize-group RET haystack.
 
@@ -15,43 +15,45 @@ All rg (ripgrep) invocations use this as the search root.")
 ;; Point haystack at the notes directory.
 (setopt haystack-notes-directory my/haystack-notes-dir)
 
-;; File types to include in search.
-;; Add "txt" for plain-text notes or "el" to search emacs-lisp notes.
-(setopt haystack-search-extensions '("org" "md" "txt"))
+;; Restrict search to specific file types via glob.
+;; nil (default) means search all files in the notes directory.
+(setopt haystack-file-glob "*.org")
+
+;; Default extension for new notes created with haystack-new-note.
+(setopt haystack-default-extension "org")
 
 ;;; Expansion groups for vocabulary/synonym handling.
-;; Each group is a list of strings treated as synonyms by the rg query engine.
-;; A search for any term in a group matches notes containing any other term.
-(setopt haystack-expansion-groups
-        '(;; Lisp dialect synonyms
-          ("elisp" "emacs-lisp" "emacs lisp")
-          ("lisp" "common-lisp" "cl" "scheme" "clojure")
-          ;; PKM synonyms
-          ("pkm" "zettelkasten" "knowledge-management" "second-brain")
-          ;; Search tool synonyms
-          ("search" "ripgrep" "rg" "full-text search")
-          ;; Note vocabulary synonyms
-          ("note" "notes" "zettel")))
+;; Expansion groups live in .expansion-groups.el in your notes directory.
+;; They are loaded automatically — no defcustom needed.  Edit the file
+;; directly or use M-x haystack-associate to manage groups interactively.
 
-;;; Frecency configuration
-;; The frecency file stores visit frequency and recency data.
-;; Keeping it in the notes dir makes it version-controllable.
-(setopt haystack-frecency-file
-        (expand-file-name ".haystack-frecency" my/haystack-notes-dir))
+;;; Display settings
 
-;; Frecency half-life in days: how quickly old visits decay.
-;; Lower values = more aggressively recency-weighted.
-(setopt haystack-frecency-half-life 30)
+;; Maximum context width (chars) for each match line in the results buffer.
+;; Content is centred on the match with ... at truncated ends.
+(setopt haystack-context-width 60)
 
-;;; Display preferences
-;; Open selected notes in other-window to preserve current context.
-(setopt haystack-result-display-function #'find-file-other-window)
+;; Whether new filter buffers inherit the parent's view mode
+;; (Full, Compact, or Files).
+(setopt haystack-inherit-view-mode nil)
 
-;; Maximum number of candidates to display in the completing-read list.
-(setopt haystack-max-candidates 200)
+;; Maximum number of columns before line truncation in results output.
+(setopt haystack-max-columns 500)
 
-;;; Additional rg flags passed verbatim to the ripgrep invocation.
-;; --smart-case: case-insensitive unless query contains uppercase.
-(setopt haystack-rg-extra-args "--smart-case")
+;;; MOC settings
+
+;; Code file MOC style: 'comment (default) inserts links as comments,
+;; 'data generates language-specific data structures.
+(setopt haystack-moc-code-style 'comment)
+
+;;; Frecency settings
+
+;; Idle seconds before dirty frecency data is flushed to disk.
+(setopt haystack-frecency-save-interval 60)
+
+;;; Keybinding setup
+;; Haystack ships haystack-prefix-map unbound.
+;; Bind it to a convenient prefix:
+(global-set-key (kbd "C-c h") haystack-prefix-map)
 
 ;; End of haystack configuration reference.

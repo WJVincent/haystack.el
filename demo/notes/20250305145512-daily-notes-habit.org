@@ -19,8 +19,8 @@ without the substance. A weekly review habit paired with daily notes is the
 standard remedy: once a week, process unreviewed daily note items into permanent
 notes, update evergreen notes, and clear the capture queue. In Haystack, daily
 notes are just files in the notes directory like any other; their date-based
-filenames ensure they sort chronologically and the frecency engine naturally de-
-emphasizes old unvisited daily notes. The daily note habit is most valuable as a
+filenames ensure they sort chronologically, and old daily notes naturally fall
+below more recent content in search results. The daily note habit is most valuable as a
 friction-reducer at the capture stage — it should not become an end in itself
 but a means of feeding a zettelkasten or evergreen notes corpus. Some
 practitioners skip daily notes entirely in favor of direct capture to permanent

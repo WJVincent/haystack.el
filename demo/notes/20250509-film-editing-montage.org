@@ -1,0 +1,61 @@
+#+title: Film Editing — Montage Theory
+#+date: 2025-05-09
+%%% haystack-end-frontmatter %%%
+
+* Eisenstein's montage theory
+
+Sergei Eisenstein argued that the essence of cinema is not the
+individual shot but the collision between shots.  Meaning is created
+by juxtaposition, not by content.
+
+Five types of montage:
+
+1. *Metric* — cuts based on absolute length (every N frames).
+   Creates rhythm through regularity.
+2. *Rhythmic* — cuts based on content rhythm, not frame count.
+   The movement within the shot determines the cut point.
+3. *Tonal* — cuts based on the emotional tone of each shot.
+   Light vs. dark, sharp vs. soft.
+4. *Overtonal* — combination of metric, rhythmic, and tonal
+   simultaneously.  The most complex form.
+5. *Intellectual* — juxtaposition of images to create an abstract
+   idea.  The Odessa Steps sequence in /Battleship Potemkin/ is the
+   canonical example.
+
+* The Kuleshov effect
+
+Lev Kuleshov demonstrated that the same shot of an actor's face,
+intercut with different images (a bowl of soup, a child's coffin, a
+woman), produces different emotional responses in the viewer.  The
+composition of meaning happens in the edit, not in the performance.
+
+This is relevant to any system that presents information through
+juxtaposition.  A search results buffer is a montage: each result
+line is a "shot," and the meaning of the whole buffer emerges from
+their sequence and proximity.  Filtering is re-editing — you are
+cutting the montage down to the essential shots.
+
+* Walter Murch — "In the Blink of an Eye"
+
+Murch's rule of six for a good cut (in order of priority):
+
+1. Emotion — does the cut serve the emotion of the scene?
+2. Story — does it advance the story?
+3. Rhythm — does it feel right in terms of pacing?
+4. Eye-trace — does the viewer's eye land in the right place?
+5. 2D plane — does the composition work on screen?
+6. 3D space — is the spatial continuity maintained?
+
+He is willing to sacrifice any lower priority for a higher one.
+Spatial continuity can be broken if it serves the emotion.
+
+* Synthesis
+
+Montage and progressive filtering share a structure: you start with
+raw material (footage / search results), and through a series of
+cuts (edits / filters), you arrive at a composition that means more
+than the sum of its parts.  The composition is the insight.
+
+The difference: film editing is authorial (the editor decides the
+sequence), while search filtering is exploratory (the user discovers
+the sequence).  But both are acts of synthesis through elimination.

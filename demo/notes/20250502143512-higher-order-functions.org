@@ -19,9 +19,9 @@ arguments pre-filled — are natural companions to higher-order functions; ~appl
 partially~ in emacs-lisp and ~partial~ in clojure serve this role. Function
 composition with ~compose~ or the ~-compose~ from dash chains multiple
 transformations into a single function without intermediate variable names. In
-Haystack's elisp codebase, higher-order functions process note candidate lists:
-sorting by frecency, filtering by frontmatter fields, and mapping display
-formatters over result sets all use this pattern. Higher-order functions are the
+Haystack's elisp codebase, higher-order functions appear throughout: sorting
+frecency chain descriptors by score, filtering result lines by filename, and
+mapping display formatters over output all use this pattern. Higher-order functions are the
 backbone of functional programming in any Lisp dialect — learning to think in
 terms of transformations rather than loops is the paradigm shift that unlocks
 their full power.

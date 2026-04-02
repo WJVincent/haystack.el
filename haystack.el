@@ -4870,6 +4870,51 @@ previous `haystack-notes-directory'."
           haystack--stop-words               nil))
   (message "Haystack demo stopped.  Your notes directory has been restored."))
 
+;;;###autoload
+(defun haystack-demo-seed-frecency ()
+  "Populate the demo corpus with a realistic pre-built frecency history.
+This injects a set of search chains with visit counts and timestamps so
+that `haystack-frecent' has interesting data to display.  Only works
+when demo mode is active.
+
+Run this after `haystack-demo' to experience the before/after of
+frecency — start with an empty history, explore manually, then seed
+to see how frecency improves retrieval."
+  (interactive)
+  (unless haystack--demo-active
+    (user-error "Haystack demo is not running — call `haystack-demo' first"))
+  (setq haystack--frecency-data
+        '(((:root (:kind text :term "haystack") :filters ((:term "filtering")))
+           :count 25 :last-access 1774310400.0)
+          ((:root (:kind text :term "lisp") :filters ((:term "macros")))
+           :count 15 :last-access 1774310400.0)
+          ((:root (:kind text :term "emacs") :filters ((:term "org-mode")))
+           :count 12 :last-access 1774310400.0)
+          ((:root (:kind date-range :start "2025-01" :end "2025-03") :filters nil)
+           :count 10 :last-access 1774310400.0)
+          ((:root (:kind text :term "haystack") :filters nil)
+           :count 20 :last-access 1774310400.0)
+          ((:root (:kind text :term "search") :filters ((:term "ripgrep")))
+           :count  8 :last-access 1774310400.0)
+          ((:root (:kind text :term "frecency") :filters nil)
+           :count  3 :last-access 1774310400.0)
+          ((:root (:kind text :term "emacs") :filters ((:term "magit")))
+           :count  8 :last-access 1774224000.0)
+          ((:root (:kind text :term "search") :filters nil)
+           :count  6 :last-access 1774224000.0)
+          ((:root (:kind text :term "expansion-groups") :filters nil)
+           :count  5 :last-access 1774224000.0)
+          ((:root (:kind text :term "pkm") :filters ((:term "zettelkasten")))
+           :count 10 :last-access 1774137600.0)
+          ((:root (:kind text :term "emacs") :filters nil)
+           :count  5 :last-access 1773964800.0)
+          ((:root (:kind text :term "pkm") :filters nil)
+           :count  4 :last-access 1773705600.0)
+          ((:root (:kind text :term "lisp") :filters nil)
+           :count  3 :last-access 1773792000.0))
+        haystack--frecency-dirty t)
+  (message "Haystack demo: seeded frecency with 14 search chains.  Try C-c h f to replay."))
+
 ;;;; Composite notes
 
 (defun haystack--compose-file-section (path match-line)

@@ -1,0 +1,52 @@
+#+title: Stoic Philosophy
+#+date: 2025-05-03
+%%% haystack-end-frontmatter %%%
+
+* Core ideas
+
+Stoicism is built on a handful of principles that are easy to state
+and hard to practice:
+
+1. Focus on what you can control; release what you cannot.
+2. Virtue is the sole good.  Externals (wealth, reputation, health)
+   are "preferred indifferents."
+3. Live according to nature — meaning reason, since reason is the
+   distinguishing capacity of humans.
+
+Marcus Aurelius in /Meditations/ returns to the same themes
+obsessively.  Book II alone contains three restatements of the
+impermanence argument.  This repetition is not redundancy — it is
+rehearsal.  The Stoics understood that knowledge must be practiced,
+not merely held.
+
+* Atomicity in Stoic thought
+
+There is an interesting parallel with the atomicity principle in note
+taking.  The Stoics decomposed complex situations into individual
+judgments that could be examined one at a time.  "It is not the thing
+that disturbs you, but your judgment about the thing."  This is
+decomposition into atomic propositions — each one testable, each one
+revisable.
+
+Epictetus was especially rigorous about this.  The /Discourses/ read
+like a curriculum: each chapter isolates one idea and works through it
+fully before moving on.  This is the ancient version of "one note, one
+idea."
+
+* The discipline of assent
+
+The Stoics had three disciplines: desire, action, and assent.  The
+discipline of assent is the most relevant here — it means examining
+every impression before accepting it.  Don't react to the raw
+stimulus; pause, decompose, evaluate.
+
+This is a retrieval practice.  You are searching your principles for
+the relevant one, not browsing a list.  The Stoic sage is someone
+whose retrieval is fast and accurate.
+
+* Open questions
+
+- How does Stoic determinism interact with the idea of creative synthesis?
+  If everything is fated, what is the point of combining ideas into new ones?
+- Is the Stoic emphasis on reason compatible with intuitive, associative
+  thinking?  Or is it fundamentally opposed?

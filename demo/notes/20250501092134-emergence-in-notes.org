@@ -8,10 +8,9 @@ emergence engine: by accumulating atomic zettel and linking them densely, you
 create a system that "thinks back" at you when you browse it. The experience of
 emergence is often described as finding a note you wrote months ago that is
 precisely relevant to something you are working on today — relevance that you
-could not have predicted when writing the original note. Haystack's frecency-
-weighted search supports emergence by surfacing recently-relevant notes: a note
-that you have visited multiple times recently will rank higher, reflecting its
-current salience to your work. Emergence requires critical mass: a corpus of 50
+could not have predicted when writing the original note. Haystack's frecency engine supports emergence by making it easy to replay past
+search chains: searches you run frequently are ranked higher in
+~haystack-frecent~, reducing friction when revisiting familiar territory. Emergence requires critical mass: a corpus of 50
 notes is unlikely to produce surprising connections; at 500 or 5000, unexpected
 affinities between ideas become a regular experience. The search model is
 central to emergence: ripgrep (rg) with expansion groups finds notes by content

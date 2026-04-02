@@ -1,0 +1,8 @@
+#+title: Half-Formed Thought
+#+date: 2025-04-24
+%%% haystack-end-frontmatter %%%
+
+The relationship between search and memory is underexplored. When you
+search your notes you are not just retrieving — you are rehearsing the
+retrieval path itself, which strengthens the association. Frecency
+captures this mechanically but the cognitive parallel is interesting.

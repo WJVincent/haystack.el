@@ -5,23 +5,18 @@ Haystack is configured through a small set of customizable variables, all
 following the ~haystack-~ prefix convention for emacs-lisp packages. The most
 important variable is ~haystack-notes-directory~: a string path to the directory
 containing your notes, which all search and creation commands use as their root.
-~haystack-expansion-groups~ is the second key configuration: a list of synonym
-groups, each a list of strings, that Haystack expands into alternation patterns
-when constructing rg queries. ~haystack-frecency-file~ specifies where Haystack
-stores the visit frequency and recency data; defaults to a file within ~user-
-emacs-directory~ but can be redirected to your notes directory for version
-control. ~haystack-search-extensions~ controls which file types are included in
-search: defaults to org and Markdown, but can be extended to include ~.md~,
-~.txt~, ~.el~, ~.py~, or any plain-text format. ~haystack-new-note-format~
-determines the default format for new notes: ~'org~ generates org frontmatter,
-~'markdown~ generates YAML frontmatter, or a custom template string can be
-provided. The ~use-package~ configuration block for Haystack pairs naturally
-with ~:bind~ for keybinding setup, ~:custom~ for the directory and expansion
-groups, and ~:hook~ for any mode activations. ~haystack-rg-extra-args~ allows
-passing additional flags to ripgrep (rg): for example ~"--type-add
-'note:*.org'"~ to define a custom file type, or ~"--max-depth 1"~ for a shallow
-search. ~haystack-result-display-function~ can be customized to change how
-selected notes are opened — in the current window, in an other-window, or in a
-side panel. A minimal working Haystack configuration requires only ~haystack-
-notes-directory~ set to a valid path; all other variables have sensible defaults
-that work well for most users without adjustment.
+Expansion groups are stored in a ~.expansion-groups.el~ file in the notes
+directory — an alist of synonym groups that Haystack expands into alternation
+patterns when constructing rg queries. ~haystack-default-extension~ controls the
+default file extension for new notes (e.g., ~"org"~ or ~"md"~).
+~haystack-file-glob~ restricts which files are searched (e.g., ~"*.org"~); nil
+means search all files. ~haystack-context-width~ controls how many characters
+of context surround each match in results buffers. Frecency data is stored
+automatically in ~.haystack-frecency.el~ within the notes directory.
+~haystack-frontmatter-functions~ is an alist mapping file extensions to
+frontmatter-generating functions, making the format extensible to any file type.
+The ~use-package~ configuration block for Haystack pairs naturally with ~:init~
+for binding the prefix map and ~:custom~ for the directory and display settings.
+A minimal working Haystack configuration requires only ~haystack-notes-directory~
+set to a valid path; all other variables have sensible defaults that work well
+for most users without adjustment.

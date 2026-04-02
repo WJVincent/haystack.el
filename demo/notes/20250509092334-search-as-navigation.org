@@ -9,7 +9,7 @@ folders, open directories, and navigate by location in a tree structure. Search-
 as-navigation inverts this: instead of knowing where a note is, you express what
 you need, and the system finds it — the note's location in the filesystem
 becomes irrelevant to its retrieval. Haystack's entire interface is built on
-this principle: ~haystack-search~ is the primary entry point for all note
+this principle: ~haystack-run-root-search~ is the primary entry point for all note
 access, and the flat notes directory design ensures there is no folder hierarchy
 to browse instead. The efficiency gains are significant: in a well-indexed
 corpus, reaching any note via ripgrep (rg) search takes 2-4 seconds from intent

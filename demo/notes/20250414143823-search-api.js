@@ -58,6 +58,9 @@ export function runRipgrep(query, notesDir, extensions = ["org", "md"]) {
 /**
  * Expand a query using configured synonym groups.
  * Mirrors the expansion groups mechanism in Haystack.
+ * Note: Haystack's elisp format uses an alist with a distinguished root
+ * (e.g., ("pkm" . ("zettelkasten" "knowledge-management"))); this JS
+ * version uses flat arrays since the expansion behavior is symmetric.
  *
  * @param {string} query - The raw query string
  * @param {string[][]} expansionGroups - Array of synonym arrays

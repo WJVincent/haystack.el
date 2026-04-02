@@ -1,0 +1,153 @@
+#+title: EmacsConf 2025 Brain Dump
+#+date: 2025-04-20
+%%% haystack-end-frontmatter %%%
+
+Raw notes from the conference. Needs cleanup.
+
+* Keynote — The Future of Text Editing
+
+Speaker made the point that modal editing vs. non-modal is a false
+dichotomy. The real question is: how fast can you express intent?
+
+Emacs wins here because of the composability of commands. You don't
+memorize sequences, you compose operations. M-x is the ultimate
+escape hatch.
+
+Mentioned tree-sitter as the thing that finally makes structural
+editing practical. Not just syntax highlighting — actual structural
+navigation. select-parent, swap-sibling, etc.
+
+** My thoughts
+
+This connects to the Haystack philosophy: search is faster than
+navigation. But maybe the right framing is that search IS navigation.
+You navigate by describing what you want, not by knowing where it is.
+
+* Talk 2 — Org-mode for Academic Writing
+
+Professor from Uppsala using org-mode for everything:
+- lecture notes
+- research papers (ox-latex export)
+- student feedback
+- grant proposals
+- personal journaling
+
+Key insight: the export pipeline is what makes org-mode viable for
+academics. You write in plain text but output PDF, HTML, LaTeX, ODT.
+
+She had a custom workflow for literature reviews:
+1. Import BibTeX
+2. Create one org heading per paper
+3. Tag with keywords
+4. Use column view to compare papers across dimensions
+
+I wonder if Haystack could replace step 3–4 here. Instead of tagging,
+you search. Instead of column view, you filter progressively.
+
+** Org-roam discussion
+
+Someone asked about org-roam vs. denote vs. plain files. The room was
+split. Arguments:
+
+For org-roam:
+- backlinks are automatic
+- the database makes queries fast
+- org-roam-ui is beautiful
+
+Against:
+- SQLite dependency is a maintenance burden
+- database corruption happens (two people mentioned this)
+- the file naming convention is ugly (UUIDs)
+- you need org-roam to READ your own notes
+
+For plain files (denote/haystack approach):
+- files are readable without any tool
+- grep works
+- you own the format
+- naming convention encodes metadata
+
+Against:
+- no backlinks without manual effort
+- search is slower than database lookup (but is it? ripgrep is fast)
+- no graph visualization
+
+My take: the database approach is correct for large institutional
+knowledge bases. The plain-text approach is correct for personal
+thinking tools. The boundary is somewhere around 10,000 notes.
+
+* Talk 3 — Emacs as IDE
+
+Eglot + tree-sitter + project.el = viable IDE for most languages now.
+
+Demo was impressive but the speaker spent too long on completion
+frameworks. Nobody cares about corfu vs. company vs. auto-complete
+anymore, they all work fine.
+
+The interesting part was the debugging workflow:
+- dape for DAP protocol support
+- edebug for elisp (still the best debugger UX in any language IMO)
+- compile-mode for async builds with error navigation
+
+That last point — compile-mode — is exactly what Haystack builds on.
+The grep-mode results buffer IS a compile-mode buffer. Same keybindings,
+same error navigation, same font-lock. Haystack is a compile-mode
+application that happens to search notes instead of compiling code.
+
+** TODO follow up on the dape package
+** TODO try the presenter's eglot config for Python
+
+* Lightning talks
+
+** Emacs for music
+
+Someone demoed using Emacs for music composition with LilyPond.
+Actually typed notes in a buffer and compiled to sheet music.
+Insane but also kind of beautiful.
+
+** Elfeed for research
+
+Using elfeed + org-capture to build a reading database. Every RSS item
+can be captured to an org file with one keybinding. Then use org-ql to
+query across captured items.
+
+Could integrate with Haystack: capture to your notes directory, then
+search normally. The elfeed metadata ends up in frontmatter.
+
+** Terminal Emacs on a Chromebook
+
+Grad student running Emacs in a Linux container on a Chromebook.
+Surprisingly usable. The limitation is no GUI features — no SVG
+rendering, no pixel-level scroll, no variable-pitch faces.
+
+This actually matters for Haystack because the results buffer uses
+font-lock-face for header styling. Need to verify this works in
+terminal mode. Pretty sure it does but should test.
+
+* Hallway conversations
+
+Talked to someone building a zettelkasten with 3000+ notes in plain
+org files. No special tooling — just grep and find. They were
+interested in Haystack's progressive filtering but skeptical about
+expansion groups. "Why would I want my search tool to second-guess
+what I typed?"
+
+Fair point. Expansion groups are opt-in for a reason. But I think the
+real answer is: expansion groups are for retrieval, not for search.
+When you search, you know what you want. When you retrieve, you know
+what you mean but not which words you used last time.
+
+Also met a professor of comparative literature who uses Emacs for
+everything — teaching, research, writing. She was interested in
+Haystack but said the demo corpus was "too computer-sciencey" and she
+couldn't tell if it would work for her notes about novels and
+literary theory.
+
+That's the whole reason we're rewriting the corpus.
+
+* Things to look up later
+
+- tree-sitter grammar for org-mode (does it exist?)
+- dape package — DAP protocol for Emacs
+- org-ql — query language for org headings
+- denote vs. haystack comparison (someone asked, I didn't have a good answer)
+- LilyPond music notation in Emacs

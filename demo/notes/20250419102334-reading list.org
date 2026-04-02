@@ -1,0 +1,13 @@
+#+title: Reading List
+#+date: 2025-04-19
+%%% haystack-end-frontmatter %%%
+
+Books to read or re-read, roughly by priority:
+
+- /How to Take Smart Notes/ — Sönke Ahrens (re-read ch. 3–5 on slip-box workflow)
+- /Gödel, Escher, Bach/ — Douglas Hofstadter (the recursion chapters)
+- /A Pattern Language/ — Christopher Alexander
+- /The Design of Everyday Things/ — Don Norman
+- /Thinking, Fast and Slow/ — Daniel Kahneman
+- /Seeing Like a State/ — James C. Scott (recommended by urbanist friend)
+- /The Art of Memory/ — Frances Yates

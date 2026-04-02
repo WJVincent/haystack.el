@@ -1,29 +1,23 @@
 #+TITLE: Haystack Tree View
 #+DATE: 2025-03-27
 # %%% haystack-end-frontmatter %%%
-Haystack's tree view renders the connections between notes as a collapsible
-outline in a dedicated Emacs buffer, providing a hierarchical browsing mode on
-top of the flat notes directory. The tree view is constructed dynamically by
-following links from a root note (typically a Map of Content) and recursively
-expanding connected notes, forming a buffer-hierarchy that mirrors the
-conceptual structure of a topic. Unlike a static file hierarchy, the tree view
-in Haystack is derived from the content of notes: the parent-child relationships
-in the tree reflect semantic connections rather than filesystem nesting. Each
-node in the tree view is a clickable note title; pressing ~RET~ or ~o~ on a node
-opens that note's buffer, and the tree collapses/expands with ~TAB~ following
-standard Emacs outline conventions. The ~haystack-tree-view~ command accepts a
-root note or a search query as its starting point; beginning from an MOC note
-produces a particularly useful overview of a topic area. The parent-child
-structure in the tree view is not fixed: re-running the tree from a different
-root produces a different hierarchy of the same notes, reflecting the relational
-flexibility of a flat zettelkasten. Tree view complements rather than replaces
-search: use search to find the entry point you need, then use tree view to
-explore the surrounding landscape of related notes. For notes that explicitly
-link to each other (as in org-roam-style links), the tree view accurately
-reflects those connections; for search-connected notes, Haystack builds a
-heuristic tree based on content similarity. The buffer-hierarchy displayed in
-the tree view is a temporary, navigational view — it does not persist or affect
-the underlying files, which remain as flat plain-text notes in the notes
-directory. Haystack's tree view is one of the features that bridges the gap
-between a fully flat search-based system and the structured navigation that some
-users expect from a pkm tool.
+Haystack's tree view displays the forest of open search and filter buffers as
+an indented outline in a dedicated =*haystack-tree*= buffer, providing a map of
+your active search sessions. The ~haystack-show-tree~ command (bound to =t= in
+results buffers and =C-c h t= in the prefix map) opens this view. Each node in
+the tree represents a results buffer: root searches appear at column zero, and
+each progressive filter is indented one level deeper beneath the buffer it was
+filtered from. The current buffer is marked with =←=. Multiple disconnected
+search sessions appear as separate trees separated by blank lines. Pressing
+=RET= on a node visits that results buffer; =q= closes the tree window. The
+tree derives from =special-mode= and provides =n=/=p= for item navigation and
+=M-n=/=M-p= for sibling navigation within the same depth level. Each depth
+level gets a distinct face drawn from the active theme via
+~haystack-tree-depth-faces~. When navigating to children from a results buffer
+with one child, Haystack goes directly; when multiple children exist, a
+=*haystack-children*= picker lists them. The tree view complements search
+rather than replacing it: use search to find what you need, then use the tree
+to retrace your search path and see how your filters branched. The tree is
+purely navigational — it reflects which buffers were filtered from which, not
+any relationship between note contents. It does not persist or affect the
+underlying files.

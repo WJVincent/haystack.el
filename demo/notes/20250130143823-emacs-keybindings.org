@@ -16,9 +16,9 @@ provides a full Vim keybinding layer on top of Emacs, and many users combine it
 with Emacs-native tools like Magit, Org, and Haystack through carefully crafted
 Evil integration. Transient keymaps, activated temporarily with ~set-transient-
 map~, provide modal editing islands — a short-lived keymap that expires after
-one command or based on a predicate. Haystack uses a ~haystack-mode-map~ with
-sensible defaults that can be overridden via ~use-package~ ~:bind~ or direct
-~keymap-set~ calls in your init. The ~describe-key~ (~C-h k~) and ~describe-
+one command or based on a predicate. Haystack uses ~haystack-results-mode-map~
+for keybindings inside results buffers and ~haystack-prefix-map~ for global
+access, both overridable via ~use-package~ or direct ~keymap-set~ calls. The ~describe-key~ (~C-h k~) and ~describe-
 bindings~ (~C-h b~) commands are essential for introspecting the current keymap
 state when debugging binding conflicts. Thoughtful keybinding design is a
 significant part of building an ergonomic Emacs workflow, and getting it right

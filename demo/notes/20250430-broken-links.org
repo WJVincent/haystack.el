@@ -1,0 +1,19 @@
+#+title: Broken Links
+#+date: 2025-04-30
+%%% haystack-end-frontmatter %%%
+
+Notes that reference other notes — some links are stale.
+
+See [[file:20250225-zettelkasten-intro.org][Zettelkasten Intro]] for background on the
+slip-box method. (This link might be slightly wrong — the actual
+filename has a different timestamp.)
+
+Also related: [[file:20250399-nonexistent-note.org][A Note That Doesn't Exist]]
+
+And this one references a file that was renamed:
+[[file:old-name-that-changed.org][Renamed Note]]
+
+The point of this note is that broken links are a fact of life in any
+plain-text knowledge base. Haystack's approach (search, don't link)
+sidesteps this problem entirely. You never have a broken link if you
+never create links — you just search for the content.

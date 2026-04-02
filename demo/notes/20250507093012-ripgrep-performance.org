@@ -9,16 +9,16 @@ search in 50-150ms on modern hardware — fast enough that Haystack can run rg o
 every keystroke change if desired. Ripgrep achieves its speed through several
 mechanisms: it uses a Rust-implemented DFA-based regex engine, it reads files in
 parallel using OS thread pools, and it skips binary files and .gitignore-
-excluded paths automatically. The ~--files~ flag makes rg emit only matching
-filenames rather than line content; Haystack uses this mode when it only needs
-the list of notes containing a query rather than the specific matching lines.
+excluded paths automatically. The ~--files-with-matches~ flag makes rg emit only filenames containing a match
+rather than line content; Haystack uses this for AND-intersection filtering (the
+~&~ operator) and negation (~!~ prefix) when it needs the file set rather than
+individual matching lines.
 Ripgrep supports PCRE2 regular expressions via the ~-P~ flag, enabling
 lookahead, lookbehind, and Unicode property escapes beyond what the default Rust
 regex engine supports. Case-insensitive search (~-i~) is the default in
 Haystack's rg invocations, since note-taking vocabulary is rarely case-sensitive
-in a pkm context. The ~--type~ and ~--type-add~ flags allow Haystack to restrict
-rg searches to specific file extensions without constructing manual glob
-patterns, keeping the invocation clean. Ripgrep's automatic .gitignore handling
+in a pkm context. Haystack restricts searches to specific file types via the ~--glob~ flag,
+controlled by the ~haystack-file-glob~ variable (e.g., ~"*.org"~). Ripgrep's automatic .gitignore handling
 means that if your notes directory is a Git repository, rg silently skips backup
 files and generated artifacts — a convenient default for a zettelkasten. The
 alternation pattern that expansion groups generate

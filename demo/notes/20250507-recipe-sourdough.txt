@@ -1,0 +1,31 @@
+Sourdough Bread — Basic Recipe
+
+Starter: 100g active, fed 8-12 hours ago, passes float test
+
+Ingredients:
+  500g bread flour
+  350g water (70% hydration)
+  100g starter
+  10g salt
+
+Timeline:
+  9am  — mix flour + water, autolyse 30 min
+  9:30 — add starter, squish to combine
+  10:00 — add salt + 25g reserved water, slap & fold
+  10:30 to 2:30 — bulk ferment, stretch & fold every 30 min (4-6 sets)
+  2:30 — pre-shape, bench rest 20 min
+  3:00 — final shape, into banneton
+  3:15 — fridge overnight (12-16 hours cold retard)
+
+Next morning:
+  preheat Dutch oven at 500F for 45 min
+  score the dough
+  bake covered 20 min at 500F
+  uncover, reduce to 450F, bake 20-25 min more
+  cool on wire rack at least 1 hour before cutting
+
+Notes:
+  - hydration can go up to 80% once you're comfortable
+  - the window pane test is more reliable than timing
+  - under-fermented is worse than over-fermented
+  - ear formation depends on scoring angle (30 degrees)

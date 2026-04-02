@@ -29,20 +29,11 @@
 ;; All other variables have defaults that work well for most users.
 (use-package haystack
   :straight (:host github :repo "user/haystack")
-  :bind
-  ("C-c h s" . haystack-search)
-  ("C-c h n" . haystack-new-note)
-  ("C-c h m" . haystack-moc)
-  ("C-c h t" . haystack-tree-view)
+  :init
+  (global-set-key (kbd "C-c h") haystack-prefix-map)
   :custom
   (haystack-notes-directory "~/notes/")
-  (haystack-search-extensions '("org" "md"))
-  (haystack-expansion-groups
-   '(("elisp" "emacs-lisp" "emacs lisp")
-     ("lisp" "common-lisp" "cl" "scheme" "clojure")
-     ("pkm" "zettelkasten" "knowledge-management" "second-brain")
-     ("search" "ripgrep" "rg")
-     ("note" "notes" "zettel"))))
+  (haystack-default-extension "org"))
 
 ;; Optional: integrate haystack-new-note with org-capture.
 (with-eval-after-load 'org-capture

@@ -84,7 +84,12 @@ def sort_by_title(notes: list[NoteRecord]) -> list[NoteRecord]:
 
 
 def sort_by_frecency(notes: list[NoteRecord], reverse: bool = True) -> list[NoteRecord]:
-    """Sort notes by frecency score — the primary sort used by Haystack search."""
+    """Sort notes by frecency score.
+
+    Note: Haystack's frecency ranks search *chains* for replay, not individual
+    notes within a search.  This function is a general-purpose sorter useful
+    for supplementary tooling outside Haystack.
+    """
     return sorted(notes, key=lambda n: n.frecency_score, reverse=reverse)
 
 
@@ -100,7 +105,7 @@ def multi_sort(
     """Apply multiple sort criteria in order of priority.
 
     sorters is a list of (sort_key_fn, reverse) pairs applied left to right.
-    This mirrors how Haystack combines frecency with textual relevance.
+    General-purpose multi-criteria sort for supplementary note tooling.
     """
     import functools
 

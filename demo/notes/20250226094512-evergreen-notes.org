@@ -14,8 +14,8 @@ Titles matter enormously for evergreen notes: a title like "Concept-oriented
 titles make notes more useful" communicates a full claim, unlike a topic label
 like "Titles" which is just a category. In an Emacs-based pkm workflow,
 evergreen notes are typically org files with a stable identifier in the
-filename; Haystack's frecency engine naturally surfaces frequently-visited
-evergreen notes. The practice of writing evergreen notes is closely related to
+filename; Haystack's frecency engine makes it easy to replay the search chains that
+surface evergreen notes, keeping familiar search paths within easy reach. The practice of writing evergreen notes is closely related to
 the zettelkasten method but extends to any second-brain system: the value comes
 from investing in quality notes that compound over time. Reviewing and updating
 evergreen notes is as important as creating them — a note that was accurate two

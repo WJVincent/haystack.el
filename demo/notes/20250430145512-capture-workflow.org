@@ -10,7 +10,7 @@ is worth writing down). Org mode's capture system (~org-capture~) is one of the
 most powerful capture implementations: configurable templates can route captures
 to different files (inbox, daily note, specific project) based on the template
 chosen. Haystack's ~haystack-new-note~ command is designed for fast note
-creation: it prompts for a title, generates a timestamped filename, inserts the
+creation: it prompts for a slug and extension, generates a timestamped filename, inserts the
 appropriate frontmatter, and opens the buffer for immediate writing. A capture
 workflow should have at most two stages: capture (write it down now) and process
 (decide what it means and where it belongs, later). Interrupting the capture

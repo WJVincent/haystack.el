@@ -1,0 +1,52 @@
+#+title: 19th Century Novels
+#+date: 2025-05-05
+%%% haystack-end-frontmatter %%%
+
+* Reading notes
+
+** Dostoevsky — /Crime and Punishment/
+
+Raskolnikov's theory of the "extraordinary man" is a theory about
+categorization.  He divides humanity into ordinary and extraordinary,
+then tries to act on the classification.  The novel is about what
+happens when your categories are wrong.
+
+The structure mirrors the argument: Part I is the crime (acting on
+theory), Parts II–VI are the punishment (reality refusing to fit the
+theory).  The synthesis comes only at the very end, in the epilogue,
+and it is ambiguous.
+
+** Dostoevsky — /The Brothers Karamazov/
+
+The Grand Inquisitor chapter is a standalone essay embedded in a novel.
+It works because Dostoevsky trusts the reader to hold the argument in
+tension with the surrounding narrative.  Ivan presents the argument;
+Alyosha's silence is the counterargument.
+
+** Tolstoy — /Anna Karenina/
+
+"All happy families are alike; each unhappy family is unhappy in its
+own way."  This is a thesis statement disguised as an aphorism.  The
+novel then proves it by showing that Levin's happiness and Anna's
+unhappiness are both more complicated than the opening suggests.
+
+Tolstoy's method is accretion.  He doesn't argue; he accumulates
+detail until the pattern emerges.  This is the opposite of synthesis
+— it is a deliberate refusal to synthesize, trusting the reader to
+find the structure.
+
+** George Eliot — /Middlemarch/
+
+The web metaphor that runs through the novel: every character is
+connected to every other through a network of obligations, desires,
+and misunderstandings.  Eliot makes the network visible by shifting
+perspective constantly.
+
+This is the densely-connected knowledge graph as a literary technique.
+Each chapter is a node; the connections are thematic, not hyperlinked.
+
+* Cross-cutting themes
+
+- The relationship between theory and experience (Dostoevsky)
+- Accumulation vs. synthesis as modes of understanding (Tolstoy vs. Eliot)
+- Networks of meaning that emerge from juxtaposition, not explicit linking

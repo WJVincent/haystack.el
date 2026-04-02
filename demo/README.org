@@ -14,15 +14,18 @@ directory, and restores your previous ~haystack-notes-directory~.
 
 * Corpus layout
 
-The 84 notes span four topic areas:
+The 110 notes span six topic areas and include deliberately messy
+files to demonstrate that Haystack handles real-world imperfection:
 
-| Topic   | Notes | File types             |
-|---------+-------+------------------------|
-| Emacs   |    18 | .org                   |
-| Lisp    |    20 | .org, .md              |
-| PKM     |    19 | .org, .md              |
-| Haystack|    19 | .org, .md              |
-| Code    |    12 | .el .py .js .lua .rb .rs|
+| Topic      | Notes | File types                    |
+|------------+-------+-------------------------------|
+| Emacs      |    18 | .org                          |
+| Lisp       |    20 | .org, .md                     |
+| PKM        |    19 | .org, .md                     |
+| Haystack   |    19 | .org, .md                     |
+| Code       |    13 | .el .py .js .lua .rb .rs      |
+| Humanities |     8 | .org, .md, .txt               |
+| Messy      |    13 | .org, .md, .txt (some no frontmatter, spaces in names) |
 
 * Pre-built expansion groups
 
@@ -30,24 +33,27 @@ The following synonym groups are pre-configured in
 ~.expansion-groups.el~.  Any member term expands to the full
 alternation during search:
 
-| Root   | Synonyms                                          |
-|--------+---------------------------------------------------|
-| lisp   | common-lisp, cl, scheme, clojure                  |
-| elisp  | emacs-lisp, emacs lisp                            |
-| pkm    | zettelkasten, knowledge-management, second-brain  |
-| search | ripgrep, rg                                       |
-| note   | notes, zettel                                     |
+| Root    | Synonyms                                          |
+|---------+---------------------------------------------------|
+| lisp    | common-lisp, cl, scheme, clojure                  |
+| elisp   | emacs-lisp, emacs lisp                            |
+| pkm     | zettelkasten, knowledge-management, second-brain  |
+| search  | ripgrep, rg                                       |
+| note    | notes, zettel                                     |
+| writing | composition, essay, draft                         |
 
-* Pre-built frecency history
+* Frecency history
 
-The ~.haystack-frecency.el~ file is pre-populated with a realistic
-search history.  Run ~C-c h f~ (~haystack-frecent~) to replay
-frequent searches.
+The ~.haystack-frecency.el~ file ships empty so you can experience
+frecency from scratch.  After exploring the corpus with a few
+searches, run ~M-x haystack-demo-seed-frecency~ to populate it with a
+realistic pre-built search history.
 
-By default only *leaf* entries are shown — chains that are not merely
-an intermediate step toward a more-visited deeper search.  Use ~C-u
-C-c h f~ to see all recorded chains, including intermediate ones
-dominated by their deeper siblings.
+Once seeded, run ~C-c h f~ (~haystack-frecent~) to replay frequent
+searches.  By default only *leaf* entries are shown — chains that are
+not merely an intermediate step toward a more-visited deeper search.
+Use ~C-u C-c h f~ to see all recorded chains, including intermediate
+ones dominated by their deeper siblings.
 
 * Suggested walkthrough
 
@@ -65,10 +71,15 @@ dominated by their deeper siblings.
    try =!macros= (negation) to see files about lisp that do *not*
    mention macros.
 
-** 3 · Leaf/all frecency
-   ~C-c h f~ shows only leaf searches.  Notice that broad terms like
-   =emacs= and =haystack= are hidden — they are dominated by deeper,
-   more-visited chains like =emacs > org-mode= and
+** 3 · Frecency: before and after
+   Start by running ~C-c h f~ — the list is empty because you haven't
+   searched yet.  Do a few searches (=emacs=, =lisp=, =pkm=) and
+   filter some of them.  Now ~C-c h f~ shows your actual history.
+
+   To see a richer history, run ~M-x haystack-demo-seed-frecency~.
+   Now ~C-c h f~ shows only leaf searches.  Notice that broad terms
+   like =emacs= and =haystack= are hidden — they are dominated by
+   deeper, more-visited chains like =emacs > org-mode= and
    =haystack > filtering=.  Use ~C-u C-c h f~ to reveal all chains,
    or open ~M-x haystack-describe-frecent~ and press =v= to toggle
    the view.
@@ -100,7 +111,29 @@ dominated by their deeper siblings.
    Try it on =orphan-vocabulary-gap= — its Isolated tier is large,
    confirming that the note's vocabulary is genuinely unique.
 
-** 7 · Compose
+** 7 · Messy files
+   The corpus includes deliberately imperfect files: notes without
+   frontmatter, files with spaces in their names, scratch notes
+   without timestamps, and a long conference brain dump.
+
+   Try ~C-c h s~ → =sourdough= to find the recipe.  Or filter
+   =/reading list= (filename filter with a space) to test that
+   Haystack handles spaces in filenames.  Search =TODO= to see how
+   rough drafts and task lists surface alongside polished notes.
+
+** 8 · Cross-domain connections
+   The corpus spans technical and humanistic topics.  Search
+   =synthesis= to see hits from PKM notes, 19th-century novel
+   analysis, and film editing theory.  Search =atomicity= to find
+   both the note-taking principle and the Stoic philosophical
+   parallel.  Search =navigation= to see urban planning alongside
+   Emacs buffer management.
+
+   Try =writing= — it expands to =(writing|composition|essay|draft)=
+   via the expansion group, pulling in results from film editing,
+   music theory, and literature notes.
+
+** 9 · Compose
    From any results buffer, press =f= and type =/synthesis=.  You'll
    land on four notes that bridge two topic areas:
    - =synthesis-emacs-pkm= (Emacs ∩ PKM)

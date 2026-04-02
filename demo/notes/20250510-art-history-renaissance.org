@@ -1,0 +1,78 @@
+#+title: Art History — The Renaissance
+#+date: 2025-05-10
+%%% haystack-end-frontmatter %%%
+
+* Overview
+
+The Italian Renaissance (roughly 1400–1600) was a period of
+extraordinary artistic production centred on Florence, Rome, and
+Venice.  Its defining characteristic was the rediscovery of classical
+antiquity combined with new techniques in perspective, anatomy, and
+oil painting.
+
+* Key figures
+
+** Brunelleschi (1377–1446)
+
+Architect.  Built the dome of Florence Cathedral without centering
+(temporary wooden support), which was thought impossible.  Also
+formalized linear perspective — the technique that allows a flat
+surface to represent three-dimensional depth.
+
+** Masaccio (1401–1428)
+
+Painter.  First to apply Brunelleschi's perspective systematically.
+The /Trinity/ fresco in Santa Maria Novella is a textbook example:
+the barrel vault recedes so convincingly that viewers reportedly tried
+to step into it.
+
+** Leonardo da Vinci (1452–1519)
+
+Painter, engineer, anatomist, polymath.  The quintessential
+Renaissance figure.  His notebooks — thousands of pages of sketches,
+observations, and inventions — are arguably the first personal
+knowledge management system.  He cross-referenced constantly,
+jumping between anatomy, hydraulics, optics, and painting.
+
+** Michelangelo (1475–1564)
+
+Sculptor, painter, architect, poet.  The Sistine Chapel ceiling is
+the most ambitious single artwork ever commissioned.  300+ figures
+across 500 square metres, painted over four years largely by one
+person on scaffolding.
+
+** Raphael (1483–1520)
+
+Painter.  /The School of Athens/ depicts every major Greek philosopher
+in a single architectural space.  It is a visual knowledge graph —
+each figure is positioned in relation to others based on their
+intellectual affinities.
+
+* Techniques
+
+** Linear perspective
+Parallel lines converge at a vanishing point on the horizon.  This
+mathematical framework transformed painting from symbolic
+representation to spatial illusion.
+
+** Chiaroscuro
+The use of strong contrasts between light and dark to model
+three-dimensional form.  Leonardo's /sfumato/ technique takes this
+further, blurring boundaries to create atmospheric depth.
+
+** Contrapposto
+A pose where the figure's weight is shifted onto one leg, creating a
+natural asymmetry.  Borrowed from classical Greek sculpture.
+Michelangelo's /David/ is the definitive example.
+
+* The workshop model
+
+Renaissance art was produced in workshops (botteghe), not by solitary
+geniuses.  A master would design the work; apprentices would prepare
+materials, paint backgrounds, and execute secondary figures.  The
+master painted the faces and hands.
+
+Attribution is therefore always approximate.  "By Raphael" often means
+"designed by Raphael, executed by Raphael and his workshop."  This
+collaborative model is closer to modern software development than to
+the Romantic myth of the solitary artist.

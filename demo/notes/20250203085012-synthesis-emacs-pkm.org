@@ -17,7 +17,7 @@ breaking your current task context. Emacs as pkm blurs the line between writing
 environment and knowledge system — the same editor you use to write code is the
 one managing your notes, references, and daily reflections. Haystack is designed
 specifically for the Emacs pkm context, leveraging ripgrep (rg) for fast full-
-text search and presenting results through Emacs's completing-read interface.
+text search and presenting results in grep-mode buffers with progressive filtering.
 The programmability of emacs-lisp means any gap in your pkm workflow can be
 addressed with a small function or macro, rather than waiting for a third-party
 feature. Critics argue that Emacs pkm has a steep learning curve, but proponents

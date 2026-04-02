@@ -1,0 +1,55 @@
+#+title: Etymology of Search
+#+date: 2025-05-06
+%%% haystack-end-frontmatter %%%
+
+* The word "search"
+
+From Old French /cerchier/ (to search, seek), from Latin /circare/
+(to go around, traverse), from /circus/ (circle, ring).
+
+So "to search" originally meant "to go around in circles."  There is
+an irony here: the most efficient retrieval method in computing is
+named after the least efficient physical strategy.
+
+The shift from circular traversal to targeted lookup mirrors the
+shift from browsing to searching in knowledge management.  You used
+to wander the stacks of a library.  Now you type a query.
+
+* "Haystack"
+
+The idiom "needle in a haystack" dates to at least the 16th century.
+The metaphor assumes that finding is hard because the target is small
+and the search space is large.
+
+But the metaphor is wrong for text search.  In a haystack of notes,
+you are not looking for one needle — you are looking for every piece
+of straw that matches a description.  The operation is filtering, not
+finding.  Ripgrep does not find a needle; it removes all the non-matching
+hay.
+
+* "Retrieval"
+
+From Old French /retrouver/ — to find again.  The prefix /re-/
+implies that you once had what you are looking for.  Retrieval is
+re-finding, not first-finding.
+
+This maps well to frecency.  You search for things you have searched
+for before.  The system remembers your retrieval patterns and
+optimizes for re-finding.
+
+* "Filter"
+
+From Medieval Latin /filtrum/ (felt), used as a straining material.
+To filter is to pass through a medium that retains some things and
+lets others through.
+
+Progressive filtering in Haystack is literal: each filter step is a
+felt layer that catches a different kind of noise.  What passes
+through all layers is signal.
+
+* "Note"
+
+From Latin /nota/ — a mark, sign, or annotation.  Originally a mark
+in the margin, not a standalone document.  The evolution from
+marginal annotation to standalone note is the evolution from
+context-dependent to context-free knowledge.

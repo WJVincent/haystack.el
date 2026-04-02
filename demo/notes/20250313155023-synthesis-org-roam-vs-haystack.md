@@ -11,7 +11,7 @@ provides backlinks panels showing which zettel reference the current note, and
 supports the org-roam-capture workflow for consistent note creation. Haystack
 takes a search-first approach: no database, no link maintenance — just fast
 ripgrep (rg) full-text search with frecency ranking, expansion groups for
-synonym handling, and a clean completing-read interface. The org-roam database
+synonym handling, and grep-mode results buffers with progressive filtering. The org-roam database
 enables precise backlink queries that Haystack cannot replicate: "which notes
 link to this specific note by ID" requires a maintained index, not a text
 search. Haystack's expansion groups solve the vocabulary-gap problem that org-

@@ -1,0 +1,19 @@
+#+title: Scratch
+%%% haystack-end-frontmatter %%%
+
+Temporary scratch space. Delete whenever.
+
+rg --count --with-filename -i "search" .
+  → 34 files
+
+rg --count --with-filename -i "emacs" .
+  → 28 files
+
+Interesting that "search" appears in more files than "emacs" even
+though this is nominally an Emacs-focused corpus.
+
+---
+
+Idea: what if frecency scores were visible in the results buffer
+header? Like "you've searched this path 12 times". Might help with
+the "am I going in circles" feeling.

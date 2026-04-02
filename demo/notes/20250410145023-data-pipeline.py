@@ -12,7 +12,7 @@ supplementary indexes outside the editor. """
 import subprocess import json import re from pathlib import Path from datetime
 import datetime
 
-NOTES_DIR = Path("~/notes").expanduser() FRONTMATTER_SENTINEL = "%%% pkm-end-
+NOTES_DIR = Path("~/notes").expanduser() FRONTMATTER_SENTINEL = "%%% haystack-end-
 frontmatter %%%"
 
 
@@ -55,48 +55,38 @@ def parse_frontmatter(file_path: Path) -> dict:
     return metadata
 
 
-def score_frecency(path: str, visit_log: dict, now: datetime) -> float:
-    """Compute a simple frecency score for a note path.
+def score_frecency(count: int, last_access: datetime, now: datetime) -> float:
+    """Compute a frecency score for a search chain.
 
-    Frecency combines recency (time-decayed) and frequency (visit count).
-    This mirrors the frecency engine in Haystack's emacs-lisp implementation.
+    Haystack's frecency formula: count / max(days_since_last_access, 1).
+    Note: in Haystack, frecency ranks *search chains* (sequences of root
+    search + filters) for replay, not individual notes within results.
     """
-    record = visit_log.get(path, {"visits": [], "count": 0})
-    score = 0.0
-    for visit_time in record.get("visits", []):
-        age_days = (now - datetime.fromisoformat(visit_time)).days
-        # Exponential decay with 30-day half-life
-        score += 2 ** (-age_days / 30)
-    return score
+    days_since = max((now - last_access).days, 1)
+    return count / days_since
 
 
-def build_retrieval_pipeline(query: str, visit_log_path: Path) -> list[dict]:
-    """Full pipeline: search -> parse -> rank -> return results.
+def build_retrieval_pipeline(query: str) -> list[dict]:
+    """Full pipeline: search -> parse -> return results.
 
-    This is the Python equivalent of a single Haystack search invocation.
+    This is the Python equivalent of a single Haystack root search.
+    Results are returned in rg match order (not ranked by frecency —
+    Haystack's frecency ranks search chains for replay, not notes
+    within a single search).
     """
-    visit_log = {}
-    if visit_log_path.exists():
-        with open(visit_log_path) as f:
-            visit_log = json.load(f)
-
     matching_paths = run_ripgrep(query, NOTES_DIR, ["org", "md"])
-    now = datetime.now()
 
     results = []
     for path_str in matching_paths:
         path = Path(path_str)
         meta = parse_frontmatter(path)
-        meta["frecency_score"] = score_frecency(path_str, visit_log, now)
         results.append(meta)
 
-    # Sort by frecency score descending; text relevance is already filtered by rg
-    results.sort(key=lambda r: r["frecency_score"], reverse=True)
     return results
 
 
 if __name__ == "__main__":
-    # Example: search for zettelkasten/pkm notes ranked by frecency
-    results = build_retrieval_pipeline("zettelkasten", Path(".haystack-frecency.json"))
+    # Example: search for zettelkasten/pkm notes
+    results = build_retrieval_pipeline("zettelkasten")
     for r in results[:10]:
-        print(f"{r.get('title', r['filename'])}  (frecency={r['frecency_score']:.3f})")
+        print(f"{r.get('title', r['filename'])}")

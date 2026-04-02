@@ -1,0 +1,7 @@
+Team sync 2025-04-13
+
+- migrate user auth to new provider by end of sprint
+- Jake says the search index is too slow on large tenants
+- revisit caching strategy — maybe LRU instead of TTL?
+- someone mentioned ripgrep as a possible backend
+- follow up with ops re: disk usage on staging

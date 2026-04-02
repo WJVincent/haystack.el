@@ -7,16 +7,17 @@ one term finds notes using any other. The vocabulary-gap problem motivates
 expansion groups: over time you write notes using different words for the same
 concept, and without synonym handling, searches miss notes that use a different
 variant of the term you typed. A typical expansion group declaration looks like:
-~("pkm" "zettelkasten" "knowledge-management" "second-brain")~ — searching for
+~("pkm" . ("zettelkasten" "knowledge-management" "second-brain"))~ — the first
+element is the group root (canonical name) and the rest are member synonyms.  Searching for
 any of these terms in Haystack also matches notes containing the others. When rg
 receives an expanded query, Haystack rewrites it as a regex alternation: a
 search for "pkm" becomes ~(pkm|zettelkasten|knowledge-management|second-brain)~
 passed to ripgrep. The performance cost of expansion is minimal: rg handles
 alternations efficiently, and the expanded query runs in roughly the same time
 as the single-term query on any reasonably sized corpus. Expansion groups are
-configured in ~haystack-expansion-groups~ as a list of lists; the variable is
-designed to be set once in your init and then evolved as your vocabulary
-patterns become clear. Term expansion is one-directional from the user's
+configured in the ~.expansion-groups.el~ file in your notes directory; the file
+is loaded automatically and can be managed via ~haystack-associate~ or edited
+directly. Term expansion is one-directional from the user's
 perspective but symmetric in effect: writing a note with "rg" and later
 searching for "ripgrep" finds that note if both terms are in the same expansion
 group. Expansion groups document your own terminology conventions — they are a

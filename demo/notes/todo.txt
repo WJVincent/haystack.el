@@ -1,0 +1,7 @@
+[ ] finish reading "How to Take Smart Notes"
+[ ] reorganize expansion groups — too many overlapping terms
+[ ] write up comparison of obsidian vs haystack for the blog
+[ ] try out the new date-range search feature
+[ ] clean up old meeting notes from January
+[x] set up haystack demo for the lab presentation
+[x] read the zettelkasten intro paper

@@ -1,0 +1,5 @@
+https://leancrew.com/all-this/2023/02/managing-my-plain-text-notes/
+
+Good post about plain text note-taking without special tools.
+Mentions using spotlight + grep as the primary retrieval method.
+Basically the haystack philosophy but on macOS without emacs.

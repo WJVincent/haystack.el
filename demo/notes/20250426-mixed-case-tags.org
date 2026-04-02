@@ -1,0 +1,20 @@
+#+title: Mixed Case Tags
+#+date: 2025-04-26
+#+filetags: :Emacs:pkm:SEARCH:note_taking:
+%%% haystack-end-frontmatter %%%
+
+This note deliberately has inconsistent tag casing to test how search
+handles case-insensitive matching across different conventions.
+
+Some people use =PKM=, others use =pkm= or =Pkm=. In a real corpus
+you'd see all three. Same with =zettelkasten= vs =Zettelkasten=.
+
+Haystack's search is case-insensitive by default (=rg -i=) so this
+shouldn't matter for retrieval. But it DOES matter for expansion
+groups — the lookup is case-insensitive but the display shows the
+canonical root form.
+
+Related: some people tag with underscores (=note_taking=), others with
+hyphens (=note-taking=), others with spaces (=note taking=). Haystack
+treats hyphens as word characters in single-word classification, so
+=note-taking= is one word but =note taking= is two.
