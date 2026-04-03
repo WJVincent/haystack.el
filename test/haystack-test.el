@@ -2825,6 +2825,516 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
   (should-not (haystack--parse-or-tokens " | "))
   (should-not (haystack--parse-or-tokens "rust | ")))
 
+;;;; haystack--tokenize-query (Layer 1)
+
+(ert-deftest haystack-test/tokenize-single-term ()
+  "T1: single term returns one-element list."
+  (should (equal (haystack--tokenize-query "rust") '("rust"))))
+
+(ert-deftest haystack-test/tokenize-and ()
+  "T2: A & B splits on spaced ampersand."
+  (should (equal (haystack--tokenize-query "rust & async")
+                 '("rust" "&" "async"))))
+
+(ert-deftest haystack-test/tokenize-or ()
+  "T3: A | B splits on spaced pipe."
+  (should (equal (haystack--tokenize-query "rust | python")
+                 '("rust" "|" "python"))))
+
+(ert-deftest haystack-test/tokenize-grouped-or ()
+  "T4: parenthesized OR."
+  (should (equal (haystack--tokenize-query "(rust | python)")
+                 '("(" "rust" "|" "python" ")"))))
+
+(ert-deftest haystack-test/tokenize-grouped-or-and ()
+  "T5: (A | B) & C."
+  (should (equal (haystack--tokenize-query "(rust | python) & async")
+                 '("(" "rust" "|" "python" ")" "&" "async"))))
+
+(ert-deftest haystack-test/tokenize-negated-group ()
+  "T6: ! is split from ( as its own token."
+  (should (equal (haystack--tokenize-query "!(rust | python)")
+                 '("!" "(" "rust" "|" "python" ")"))))
+
+(ert-deftest haystack-test/tokenize-double-group ()
+  "T7: (A & B) | (C & D)."
+  (should (equal (haystack--tokenize-query "(A & B) | (C & D)")
+                 '("(" "A" "&" "B" ")" "|" "(" "C" "&" "D" ")"))))
+
+(ert-deftest haystack-test/tokenize-nested-parens ()
+  "T8: nested parens."
+  (should (equal (haystack--tokenize-query "((A | B))")
+                 '("(" "(" "A" "|" "B" ")" ")"))))
+
+(ert-deftest haystack-test/tokenize-prefixed-terms ()
+  "T9: prefix characters stay attached to terms."
+  (should (equal (haystack--tokenize-query "=rust | ~async")
+                 '("=rust" "|" "~async"))))
+
+(ert-deftest haystack-test/tokenize-scope-prefixes ()
+  "T10: scope prefixes stay attached."
+  (should (equal (haystack--tokenize-query ">body | <front")
+                 '(">body" "|" "<front"))))
+
+(ert-deftest haystack-test/tokenize-whitespace-in-group ()
+  "T11: whitespace inside parens is trimmed."
+  (should (equal (haystack--tokenize-query "( A | B )")
+                 '("(" "A" "|" "B" ")"))))
+
+(ert-deftest haystack-test/tokenize-three-way-and ()
+  "T12: A & B & C."
+  (should (equal (haystack--tokenize-query "A & B & C")
+                 '("A" "&" "B" "&" "C"))))
+
+(ert-deftest haystack-test/tokenize-three-way-or ()
+  "T13: A | B | C."
+  (should (equal (haystack--tokenize-query "A | B | C")
+                 '("A" "|" "B" "|" "C"))))
+
+(ert-deftest haystack-test/tokenize-mixed-precedence ()
+  "T14: A | B & C — no parens."
+  (should (equal (haystack--tokenize-query "A | B & C")
+                 '("A" "|" "B" "&" "C"))))
+
+(ert-deftest haystack-test/tokenize-negated-bare-term ()
+  "T15: !A keeps negation attached to term."
+  (should (equal (haystack--tokenize-query "!A")
+                 '("!A"))))
+
+;;;; haystack--parse-query (Layer 2)
+
+(ert-deftest haystack-test/parse-single-term ()
+  "P1: single term → leaf."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "rust"))))
+    (should (eq (plist-get ast :kind) 'term))
+    (should (equal (plist-get ast :raw) "rust"))))
+
+(ert-deftest haystack-test/parse-and ()
+  "P2: A & B → AND group."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A & B"))))
+    (should (eq (plist-get ast :kind) 'group))
+    (should (eq (plist-get ast :op) 'and))
+    (should (= (length (plist-get ast :children)) 2))))
+
+(ert-deftest haystack-test/parse-or ()
+  "P3: A | B → OR group."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A | B"))))
+    (should (eq (plist-get ast :kind) 'group))
+    (should (eq (plist-get ast :op) 'or))
+    (should (= (length (plist-get ast :children)) 2))))
+
+(ert-deftest haystack-test/parse-three-way-and ()
+  "P4: A & B & C → AND with 3 children."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A & B & C"))))
+    (should (eq (plist-get ast :op) 'and))
+    (should (= (length (plist-get ast :children)) 3))))
+
+(ert-deftest haystack-test/parse-three-way-or ()
+  "P5: A | B | C → OR with 3 children."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A | B | C"))))
+    (should (eq (plist-get ast :op) 'or))
+    (should (= (length (plist-get ast :children)) 3))))
+
+(ert-deftest haystack-test/parse-precedence-or-and ()
+  "P6: A | B & C → OR(A, AND(B, C))."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A | B & C"))))
+    (should (eq (plist-get ast :op) 'or))
+    (let ((children (plist-get ast :children)))
+      (should (eq (plist-get (car children) :kind) 'term))
+      (should (eq (plist-get (cadr children) :op) 'and)))))
+
+(ert-deftest haystack-test/parse-precedence-and-or ()
+  "P7: A & B | C → OR(AND(A, B), C)."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A & B | C"))))
+    (should (eq (plist-get ast :op) 'or))
+    (let ((children (plist-get ast :children)))
+      (should (eq (plist-get (car children) :op) 'and))
+      (should (eq (plist-get (cadr children) :kind) 'term)))))
+
+(ert-deftest haystack-test/parse-grouped-or-and ()
+  "P8: (A | B) & C → AND(OR(A,B), C)."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "(A | B) & C"))))
+    (should (eq (plist-get ast :op) 'and))
+    (let ((children (plist-get ast :children)))
+      (should (eq (plist-get (car children) :op) 'or))
+      (should (eq (plist-get (cadr children) :kind) 'term)))))
+
+(ert-deftest haystack-test/parse-and-grouped-or ()
+  "P9: A & (B | C) → AND(A, OR(B,C))."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "A & (B | C)"))))
+    (should (eq (plist-get ast :op) 'and))
+    (let ((children (plist-get ast :children)))
+      (should (eq (plist-get (car children) :kind) 'term))
+      (should (eq (plist-get (cadr children) :op) 'or)))))
+
+(ert-deftest haystack-test/parse-double-group ()
+  "P10: (A & B) | (C & D) → OR(AND(A,B), AND(C,D))."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "(A & B) | (C & D)"))))
+    (should (eq (plist-get ast :op) 'or))
+    (let ((children (plist-get ast :children)))
+      (should (eq (plist-get (car children) :op) 'and))
+      (should (eq (plist-get (cadr children) :op) 'and)))))
+
+(ert-deftest haystack-test/parse-negated-group ()
+  "P11: !(A | B) → NOT node wrapping OR."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "!(A | B)"))))
+    (should (eq (plist-get ast :op) 'not))
+    (should (eq (plist-get (plist-get ast :child) :op) 'or))))
+
+(ert-deftest haystack-test/parse-negated-term-in-and ()
+  "P12: !A & B → AND(negated-A, B)."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "!A & B"))))
+    (should (eq (plist-get ast :op) 'and))
+    (let ((first (car (plist-get ast :children))))
+      (should (eq (plist-get first :kind) 'term))
+      (should (equal (plist-get first :raw) "!A")))))
+
+(ert-deftest haystack-test/parse-single-in-parens ()
+  "P13: (A) → single term, parens stripped."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "(A)"))))
+    (should (eq (plist-get ast :kind) 'term))
+    (should (equal (plist-get ast :raw) "A"))))
+
+(ert-deftest haystack-test/parse-redundant-parens ()
+  "P14: ((A | B)) → OR(A, B), redundant parens stripped."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "((A | B))"))))
+    (should (eq (plist-get ast :op) 'or))
+    (should (= (length (plist-get ast :children)) 2))))
+
+(ert-deftest haystack-test/parse-negated-and-or ()
+  "P15: !(A & B) | C → OR(NOT(AND(A,B)), C)."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "!(A & B) | C"))))
+    (should (eq (plist-get ast :op) 'or))
+    (let ((children (plist-get ast :children)))
+      (should (eq (plist-get (car children) :op) 'not))
+      (should (eq (plist-get (plist-get (car children) :child) :op) 'and))
+      (should (eq (plist-get (cadr children) :kind) 'term)))))
+
+(ert-deftest haystack-test/parse-error-unmatched-open ()
+  "P16: unmatched ( → error."
+  (should-error (haystack--parse-query (haystack--tokenize-query "(A | B"))
+                :type 'user-error))
+
+(ert-deftest haystack-test/parse-error-unmatched-close ()
+  "P17: unmatched ) → error."
+  (should-error (haystack--parse-query (haystack--tokenize-query "A | B)"))
+                :type 'user-error))
+
+(ert-deftest haystack-test/parse-error-empty-group ()
+  "P18: empty () → error."
+  (should-error (haystack--parse-query (haystack--tokenize-query "()"))
+                :type 'user-error))
+
+(ert-deftest haystack-test/parse-error-double-operator ()
+  "P19: A & | B → error (operator where term expected)."
+  (should-error (haystack--parse-query '("A" "&" "|" "B"))
+                :type 'user-error))
+
+(ert-deftest haystack-test/parse-error-leading-operator ()
+  "P20: | A → error (operator at start)."
+  (should-error (haystack--parse-query '("|" "A"))
+                :type 'user-error))
+
+(ert-deftest haystack-test/parse-error-trailing-operator ()
+  "P21: A | → error (operator at end)."
+  (should-error (haystack--parse-query '("A" "|"))
+                :type 'user-error))
+
+;;;; haystack--execute-query (Layer 3)
+
+(defmacro haystack-test--with-query-corpus (&rest body)
+  "Run BODY with a 5-file test corpus for query execution tests.
+Files:
+  a.org: \"rust async tokio\"
+  b.org: \"python flask django\"
+  c.org: \"rust python\"
+  d.org: \"emacs lisp elisp\"
+  e.org: \"nothing here\""
+  (declare (indent 0))
+  `(haystack-test--with-notes-dir
+    (let ((haystack-file-glob nil))
+      (with-temp-file (expand-file-name "a.org" haystack-notes-directory)
+        (insert "rust async tokio\n"))
+      (with-temp-file (expand-file-name "b.org" haystack-notes-directory)
+        (insert "python flask django\n"))
+      (with-temp-file (expand-file-name "c.org" haystack-notes-directory)
+        (insert "rust python\n"))
+      (with-temp-file (expand-file-name "d.org" haystack-notes-directory)
+        (insert "emacs lisp elisp\n"))
+      (with-temp-file (expand-file-name "e.org" haystack-notes-directory)
+        (insert "nothing here\n"))
+      ,@body)))
+
+(defun haystack-test--query-basenames (ast cf notes-dir)
+  "Execute AST and return sorted basenames of matching files."
+  (sort (mapcar #'file-name-nondirectory
+                (haystack--execute-query ast cf notes-dir))
+        #'string<))
+
+(ert-deftest haystack-test/execute-single-term ()
+  "E1: single term returns matching files."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "rust")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("a.org" "c.org"))))))
+
+(ert-deftest haystack-test/execute-single-term-b ()
+  "E2: python matches b and c."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "python")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("b.org" "c.org"))))))
+
+(ert-deftest haystack-test/execute-and ()
+  "E3: rust & python → only c (has both)."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust) & (python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("c.org"))))))
+
+(ert-deftest haystack-test/execute-or ()
+  "E4: rust | python → a, b, c."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust) | (python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("a.org" "b.org" "c.org"))))))
+
+(ert-deftest haystack-test/execute-grouped-or-and ()
+  "E5: (rust | python) & async → a only."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust | python) & async")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("a.org"))))))
+
+(ert-deftest haystack-test/execute-grouped-and-or ()
+  "E6: (rust & python) | emacs → c and d."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust & python) | emacs")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("c.org" "d.org"))))))
+
+(ert-deftest haystack-test/execute-negated-or ()
+  "E7: !(rust | python) → d, e."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "!(rust | python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("d.org" "e.org"))))))
+
+(ert-deftest haystack-test/execute-negated-term-and ()
+  "E8: !rust & python → b only."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(!rust) & (python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("b.org"))))))
+
+(ert-deftest haystack-test/execute-negated-and ()
+  "E9: !(rust & python) → a, b, d, e."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "!(rust & python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("a.org" "b.org" "d.org" "e.org"))))))
+
+(ert-deftest haystack-test/execute-double-group ()
+  "E10: (rust | python) & (async | flask) → a, b."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust | python) & (async | flask)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("a.org" "b.org"))))))
+
+(ert-deftest haystack-test/execute-double-negation ()
+  "E11: !rust & !python → d, e."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(!rust) & (!python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("d.org" "e.org"))))))
+
+(ert-deftest haystack-test/execute-complex-negated-group ()
+  "E12: (emacs | lisp) & !(rust | python) → d only."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(emacs | lisp) & !(rust | python)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("d.org"))))))
+
+(ert-deftest haystack-test/execute-empty-result ()
+  "E13: rust & python & emacs → no files."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust) & (python) & (emacs)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (null files)))))
+
+(ert-deftest haystack-test/execute-parens-stripped ()
+  "E14: (rust) → same as rust, a and c."
+  (haystack-test--with-query-corpus
+   (let* ((ast   (haystack--parse-query (haystack--tokenize-query "(rust)")))
+          (files (haystack-test--query-basenames
+                  ast 'all (expand-file-name haystack-notes-directory))))
+     (should (equal files '("a.org" "c.org"))))))
+
+;;;; haystack--query-content-pattern
+
+(ert-deftest haystack-test/query-content-pattern-single ()
+  "Single leaf produces its pattern."
+  (let ((ast (haystack--parse-query (haystack--tokenize-query "rust"))))
+    (should (stringp (haystack--query-content-pattern ast)))))
+
+(ert-deftest haystack-test/query-content-pattern-or ()
+  "OR produces alternation pattern."
+  (let ((pat (haystack--query-content-pattern
+              (haystack--parse-query (haystack--tokenize-query "(rust) | (python)")))))
+    (should (string-match-p "(" pat))
+    (should (string-match-p "|" pat))))
+
+(ert-deftest haystack-test/query-content-pattern-negation-fallback ()
+  "Queries with negation fall back to . as content pattern."
+  (let ((pat (haystack--query-content-pattern
+              (haystack--parse-query (haystack--tokenize-query "(!rust) & (python)")))))
+    (should (equal pat "."))))
+
+;;;; Grouped query integration (Layer 4)
+
+(ert-deftest haystack-test/grouped-search-returns-buffer ()
+  "I1: grouped query returns a live results buffer."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "(rust | python) & async")))
+       (unwind-protect
+           (should (buffer-live-p buf))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/grouped-search-descriptor-root-term ()
+  "I2: descriptor stores full expression as root-term."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "(rust | python) & async")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (equal (haystack-sd-root-term haystack--search-descriptor)
+                            "(rust | python) & async")))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/grouped-search-has-content ()
+  "I3: buffer contains matching result lines."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "(rust | python) & async")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "a\\.org" (buffer-string))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/grouped-search-records-frecency ()
+  "I4: frecency data has entry after grouped search."
+  (haystack-test--with-query-corpus
+   (let ((haystack--frecency-data nil)
+         (haystack--frecency-dirty nil))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+               ((symbol-function 'switch-to-buffer) #'ignore)
+               ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+       (let ((buf (haystack-run-root-search "(rust | python) & async")))
+         (unwind-protect
+             (should (= 1 (length haystack--frecency-data)))
+           (when (buffer-live-p buf) (kill-buffer buf))))))))
+
+(ert-deftest haystack-test/grouped-search-filter-further-works ()
+  "I6: filter-further on grouped results creates child buffer."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t))
+             ((symbol-function 'read-string) (lambda (_p &rest _) "tokio")))
+     (let ((buf (haystack-run-root-search "(rust | python) & async")))
+       (unwind-protect
+           (with-current-buffer buf
+             (let ((child (haystack-filter-further "tokio")))
+               (unwind-protect
+                   (should (buffer-live-p child))
+                 (when (buffer-live-p child) (kill-buffer child)))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/non-grouped-and-still-works ()
+  "I9: regression — non-grouped A & B still works."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "rust & python")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "c\\.org" (buffer-string))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/non-grouped-or-still-works ()
+  "I10: regression — non-grouped A | B still works."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "rust | python")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "a\\.org\\|b\\.org" (buffer-string))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/non-grouped-single-still-works ()
+  "I11: regression — single term still works."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "rust")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "a\\.org" (buffer-string))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Prefix permutations in grouped queries (Layer 6)
+
+(ert-deftest haystack-test/grouped-literal-prefix ()
+  "X1: literal prefix inside group."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "(=rust | =python) & async")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "a\\.org" (buffer-string))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-test/grouped-negated-term-inside-or ()
+  "X3: negation on term inside OR."
+  (haystack-test--with-query-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+     ;; (!rust | python) = files-without-rust ∪ files-with-python = b, c, d, e
+     (let ((buf (haystack-run-root-search "(!rust | python)")))
+       (unwind-protect
+           (with-current-buffer buf
+             (let ((content (buffer-string)))
+               (should (string-match-p "b\\.org" content))
+               (should (string-match-p "d\\.org" content))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
 ;;;; haystack--run-or-query
 
 (ert-deftest haystack-test/run-or-query-alternation ()

@@ -1114,5 +1114,53 @@ for standard haystack frontmatter: TITLE, DATE, sentinel)."
                (should (> (count-lines (point-min) (point-max)) 5))))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
 
+;;;; Grouped query IO tests (Layer 5)
+
+(ert-deftest haystack-io-test/grouped-or-and ()
+  "IO1: (emacs | lisp) & org returns files with either term AND org."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "(emacs | lisp) & org")))
+       (unwind-protect
+           (with-current-buffer buf
+             (should (> (count-lines (point-min) (point-max)) 3)))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-io-test/grouped-negated-or ()
+  "IO2: !(haystack | emacs) excludes files with either term."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "!(haystack | emacs)")))
+       (unwind-protect
+           (with-current-buffer buf
+             (let ((content (buffer-string)))
+               ;; Files containing haystack or emacs should not appear
+               (should-not (string-match-p "haystack-config" content))
+               (should-not (string-match-p "emacs-buffers" content))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+(ert-deftest haystack-io-test/grouped-double-group ()
+  "IO4: (rust | python) & (async | flask) — double grouping."
+  (haystack-io-test--with-corpus
+   ;; Add test files with known content to the corpus copy
+   (with-temp-file (expand-file-name "20260401-rust-async.org" haystack-notes-directory)
+     (insert "rust async programming\n"))
+   (with-temp-file (expand-file-name "20260401-python-flask.org" haystack-notes-directory)
+     (insert "python flask web framework\n"))
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let ((buf (haystack-run-root-search "(rust | python) & (async | flask)")))
+       (unwind-protect
+           (with-current-buffer buf
+             (let ((content (buffer-string)))
+               (should (string-match-p "rust-async" content))
+               (should (string-match-p "python-flask" content))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
+
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

@@ -190,7 +190,19 @@ rust | python | go
 
 Haystack builds a single regex alternation and runs one rg call. Files
 matching any term appear in results. Prefix modifiers work per branch.
-`!` and mixing `&` with `|` are not supported in a single query.
+
+#### Grouping
+
+```
+(rust | python) & async
+(emacs | lisp) & !(rust | python)
+(A & B) | (C & D)
+```
+
+Parentheses override the default precedence (`!` > `&` > `|`). The
+parser builds a query tree and reduces it to file-set operations:
+AND = intersection, OR = union, NOT = complement. Prefix modifiers
+work per-term inside groups.
 
 ### Search at Point
 

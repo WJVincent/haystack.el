@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+---
+
+## [0.16.0] — 2026-04-02
+
 ### Changed
 
 - **`D` in results buffers** — now analyzes the file at point instead
@@ -19,16 +23,20 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Query grouping** (`(A | B) & C`) — recursive-descent parser
+  supporting `()` parentheses in search expressions.  Precedence:
+  `!` > `&` > `|`.  Enables complex queries like
+  `(emacs | lisp) & !(rust | python)`.  File-set operations:
+  AND = intersection, OR = union, NOT = complement.
 - **Date parser** — `haystack-search-date-range` and
   `haystack-filter-further-by-date` now accept relative offsets
   (`-7d`, `-2w`, `-3m`, `-1y`) and keywords (`today`, `yesterday`,
   `this-week`, `last-week`, `this-month`, `last-month`).  Keywords
   returning a cons fill both bounds; user-extensible via
   `haystack-date-keywords` defcustom.
-- **OR operator** (`A | B`) — ad-hoc alternation via single rg call.
+- **OR operator** (`A | B`) — alternation via single rg call.
   `rust | python` finds files matching either term.  Multi-way OR
-  (`A | B | C`) supported.  Precedence: `!` > `&` > `|`.  Mixed
-  `&` and `|` in a single query deferred to Phase 3 (grouping).
+  (`A | B | C`) supported.  Precedence: `!` > `&` > `|`.
 - **Frecent kill-region** (`K`) — kill all frecency entries in the
   active region for bulk cleanup.  Complements the single-entry `k`.
 - **Mentions origin exclusion** — `haystack-find-mentions` and
@@ -37,11 +45,6 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - **`haystack-prefix-map` autoload** — the prefix keymap now has an
   `;;;###autoload` cookie for proper lazy loading.
 - **Frecency dirty flag** preserved across demo mode transitions.
-- **DD-7 Phase 1: Keymap consistency audit** — verified all commands
-  shared between `haystack-prefix-map` and `haystack-results-mode-map`
-  use consistent keys.  Only `haystack-compose` differs (`w` vs
-  `C-c C-c`), intentionally: `C-c C-c` follows the Emacs "do it"
-  convention in context buffers.
 - **Frecency format versioning** — `.haystack-frecency.el` now uses a
   versioned plist wrapper `(:version 1 :entries ...)`.  Bare alists
   from pre-0.16 are auto-migrated on load.  Future format changes

@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: William Vincent <william@william-vincent.dev>
-;; Version: 0.15.0
+;; Version: 0.16.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, files, outlines
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -2370,6 +2370,321 @@ tokens are treated as a normal search and return nil."
       (when (>= (length tokens) 2)
         tokens))))
 
+;;;; Grouped query parser
+
+(defun haystack--tokenize-query (raw)
+  "Split RAW into a flat list of tokens respecting parentheses.
+Operators ` & ` and ` | ` become single-character tokens \"&\" and \"|\".
+Parentheses are always their own tokens.  A leading `!' before `(' is
+split into its own token.  Whitespace inside parenthesized groups is
+trimmed from each token."
+  (let ((tokens nil)
+        (pos 0)
+        (len (length raw))
+        (current ""))
+    (while (< pos len)
+      (let ((ch (aref raw pos)))
+        (cond
+         ;; Parentheses: flush current, emit paren token
+         ((or (= ch ?\() (= ch ?\)))
+          ;; Split leading ! from current before (
+          (when (and (= ch ?\()
+                     (string-suffix-p "!" current)
+                     (> (length current) 0))
+            (let ((pre (substring current 0 -1)))
+              (unless (string-empty-p (string-trim pre))
+                (push (string-trim pre) tokens))
+              (push "!" tokens)
+              (setq current "")))
+          (let ((trimmed (string-trim current)))
+            (unless (string-empty-p trimmed)
+              (push trimmed tokens)))
+          (push (char-to-string ch) tokens)
+          (setq current ""))
+         ;; Space: check for ` & ` or ` | ` operator
+         ((= ch ?\s)
+          (if (and (< (+ pos 2) len)
+                   (memq (aref raw (1+ pos)) '(?& ?|))
+                   (= (aref raw (+ pos 2)) ?\s))
+              (progn
+                (let ((trimmed (string-trim current)))
+                  (unless (string-empty-p trimmed)
+                    (push trimmed tokens)))
+                (push (char-to-string (aref raw (1+ pos))) tokens)
+                (setq current "")
+                (setq pos (+ pos 2)))
+            (setq current (concat current (char-to-string ch)))))
+         ;; Normal character
+         (t (setq current (concat current (char-to-string ch))))))
+      (setq pos (1+ pos)))
+    ;; Flush remaining
+    (let ((trimmed (string-trim current)))
+      (unless (string-empty-p trimmed)
+        (push trimmed tokens)))
+    (nreverse tokens)))
+
+(defun haystack--parse-query (tokens)
+  "Parse TOKENS (from `haystack--tokenize-query') into an AST.
+Grammar (precedence: ! > & > |):
+  query    = or-expr
+  or-expr  = and-expr (\"|\" and-expr)*
+  and-expr = unary (\"&\" unary)*
+  unary    = \"!\" unary | atom
+  atom     = \"(\" query \")\" | TERM
+Returns an AST node.  Signals `user-error' on malformed input."
+  (let* ((state (cons tokens nil))  ;; (remaining-tokens . nil)
+         (result (haystack--pq-or-expr state)))
+    (when (car state)
+      (user-error "Haystack: unexpected token '%s' after query"
+                  (caar state)))
+    result))
+
+(defun haystack--pq-peek (state)
+  "Return the next token without consuming it, or nil."
+  (caar state))
+
+(defun haystack--pq-consume (state)
+  "Consume and return the next token.  Signals error if empty."
+  (unless (car state)
+    (user-error "Haystack: unexpected end of query"))
+  (let ((tok (caar state)))
+    (setcar state (cdar state))
+    tok))
+
+(defun haystack--pq-match (state expected)
+  "Consume the next token if it equals EXPECTED, else signal error."
+  (let ((tok (haystack--pq-consume state)))
+    (unless (equal tok expected)
+      (user-error "Haystack: expected '%s' but got '%s'" expected tok))
+    tok))
+
+(defun haystack--pq-or-expr (state)
+  "Parse an or-expression: and-expr (\"|\" and-expr)*."
+  (let ((left (haystack--pq-and-expr state))
+        (children nil))
+    (while (equal (haystack--pq-peek state) "|")
+      (haystack--pq-consume state)
+      (push (haystack--pq-and-expr state) children))
+    (if children
+        (list :kind 'group :op 'or
+              :children (cons left (nreverse children)))
+      left)))
+
+(defun haystack--pq-and-expr (state)
+  "Parse an and-expression: unary (\"&\" unary)*."
+  (let ((left (haystack--pq-unary state))
+        (children nil))
+    (while (equal (haystack--pq-peek state) "&")
+      (haystack--pq-consume state)
+      (push (haystack--pq-unary state) children))
+    (if children
+        (list :kind 'group :op 'and
+              :children (cons left (nreverse children)))
+      left)))
+
+(defun haystack--pq-unary (state)
+  "Parse a unary expression: \"!\" unary | atom."
+  (if (equal (haystack--pq-peek state) "!")
+      (progn
+        (haystack--pq-consume state)
+        (let ((inner (haystack--pq-unary state)))
+          (if (eq (plist-get inner :kind) 'term)
+              ;; Merge negation into term: prepend ! to raw
+              (let ((raw (plist-get inner :raw)))
+                (list :kind 'term :raw (concat "!" raw)))
+            ;; Negated group
+            (list :kind 'group :op 'not :child inner))))
+    (haystack--pq-atom state)))
+
+(defun haystack--pq-atom (state)
+  "Parse an atom: \"(\" query \")\" | TERM."
+  (let ((tok (haystack--pq-peek state)))
+    (unless tok
+      (user-error "Haystack: unexpected end of query — expected a term"))
+    (cond
+     ((equal tok "(")
+      (haystack--pq-consume state)
+      (when (equal (haystack--pq-peek state) ")")
+        (user-error "Haystack: empty group ()"))
+      ;; Check for invalid prefixes on groups
+      (let ((result (haystack--pq-or-expr state)))
+        (haystack--pq-match state ")")
+        result))
+     ((equal tok ")")
+      (user-error "Haystack: unexpected ')'"))
+     ((member tok '("&" "|"))
+      (user-error "Haystack: unexpected operator '%s'" tok))
+     (t
+      ;; Validate: scope/filename prefix on group not possible here
+      ;; (would have been caught earlier as a term, not followed by paren)
+      (haystack--pq-consume state)
+      (list :kind 'term :raw tok)))))
+
+(defun haystack--query-has-groups-p (raw)
+  "Return non-nil if RAW contains parentheses indicating a grouped query."
+  (string-match-p "(" raw))
+
+(defun haystack--execute-query (ast cf notes-dir)
+  "Walk AST and return a list of absolute file paths matching the query.
+CF is the composite filter; NOTES-DIR is the expanded notes directory."
+  (pcase (plist-get ast :kind)
+    ('term
+     (let* ((parsed  (haystack--parse-input (plist-get ast :raw)))
+            (pattern (plist-get parsed :pattern))
+            (negated (plist-get parsed :negated)))
+       (split-string
+        (with-temp-buffer
+          (apply #'call-process "rg" nil t nil
+                 (haystack--rg-args
+                  :files-with-matches (not negated)
+                  :files-without-match negated
+                  :composite-filter cf
+                  :file-glob t
+                  :pattern pattern
+                  :extra-args (list notes-dir)))
+          (buffer-string))
+        "\n" t)))
+    ('group
+     (pcase (plist-get ast :op)
+       ('and
+        (let ((children (plist-get ast :children))
+              (files nil))
+          ;; First child: search full directory
+          (setq files (haystack--execute-query (car children) cf notes-dir))
+          ;; Subsequent children: narrow via filelist
+          (dolist (child (cdr children))
+            (when files
+              (let ((child-files (haystack--execute-query child cf notes-dir)))
+                (setq files (seq-filter (lambda (f) (member f child-files)) files)))))
+          files))
+       ('or
+        (let ((all-files nil))
+          (dolist (child (plist-get ast :children))
+            (let ((child-files (haystack--execute-query child cf notes-dir)))
+              (dolist (f child-files)
+                (unless (member f all-files)
+                  (push f all-files)))))
+          (nreverse all-files)))
+       ('not
+        (let* ((inner-files (haystack--execute-query (plist-get ast :child) cf notes-dir))
+               (all-files   (split-string
+                             (with-temp-buffer
+                               (apply #'call-process "rg" nil t nil
+                                      (haystack--rg-args
+                                       :files-with-matches t
+                                       :composite-filter cf
+                                       :file-glob t
+                                       :pattern "."
+                                       :extra-args (list notes-dir)))
+                               (buffer-string))
+                             "\n" t)))
+          (seq-filter (lambda (f) (not (member f inner-files))) all-files)))))))
+
+(defun haystack--query-leaf-patterns (ast)
+  "Collect rg patterns from all non-negated leaf terms in AST.
+Returns a list of pattern strings suitable for alternation."
+  (pcase (plist-get ast :kind)
+    ('term
+     (let* ((parsed (haystack--parse-input (plist-get ast :raw))))
+       (unless (plist-get parsed :negated)
+         (list (plist-get parsed :pattern)))))
+    ('group
+     (pcase (plist-get ast :op)
+       ('not nil)  ;; negated groups contribute no content patterns
+       (_
+        (let ((patterns nil))
+          (dolist (child (or (plist-get ast :children)
+                             (list (plist-get ast :child))))
+            (setq patterns (append patterns (haystack--query-leaf-patterns child))))
+          patterns))))))
+
+(defun haystack--query-has-negation-p (ast)
+  "Return non-nil if AST contains any negation (NOT node or negated term)."
+  (pcase (plist-get ast :kind)
+    ('term (plist-get (haystack--parse-input (plist-get ast :raw)) :negated))
+    ('group
+     (pcase (plist-get ast :op)
+       ('not t)
+       (_ (cl-some #'haystack--query-has-negation-p
+                   (or (plist-get ast :children)
+                       (when (plist-get ast :child)
+                         (list (plist-get ast :child))))))))))
+
+(defun haystack--query-content-pattern (ast)
+  "Return a combined rg pattern for content search from AST leaf terms.
+Non-negated leaf patterns are joined as an alternation.  When the query
+contains negation, falls back to \".\" since negated branches contribute
+files that may not match the positive patterns."
+  (if (haystack--query-has-negation-p ast)
+      "."
+    (let ((patterns (haystack--query-leaf-patterns ast)))
+      (cond
+       ((null patterns) ".")
+       ((= (length patterns) 1) (car patterns))
+       (t (concat "(" (mapconcat #'identity patterns "|") ")"))))))
+
+(defun haystack--run-root-search-grouped (raw-input cf)
+  "Handle the grouped query path for `haystack-run-root-search'.
+RAW-INPUT contains parentheses; CF is the composite filter.
+Parses the expression, executes the file-set query, then does a content
+search on the surviving files.  Returns a plist with :buf-name :header
+:output :descriptor :composite-path for the dispatcher."
+  (let* ((tokens       (haystack--tokenize-query raw-input))
+         (ast          (haystack--parse-query tokens))
+         (notes-dir    (expand-file-name haystack-notes-directory))
+         (files        (haystack--execute-query ast cf notes-dir))
+         (content-pat  (haystack--query-content-pattern ast))
+         (raw-output
+          (if (null files)
+              ""
+            (let ((tmp (haystack--write-filelist files)))
+              (unwind-protect
+                  (progn
+                    (haystack--volume-gate
+                     (haystack--xargs-rg
+                      tmp (haystack--rg-args :count t
+                                             :composite-filter 'all
+                                             :pattern (or content-pat "."))))
+                    (haystack--search-in-filelist
+                     (or content-pat ".") tmp 'all))
+                (delete-file tmp)))))
+         (stats        (haystack--count-search-stats raw-output))
+         (emacs-pat    (when content-pat
+                         (regexp-quote (or (car (haystack--query-leaf-patterns ast)) ""))))
+         (output       (haystack--strip-notes-prefix
+                        (haystack--truncate-output raw-output (or emacs-pat "."))))
+         (buf-name     (format "*haystack:1:%s*" (replace-regexp-in-string " " "" raw-input)))
+         (chain-label  (format "root=%s" raw-input))
+         ;; Use first non-negated leaf for descriptor flags
+         (first-leaf   (haystack--parse-input
+                        (plist-get (car (haystack--query-leaf-nodes ast)) :raw)))
+         (descriptor   (haystack-sd-create
+                        :root-term        raw-input
+                        :root-expanded    (or content-pat ".")
+                        :root-literal     (plist-get first-leaf :literal)
+                        :root-regex       (plist-get first-leaf :regex)
+                        :root-expansion   (plist-get first-leaf :expansion)
+                        :root-scope       (plist-get first-leaf :scope)
+                        :composite-filter cf))
+         (composite-path (haystack--find-composite descriptor))
+         (header         (haystack--format-header chain-label (car stats) (cdr stats)
+                                                  composite-path)))
+    (haystack--frecency-record descriptor)
+    (list :buf-name buf-name :header header :output output
+          :descriptor descriptor :composite-path composite-path)))
+
+(defun haystack--query-leaf-nodes (ast)
+  "Return a flat list of all leaf term nodes in AST."
+  (pcase (plist-get ast :kind)
+    ('term (list ast))
+    ('group
+     (let ((nodes nil))
+       (dolist (child (or (plist-get ast :children)
+                          (when (plist-get ast :child)
+                            (list (plist-get ast :child)))))
+         (setq nodes (append nodes (haystack--query-leaf-nodes child))))
+       nodes))))
+
 (defun haystack--run-root-search-or (or-tokens cf)
   "Handle the OR query path for `haystack-run-root-search'.
 OR-TOKENS is a list of raw token strings; CF is the composite filter.
@@ -2557,7 +2872,7 @@ COMPOSITE-FILTER is a symbol controlling how @* composite files are
 treated: \\='exclude (default), \\='only, or \\='all.
 Interactively, a \\[universal-argument] prefix sets COMPOSITE-FILTER to \\='all,
 including composite files in the search."
-  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [>]body  [<]frontmatter  [A & B]AND  [A | B]OR\nSearch: ")
+  (interactive (list (read-string "[=]literal  [/]filename  [~]regex  [>]body  [<]frontmatter  [A & B]AND  [A | B]OR  [(A | B) & C]group\nSearch: ")
                      (when current-prefix-arg 'all)))
   (haystack--frecency-ensure)
   (haystack--assert-notes-directory)
@@ -2572,6 +2887,7 @@ including composite files in the search."
                (not (plist-get pre-parsed :regex))
                (not (haystack--parse-and-tokens raw-input))
                (not (haystack--parse-or-tokens raw-input))
+               (not (haystack--query-has-groups-p raw-input))
                (haystack--stop-word-p pre-term))
       (pcase (haystack--stop-word-prompt pre-term)
         (?s (setq raw-input (concat "=" pre-term)))
@@ -2583,10 +2899,23 @@ including composite files in the search."
              (parsed (haystack--parse-input raw-input))
              (and-tokens (haystack--parse-and-tokens raw-input))
              (or-tokens  (haystack--parse-or-tokens raw-input)))
-        ;; Guard: mixed & and | not supported until Phase 3 grouping.
-        (when (and and-tokens or-tokens)
-          (user-error "Haystack: mixed & and | in a single query is not yet supported — use filter-further to combine"))
         (cond
+         ;; Grouped query path (parentheses present).
+         ((haystack--query-has-groups-p raw-input)
+          (let* ((result         (haystack--run-root-search-grouped raw-input cf))
+                 (buf-name       (plist-get result :buf-name))
+                 (header         (plist-get result :header))
+                 (output         (plist-get result :output))
+                 (descriptor     (plist-get result :descriptor))
+                 (composite-path (plist-get result :composite-path))
+                 (buf (haystack--setup-results-buffer buf-name header output descriptor nil
+                                                      composite-path)))
+            (unless haystack--suppress-display
+              (pop-to-buffer buf))
+            buf))
+         ;; Mixed & and | without parens: error (use parens to group).
+         ((and and-tokens or-tokens)
+          (user-error "Haystack: mixed & and | requires parentheses — e.g. (A | B) & C"))
          ;; AND query path.
          (and-tokens
           (let* ((result         (haystack--run-root-search-and and-tokens cf))
@@ -3150,6 +3479,7 @@ columns a two-column layout is used to reduce the required height."
                      ";;;;    <term     frontmatter only (before sentinel)"
                      ";;;;    A & B     AND (file-level intersection)"
                      ";;;;    A | B     OR  (alternation)"
+                     ";;;;    (A | B) & C  grouping (parens override precedence)"
                      ""
                      (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")
                      rule)
@@ -3195,7 +3525,7 @@ Navigation/Filter/Tree on the left; MOC/Composite on the right."
                       (haystack--help-section "Search/Filter Prefixes")
                       ";;;;    = literal  / filename  ~ regex"
                       ";;;;    ! negate   > body      < frontmatter"
-                      ";;;;    A & B  AND   A | B  OR"
+                      ";;;;    A & B  AND  A | B  OR  (A|B)&C  group"
                       ""
                       (concat ";;;;    " (propertize "q        " 'face 'font-lock-constant-face) "  close this window")))
          (col-w 50)
