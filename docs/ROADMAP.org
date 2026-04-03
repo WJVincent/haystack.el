@@ -401,8 +401,17 @@ implemented; remaining TODO items are ideas for future development.
 - Grabs the active region text, creates a new note via the standard
   slug/extension prompt, inserts the region content after frontmatter
 - Bound to =x= in =haystack-prefix-map=
-** TODO Boolean DSL / query parser (=|=, =()= operators — =&= already done)
-** TODO Human-readable date parser for time queries (date expressions like "today", "-7d", "last friday")
+** DONE Boolean DSL / query parser (=|=, =()= operators — =&= already done)
+- OR operator (=|=) via single rg alternation call
+- Recursive-descent parser for grouped queries with =()= parentheses
+- Precedence: =!= > =&= > =|=
+- File-set operations: AND = intersection, OR = union, NOT = complement
+- =~= and === prefixes protect parentheses as literal within the term
+** DONE Human-readable date parser for time queries
+- Relative offsets: =-7d=, =-2w=, =-3m=, =-1y=
+- Keywords: =today=, =yesterday=, =this-week=, =last-week=, =this-month=, =last-month=
+- Keywords returning a cons fill both bounds
+- User-extensible via =haystack-date-keywords= defcustom
 ** DONE Search scope modes (body-only, frontmatter-only via sentinel)
 - =>= prefix: body-only (match only lines after =%%% haystack-end-frontmatter %%%= sentinel)
 - =<= prefix: frontmatter-only (match only lines at or before sentinel)
@@ -421,13 +430,12 @@ implemented; remaining TODO items are ideas for future development.
   replaying a chain doesn't count as "visiting" it.  The right answer
   is unclear — use the current behaviour and revisit if the frecency
   list becomes less useful over time.
-** TODO Frecency data format versioning
-- The 0.13.0 key format change silently orphans old frecency data —
-  acceptable pre-1.0, but needs a migration path at 1.0
-- Add a format version marker to =.haystack-frecency.el= so loaders
-  can detect and migrate stale data rather than silently ignoring it
-- Design a migration function that converts old key shapes to the
-  current descriptor-shaped plist format
+** DONE Frecency data format versioning
+- =.haystack-frecency.el= now uses a versioned plist wrapper
+  =(:version 1 :entries ...)=
+- Bare alists from pre-0.16 are auto-migrated on load via
+  =haystack--frecency-migrate=
+- Future format changes have a clean migration path
 ** DONE Demo corpus rewrite (pre-release)
 - Fix correctness: update stale command references and outdated
   interface descriptions in demo notes

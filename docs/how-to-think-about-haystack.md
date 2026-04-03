@@ -114,6 +114,12 @@ finds notes containing *both* terms. Each token narrows the candidate
 set via successive `--files-with-matches` passes, so only notes that
 satisfy the full conjunction appear.
 
+**OR queries and grouping.** The `|` operator provides alternation:
+`rust | python` finds notes matching either term in a single search.
+Parentheses let you compose operators: `(rust | python) & async` finds
+notes containing "async" that also contain either "rust" or "python."
+Precedence is `!` > `&` > `|`, so `A | B & C` means `A | (B & C)`.
+
 **View modes.** Results buffers cycle between Full, Compact, and Files
 views. Compact replaces file paths with pretty titles. Files collapses
 to one line per note. The underlying grep-format text is never modified,

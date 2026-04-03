@@ -1,7 +1,7 @@
 ;;; haystack.el --- Search-first knowledge management -*- lexical-binding: t -*-
 
 ;; Author: William Vincent <william@william-vincent.dev>
-;; Version: 0.16.0
+;; Version: 0.17.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: tools, files, outlines
 ;; URL: https://github.com/WJVincent/haystack.el
@@ -64,6 +64,7 @@
 (defvar haystack--frecency-data)
 (defvar haystack--frecency-dirty)
 (defvar haystack--frecency-initialized)
+(defvar haystack--frecency-loaded)
 (defvar haystack--frecency-timer)
 (defvar haystack--suppress-display)
 (defvar haystack--suppress-stop-word)
@@ -95,7 +96,7 @@ Must be a string without a leading dot (e.g. \"org\", \"md\", \"txt\")."
 When a result line's content exceeds this width, it is truncated to a
 window of this many characters centred on the match, with ... at either
 truncated end.  Increase for more context; decrease for tighter lines."
-  :type '(integer :min 1)
+  :type 'natnum
   :group 'haystack)
 
 
@@ -113,7 +114,7 @@ truncated end.  Increase for more context; decrease for tighter lines."
 When a file exceeds this limit, a window of this many lines centred on
 the first search match is used instead, with ellipsis markers at the
 truncated ends.  Set to nil for no limit (entire file always included)."
-  :type '(choice (integer :min 1) (const :tag "No limit" nil))
+  :type '(choice natnum (const :tag "No limit" nil))
   :group 'haystack)
 
 (defcustom haystack-composite-all-matches nil
@@ -203,7 +204,6 @@ representation:
   (:term STRING :negated BOOL :filename BOOL :literal BOOL
    :regex BOOL :scope SYMBOL :expansion LIST :kind SYMBOL
    :start STRING :end STRING)"
-  (root           nil)
   (root-term      nil)
   (root-expanded  nil)
   (root-literal   nil)
@@ -1056,7 +1056,7 @@ message is shown instead."
   (let ((seen (make-hash-table :test #'equal))
         (dups nil))
     (dolist (group haystack--expansion-groups)
-      (dolist (term (haystack--group-all-members group))
+      (dolist (term group)
         (let ((key (downcase term)))
           (if (gethash key seen)
               (push (list term (gethash key seen)) dups)
@@ -1088,11 +1088,6 @@ message is shown instead."
                                   (mapconcat #'identity (cdr group) ", ")))
                         haystack--expansion-groups "")))))
 
-(defun haystack--group-all-members (group)
-  "Return GROUP as a flat list of all members including the root element.
-GROUP has the form (ROOT MEMBER1 MEMBER2 ...).  Use this at call sites
-where the intent — include the root — should be explicit."
-  group)
 
 (defun haystack--member-in-group-p (term members)
   "Return non-nil if TERM matches any element of MEMBERS case-insensitively."
@@ -1106,7 +1101,7 @@ Returns (ROOT MEMBER1 MEMBER2 ...) if TERM matches any entry, nil if
 no group contains TERM."
   (catch 'found
     (dolist (group haystack--expansion-groups)
-      (let ((all (haystack--group-all-members group)))
+      (let ((all group))
         (when (haystack--member-in-group-p term all)
           (throw 'found all))))
     nil))
@@ -1146,7 +1141,7 @@ Groups that fall below two total terms after removal are dissolved."
   (let ((key (downcase term)))
     (delq nil
           (mapcar (lambda (group)
-                    (let* ((all       (haystack--group-all-members group))
+                    (let* ((all       group)
                            (remaining (cl-remove-if
                                        (lambda (m) (string= key (downcase m)))
                                        all)))
@@ -1163,7 +1158,7 @@ root and TERM as its first member."
   (let* ((found  nil)
          (result
           (mapcar (lambda (group)
-                    (let ((all (haystack--group-all-members group)))
+                    (let ((all group))
                       (if (haystack--member-in-group-p anchor all)
                           (progn (setq found t)
                                  (cons (car group)
@@ -1354,7 +1349,7 @@ files whose slugs contain OLD-ROOT (rolling back on failure)."
   "Return GROUPS with the group containing TERM removed entirely.
 Matches any member of the group, not just the root."
   (cl-remove-if (lambda (group)
-                  (haystack--member-in-group-p term (haystack--group-all-members group)))
+                  (haystack--member-in-group-p term group))
                 groups))
 
 ;;;###autoload
@@ -1367,9 +1362,7 @@ editing `.expansion-groups.el' directly or re-running `haystack-associate'."
    (progn
      (haystack--load-expansion-groups)
      (list (completing-read "Dissolve group containing: "
-                            (apply #'append
-                                   (mapcar #'haystack--group-all-members
-                                           haystack--expansion-groups))
+                            (apply #'append haystack--expansion-groups)
                             nil t))))
   (haystack--load-expansion-groups)
   (unless (haystack--lookup-group term)
@@ -1415,10 +1408,6 @@ Detection order: ! then >/< then / then = then ~."
             term (substring term 1)))
     (list term negated filename literal regex scope)))
 
-(defun haystack--multi-word-p (term)
-  "Return non-nil if TERM contains any whitespace (multi-word query)."
-  (string-match-p "[[:space:]]" term))
-
 (defun haystack--build-pattern (term regex &optional literal)
   "Return the ripgrep pattern string for TERM.
 If REGEX is non-nil, TERM is used as-is (raw ripgrep regex).
@@ -1460,14 +1449,12 @@ Returns a plist:
   :literal    — = prefix: suppress expansion group lookup
   :regex      — ~ prefix: treat term as raw ripgrep regex, skip escaping
   :scope      — > prefix: \\='body; < prefix: \\='frontmatter; nil otherwise
-  :multi-word     — non-nil if term contains whitespace after stripping
   :expansion      — group member list if expansion fired, nil otherwise
   :pattern        — ripgrep regex string (for rg calls)
   :emacs-pattern  — Emacs regexp string (for `string-match-p' filename matching)"
   (cl-destructuring-bind (term negated filename literal regex scope)
       (haystack--strip-prefixes raw)
-    (let* ((multi-word (haystack--multi-word-p term))
-           (expansion  (and (not regex) (not literal)
+    (let* ((expansion  (and (not regex) (not literal)
                             (haystack--lookup-group term)))
            (pattern    (haystack--build-pattern       term regex literal))
            (emacs-pat  (haystack--build-emacs-pattern term regex literal)))
@@ -1477,7 +1464,6 @@ Returns a plist:
             :literal       literal
             :regex         regex
             :scope         scope
-            :multi-word    multi-word
             :expansion     expansion
             :pattern       pattern
             :emacs-pattern emacs-pat))))
@@ -1771,6 +1757,10 @@ and stores DESCRIPTOR and PARENT-BUF as buffer-locals.
 When COMPOSITE-PATH is non-nil, a composite button is wired in the header."
   (let ((buf (get-buffer-create buf-name)))
     (with-current-buffer buf
+      ;; Clear stale view-mode state when reusing an existing buffer.
+      (when (bound-and-true-p haystack--header-end-marker)
+        (haystack--view-clear)
+        (setq haystack--view-mode 'full))
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert header)
@@ -1974,6 +1964,25 @@ to bound the captured string size."
           stdout)
       (delete-file err-file))))
 
+(defun haystack--rg-for-gate (rg-count-args)
+  "Run rg --count for volume gate via `call-process', respecting gate style.
+RG-COUNT-ARGS is a complete argument list for rg (including the directory).
+In fast mode, prepends --max-count=1 and caps output at
+`haystack-volume-gate-threshold' lines."
+  (if (or (null haystack-volume-gate-threshold)
+          (eq haystack-volume-gate-style 'exact))
+      (with-temp-buffer
+        (apply #'call-process "rg" nil t nil rg-count-args)
+        (buffer-string))
+    (with-temp-buffer
+      (call-process-shell-command
+       (concat (mapconcat #'shell-quote-argument
+                          (cons "rg" (cons "--max-count=1" rg-count-args))
+                          " ")
+               (format " | head -%d" haystack-volume-gate-threshold))
+       nil t)
+      (buffer-string))))
+
 (defun haystack--xargs-rg-for-gate (filelist rg-count-args)
   "Run rg --count for volume gate, respecting `haystack-volume-gate-style'.
 FILELIST and RG-COUNT-ARGS are as for `haystack--xargs-rg'.
@@ -2061,11 +2070,9 @@ CF is the composite filter."
                 (delete-file tmp2)))))
       (delete-file tmp))))
 
-(defun haystack--filter-by-content (filenames pattern root-pattern cf)
+(defun haystack--filter-by-content (filenames pattern cf)
   "Filter FILENAMES by positive content match on PATTERN.
-CF is the composite filter.  Applies the volume gate, then returns rg output.
-ROOT-PATTERN is unused here but passed for interface symmetry."
-  (ignore root-pattern)
+CF is the composite filter.  Applies the volume gate, then returns rg output."
   (let ((tmp (haystack--write-filelist filenames)))
     (unwind-protect
         (progn
@@ -2160,6 +2167,10 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
        term
        (mapconcat #'identity root-exp "|")
        term))
+    ;; Scope + filename is meaningless — filename filters match paths,
+    ;; not file content, so body/frontmatter scope has no effect.
+    (when (and (plist-get parsed :scope) (plist-get parsed :filename))
+      (user-error "Haystack: scope prefix (>/< ) cannot be combined with filename prefix (/)"))
     (let* ((scope    (plist-get parsed :scope))
            (raw-output
             (cond
@@ -2170,7 +2181,7 @@ Prefix RAW-INPUT with ~ to use raw ripgrep regex."
              (negated
               (haystack--filter-by-negation filenames pattern root-pattern cf))
              (t
-              (haystack--filter-by-content filenames pattern root-pattern cf))))
+              (haystack--filter-by-content filenames pattern cf))))
            ;; Apply scope post-filter for non-negated searches (negated+scope
            ;; is handled by haystack--filter-by-scoped-negation above).
            (raw-output (if (and scope (not negated))
@@ -2375,9 +2386,11 @@ tokens are treated as a normal search and return nil."
 (defun haystack--tokenize-query (raw)
   "Split RAW into a flat list of tokens respecting parentheses.
 Operators ` & ` and ` | ` become single-character tokens \"&\" and \"|\".
-Parentheses are always their own tokens.  A leading `!' before `(' is
-split into its own token.  Whitespace inside parenthesized groups is
-trimmed from each token."
+Parentheses are their own tokens unless the current token starts with
+`~' or `=' (raw regex or literal prefix), in which case parentheses are
+literal characters within the term.  A leading `!' before `(' is split
+into its own token.  Whitespace inside parenthesized groups is trimmed
+from each token."
   (let ((tokens nil)
         (pos 0)
         (len (length raw))
@@ -2385,22 +2398,42 @@ trimmed from each token."
     (while (< pos len)
       (let ((ch (aref raw pos)))
         (cond
-         ;; Parentheses: flush current, emit paren token
+         ;; Parentheses: structural unless absorbed by a ~/ = prefixed term.
+         ;; A ( is literal when the current token starts with ~ or = (or !~ / !=).
+         ;; A ) is literal only when the current token already contains an
+         ;; unmatched ( — otherwise it closes a structural group.
          ((or (= ch ?\() (= ch ?\)))
-          ;; Split leading ! from current before (
-          (when (and (= ch ?\()
-                     (string-suffix-p "!" current)
-                     (> (length current) 0))
-            (let ((pre (substring current 0 -1)))
-              (unless (string-empty-p (string-trim pre))
-                (push (string-trim pre) tokens))
-              (push "!" tokens)
-              (setq current "")))
-          (let ((trimmed (string-trim current)))
-            (unless (string-empty-p trimmed)
-              (push trimmed tokens)))
-          (push (char-to-string ch) tokens)
-          (setq current ""))
+          (let* ((has-prefix
+                  (and (> (length current) 0)
+                       (or (memq (aref current 0) '(?~ ?=))
+                           (and (> (length current) 1)
+                                (= (aref current 0) ?!)
+                                (memq (aref current 1) '(?~ ?=))))))
+                 (prefix-protected
+                  (and has-prefix
+                       (or (= ch ?\()
+                           ;; ) is literal only when current has unmatched (
+                           (and (= ch ?\))
+                                (> (cl-count ?\( current)
+                                   (cl-count ?\) current)))))))
+            (if prefix-protected
+                ;; Inside a ~ or = prefixed term: paren is literal
+                (setq current (concat current (char-to-string ch)))
+              ;; Structural paren: flush current, emit paren token
+              ;; Split leading ! from current before (
+              (when (and (= ch ?\()
+                         (string-suffix-p "!" current)
+                         (> (length current) 0))
+                (let ((pre (substring current 0 -1)))
+                  (unless (string-empty-p (string-trim pre))
+                    (push (string-trim pre) tokens))
+                  (push "!" tokens)
+                  (setq current "")))
+              (let ((trimmed (string-trim current)))
+                (unless (string-empty-p trimmed)
+                  (push trimmed tokens)))
+              (push (char-to-string ch) tokens)
+              (setq current ""))))
          ;; Space: check for ` & ` or ` | ` operator
          ((= ch ?\s)
           (if (and (< (+ pos 2) len)
@@ -2551,22 +2584,28 @@ CF is the composite filter; NOTES-DIR is the expanded notes directory."
               (files nil))
           ;; First child: search full directory
           (setq files (haystack--execute-query (car children) cf notes-dir))
-          ;; Subsequent children: narrow via filelist
+          ;; Subsequent children: narrow via hash-set intersection
           (dolist (child (cdr children))
             (when files
-              (let ((child-files (haystack--execute-query child cf notes-dir)))
-                (setq files (seq-filter (lambda (f) (member f child-files)) files)))))
+              (let* ((child-files (haystack--execute-query child cf notes-dir))
+                     (child-set (make-hash-table :test 'equal :size (length child-files))))
+                (dolist (f child-files) (puthash f t child-set))
+                (setq files (seq-filter (lambda (f) (gethash f child-set)) files)))))
           files))
        ('or
-        (let ((all-files nil))
+        (let ((seen (make-hash-table :test 'equal))
+              (all-files nil))
           (dolist (child (plist-get ast :children))
             (let ((child-files (haystack--execute-query child cf notes-dir)))
               (dolist (f child-files)
-                (unless (member f all-files)
+                (unless (gethash f seen)
+                  (puthash f t seen)
                   (push f all-files)))))
           (nreverse all-files)))
        ('not
         (let* ((inner-files (haystack--execute-query (plist-get ast :child) cf notes-dir))
+               (inner-set  (make-hash-table :test 'equal :size (length inner-files)))
+               (_populate  (dolist (f inner-files) (puthash f t inner-set)))
                (all-files   (split-string
                              (with-temp-buffer
                                (apply #'call-process "rg" nil t nil
@@ -2578,7 +2617,7 @@ CF is the composite filter; NOTES-DIR is the expanded notes directory."
                                        :extra-args (list notes-dir)))
                                (buffer-string))
                              "\n" t)))
-          (seq-filter (lambda (f) (not (member f inner-files))) all-files)))))))
+          (seq-filter (lambda (f) (not (gethash f inner-set))) all-files)))))))
 
 (defun haystack--query-leaf-patterns (ast)
   "Collect rg patterns from all non-negated leaf terms in AST.
@@ -2695,10 +2734,16 @@ Signals `user-error' if any token carries the ! negation prefix."
   (let* ((parsed-list   (mapcar #'haystack--parse-input or-tokens))
          (first-parsed  (car parsed-list))
          (scope         (plist-get first-parsed :scope)))
-    ;; Negation in OR queries is not supported in Phase 1.
+    ;; Negation in OR queries is not supported.
     (when (cl-some (lambda (p) (plist-get p :negated)) parsed-list)
       (user-error
        "Haystack: ! prefix is not supported in | queries"))
+    ;; Mixed scope across tokens is ambiguous — reject it.
+    (when (and (cl-some (lambda (p) (plist-get p :scope)) parsed-list)
+               (not (cl-every (lambda (p) (equal (plist-get p :scope) scope))
+                              parsed-list)))
+      (user-error
+       "Haystack: mixed scope prefixes (>/<) in | queries are not supported — apply scope to all tokens or none"))
     ;; Build alternation pattern: (pat1|pat2|...)
     (let* ((alt-pattern   (concat "("
                                   (mapconcat (lambda (p) (plist-get p :pattern))
@@ -2771,8 +2816,14 @@ for the dispatcher to use."
          (first-term    (plist-get first-parsed :term))
          (first-pattern (plist-get first-parsed :pattern))
          (first-exp     (plist-get first-parsed :expansion))
-         (scope         (plist-get first-parsed :scope))
-         (raw-output    (haystack--run-and-query and-tokens cf))
+         (scope         (plist-get first-parsed :scope)))
+    ;; Mixed scope across tokens is ambiguous — reject it.
+    (when (and (cl-some (lambda (p) (plist-get p :scope)) parsed-list)
+               (not (cl-every (lambda (p) (equal (plist-get p :scope) scope))
+                              parsed-list)))
+      (user-error
+       "Haystack: mixed scope prefixes (>/<) in & queries are not supported — apply scope to all tokens or none"))
+    (let* ((raw-output    (haystack--run-and-query and-tokens cf))
          (raw-output    (if scope
                             (haystack--apply-scope-filter raw-output scope)
                           raw-output))
@@ -2823,7 +2874,7 @@ for the dispatcher to use."
                                                   composite-path)))
     (haystack--frecency-record descriptor)
     (list :buf-name buf-name :header header :output output
-          :descriptor descriptor :composite-path composite-path)))
+          :descriptor descriptor :composite-path composite-path))))
 
 (defun haystack--run-root-search-filename (parsed cf)
   "Handle the filename (/ prefix) path for `haystack-run-root-search'.
@@ -2953,25 +3004,12 @@ including composite files in the search."
                       (haystack--run-root-search-filename parsed cf)
                     (progn
                       (haystack--volume-gate
-                       (let ((rg-count-args
-                              (haystack--rg-args :count t
-                                                 :composite-filter cf
-                                                 :file-glob t
-                                                 :pattern pattern
-                                                 :extra-args (list (expand-file-name haystack-notes-directory)))))
-                         (if (or (null haystack-volume-gate-threshold)
-                                 (eq haystack-volume-gate-style 'exact))
-                             (with-temp-buffer
-                               (apply #'call-process "rg" nil t nil rg-count-args)
-                               (buffer-string))
-                           (with-temp-buffer
-                             (call-process-shell-command
-                              (concat (mapconcat #'shell-quote-argument
-                                                 (cons "rg" (cons "--max-count=1" rg-count-args))
-                                                 " ")
-                                      (format " | head -%d" haystack-volume-gate-threshold))
-                              nil t)
-                             (buffer-string)))))
+                       (haystack--rg-for-gate
+                        (haystack--rg-args :count t
+                                           :composite-filter cf
+                                           :file-glob t
+                                           :pattern pattern
+                                           :extra-args (list (expand-file-name haystack-notes-directory)))))
                       (with-temp-buffer
                         (let ((exit-code (apply #'call-process "rg" nil t nil
                                                 (haystack--rg-args :composite-filter cf
@@ -3025,15 +3063,13 @@ including composite files in the search."
 ;;;###autoload
 (defun haystack-search-region ()
   "Search for the active region text via `haystack-run-root-search'.
-Note: prefix characters at the start of the region (!, ~, /, =) are
-interpreted as search modifiers, the same as when typed interactively.
-If the selected text begins with one of these characters and you want
-a literal match, prefix the term with = instead."
+Equivalent to `haystack-run-root-search-at-point' when a region is
+active; signals an error otherwise.  Kept as a separate entry point for
+users who bind it independently."
   (interactive)
   (unless (use-region-p)
     (user-error "Haystack: no active region"))
-  (haystack-run-root-search
-   (buffer-substring-no-properties (region-beginning) (region-end))))
+  (haystack-run-root-search-at-point))
 
 (defun haystack--word-at-point ()
   "Return the word at point, treating hyphens and underscores as word characters.
@@ -3093,15 +3129,6 @@ The descriptor is compatible with `haystack-filter-further':
   :root-kind marks this as a date-range root for Phase 8 replay dispatch."
   (let ((label (haystack--date-root-label start end)))
     (haystack-sd-create
-     :root           (list :kind      'date-range
-                           :term      label
-                           :expanded  "hs: [<\\[]"
-                           :literal   t
-                           :regex     nil
-                           :filename  nil
-                           :expansion nil
-                           :start     start
-                           :end       end)
      :root-term       label
      :root-expanded   "hs: [<\\[]"
      :root-literal    t
@@ -4283,8 +4310,7 @@ for code files."
     (pcase format
       ('org      (format "[[file:%s::%d][%s]]" path lnum title))
       ('markdown (format "[%s](%s#L%d)" title path lnum))
-      ('code     (haystack--format-moc-code-comment path ext))
-      (_ (user-error "Haystack: unknown moc format: %s" format)))))
+      ('code     (haystack--format-moc-code-comment path ext)))))
 
 ;;;###autoload
 (defun haystack-copy-moc ()
@@ -4383,7 +4409,8 @@ this setting.  Changing this value takes effect immediately."
            ;; Mark as initialized so haystack--frecency-ensure won't
            ;; call setup again — customizing the interval before first
            ;; use counts as explicit initialization.
-           (setq haystack--frecency-initialized t)))
+           (when (boundp 'haystack--frecency-initialized)
+             (setq haystack--frecency-initialized t))))
   :group 'haystack)
 
 (defvar haystack--frecency-data nil
@@ -4391,6 +4418,11 @@ this setting.  Changing this value takes effect immediately."
 Each entry: (CHAIN :count N :last-access FLOAT-TIME) where CHAIN is a
 list of prefixed term strings derived from the search descriptor.
 Persisted to `.haystack-frecency.el' in the notes directory.")
+
+(defvar haystack--frecency-loaded nil
+  "Non-nil when `haystack--frecency-data' has been loaded from disk.
+Distinguishes 'not yet loaded' (nil) from 'loaded but empty' (nil data
+with loaded flag set).  Parallels `haystack--expansion-groups-loaded'.")
 
 (defvar haystack--frecency-dirty nil
   "Non-nil when `haystack--frecency-data' has unsaved changes.")
@@ -4441,7 +4473,8 @@ Handles three cases:
   - Bare alist (pre-0.16): auto-migrate to current version, mark dirty.
   - Version mismatch: warn, set nil, continue.
 On read failure: warn, set nil, continue."
-  (setq haystack--frecency-data
+  (setq haystack--frecency-loaded t
+        haystack--frecency-data
         (condition-case err
             (let* ((path (haystack--frecency-file))
                    (raw  (when (file-exists-p path)
@@ -4606,7 +4639,7 @@ Filters are appended with \" > \" separators."
 Loads data from disk on first call.  Sets `haystack--frecency-dirty'.
 No-op when `haystack--suppress-frecency-recording' is non-nil."
   (unless haystack--suppress-frecency-recording
-    (unless haystack--frecency-data
+    (unless haystack--frecency-loaded
       (haystack--load-frecency))
     (let* ((key      (haystack--frecency-chain-key descriptor))
            (now      (float-time))
@@ -4635,12 +4668,6 @@ age without requiring tuning parameters."
          (last-ts (plist-get props :last-access))
          (days    (/ (- (float-time) last-ts) 86400.0)))
     (/ (float count) (max days 1.0))))
-
-(defun haystack--frecent-leaf-p (entry all-entries)
-  "Return non-nil if ENTRY is a leaf among ALL-ENTRIES.
-Used in tests; not called by production code directly.  Callers must
-ensure frecency data is loaded before invoking this."
-  (not (null (memq entry (haystack--frecent-leaves all-entries)))))
 
 (defun haystack--frecency-key-length (key)
   "Return the chain length of frecency KEY: 1 plus number of filters."
@@ -5080,10 +5107,16 @@ argument ALL, show every recorded chain."
 ;;;; Find mentions commands
 
 (defun haystack--mentions-exclude-origin (origin)
-  "Remove lines matching ORIGIN's basename from the current results buffer.
-Operates after `haystack--header-end-marker' to preserve the header."
-  (let* ((basename (file-name-nondirectory origin))
-         (pattern  (concat "^" (regexp-quote basename) ":")))
+  "Remove lines matching ORIGIN from the current results buffer.
+Matches the path relative to the notes directory (or the basename as a
+fallback), so subdirectory paths like subdir/note.org are excluded
+correctly.  Operates after `haystack--header-end-marker'."
+  (let* ((notes-root (file-name-as-directory
+                      (expand-file-name haystack-notes-directory)))
+         (rel-path   (if (string-prefix-p notes-root origin)
+                         (substring origin (length notes-root))
+                       (file-name-nondirectory origin)))
+         (pattern    (concat "^" (regexp-quote rel-path) ":")))
     (save-excursion
       (let ((inhibit-read-only t))
         (goto-char (marker-position haystack--header-end-marker))
@@ -5481,6 +5514,7 @@ previous `haystack-notes-directory'."
           haystack--demo-active              nil
           haystack--demo-temp-dir            nil
           haystack--demo-saved-state         nil
+          haystack--frecency-loaded          nil
           haystack--expansion-groups-loaded  nil
           haystack--stop-words-loaded        nil
           haystack--stop-words               nil))
@@ -5827,13 +5861,13 @@ full buffer contents as a new note via `haystack-new-note'."
 Terms found in 1 to this many notes fall in the SPARSE tier.
 Terms found in 0 notes are ISOLATED; those found in more notes
 than `haystack-discoverability-ubiquitous-min' are UBIQUITOUS."
-  :type '(integer :min 1)
+  :type 'natnum
   :group 'haystack)
 
 (defcustom haystack-discoverability-ubiquitous-min 500
   "Minimum file count for a term to be classified as UBIQUITOUS.
 Terms found in this many or more notes fall in the UBIQUITOUS tier."
-  :type '(integer :min 1)
+  :type 'natnum
   :group 'haystack)
 
 (defcustom haystack-discoverability-split-compound-words nil

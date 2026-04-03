@@ -41,6 +41,11 @@ For tests that only need simple unmodified filter terms."
   (list :root (list :kind 'text :term term)
         :filters (mapcar (lambda (ft) (list :term ft)) filter-terms)))
 
+(defun haystack-test--frecent-leaf-p (entry all-entries)
+  "Return non-nil if ENTRY is a leaf among ALL-ENTRIES.
+Test helper — wraps `haystack--frecent-leaves'."
+  (not (null (memq entry (haystack--frecent-leaves all-entries)))))
+
 (defun haystack-test--has-sentinel (str)
   "Return non-nil if STR contains the haystack-end-frontmatter sentinel."
   (string-match-p (regexp-quote haystack--sentinel-string) str))
@@ -1072,25 +1077,6 @@ For tests that only need simple unmodified filter terms."
   (should (equal (haystack--strip-prefixes "!>rust")
                  '("rust" t nil nil nil body))))
 
-;;; haystack--multi-word-p
-
-(ert-deftest haystack-test/multi-word-single ()
-  (should-not (haystack--multi-word-p "rust")))
-
-(ert-deftest haystack-test/multi-word-hyphenated ()
-  "Hyphenated terms are single-word."
-  (should-not (haystack--multi-word-p "data-structures")))
-
-(ert-deftest haystack-test/multi-word-dotted ()
-  "Dotted terms are single-word."
-  (should-not (haystack--multi-word-p "std.io")))
-
-(ert-deftest haystack-test/multi-word-with-space ()
-  (should (haystack--multi-word-p "rust ownership")))
-
-(ert-deftest haystack-test/multi-word-with-tab ()
-  (should (haystack--multi-word-p "rust\townership")))
-
 ;;; haystack--build-pattern
 
 (ert-deftest haystack-test/build-pattern-bare-term-is-quoted ()
@@ -1770,7 +1756,6 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
     (should (equal (plist-get result :filename)   nil))
     (should (equal (plist-get result :literal)    nil))
     (should (equal (plist-get result :regex)      nil))
-    (should (equal (plist-get result :multi-word) nil))
     (should (equal (plist-get result :pattern)    (regexp-quote "rust")))))
 
 (ert-deftest haystack-test/parse-input-filename ()
@@ -1798,14 +1783,12 @@ is not `nreverse'd, preserving the correct LIFO ordering from `push'."
 (ert-deftest haystack-test/parse-input-multi-word-no-group ()
   "Multi-word terms without a group fall back to regexp-quote."
   (let ((result (haystack--parse-input "rust ownership")))
-    (should (plist-get result :multi-word))
     (should (equal (plist-get result :pattern) (regexp-quote "rust ownership")))))
 
 (ert-deftest haystack-test/parse-input-multi-word-expands ()
   "Multi-word terms that are in a group expand."
   (let* ((haystack--expansion-groups '(("emacs lisp" . ("elisp"))))
          (result (haystack--parse-input "emacs lisp")))
-    (should (plist-get result :multi-word))
     (should (plist-get result :expansion))
     (should (string-match-p "elisp" (plist-get result :pattern)))))
 
@@ -2900,6 +2883,31 @@ the regexp-quote'd pattern, causing rg to reject `+' as an invalid quantifier."
   "T15: !A keeps negation attached to term."
   (should (equal (haystack--tokenize-query "!A")
                  '("!A"))))
+
+(ert-deftest haystack-test/tokenize-regex-prefix-protects-parens ()
+  "T16: ~ prefix makes parentheses literal within the term."
+  (should (equal (haystack--tokenize-query "~fn(x)")
+                 '("~fn(x)"))))
+
+(ert-deftest haystack-test/tokenize-literal-prefix-protects-parens ()
+  "T17: = prefix makes parentheses literal within the term."
+  (should (equal (haystack--tokenize-query "=exact(match)")
+                 '("=exact(match)"))))
+
+(ert-deftest haystack-test/tokenize-regex-prefix-with-operator ()
+  "T18: ~ prefix term with parens composes with & operator."
+  (should (equal (haystack--tokenize-query "~fn(x) & bar")
+                 '("~fn(x)" "&" "bar"))))
+
+(ert-deftest haystack-test/tokenize-regex-prefix-in-group ()
+  "T19: ~ prefix inside a group keeps parens literal."
+  (should (equal (haystack--tokenize-query "(~fn(x) | baz)")
+                 '("(" "~fn(x)" "|" "baz" ")"))))
+
+(ert-deftest haystack-test/tokenize-negated-regex-prefix ()
+  "T20: !~ prefix protects parens — whole term stays intact."
+  (should (equal (haystack--tokenize-query "!~fn(x)")
+                 '("!~fn(x)"))))
 
 ;;;; haystack--parse-query (Layer 2)
 
@@ -4970,7 +4978,7 @@ A note within the range must appear; a note outside the range must not."
   "An entry with no deeper chain is always a leaf."
   (let* ((now (float-time))
          (entries (list (cons (haystack-test--tkey "rust") (list :count 5 :last-access now)))))
-    (should (haystack--frecent-leaf-p (car entries) entries))))
+    (should (haystack-test--frecent-leaf-p (car entries) entries))))
 
 (ert-deftest haystack-test/frecent-leaf-p-dominated-is-not-leaf ()
   "An entry dominated by a deeper higher-scored chain is not a leaf."
@@ -4978,8 +4986,8 @@ A note within the range must appear; a note outside the range must not."
          (root  (cons (haystack-test--tkey "rust")         (list :count 2 :last-access now)))
          (child (cons (haystack-test--tkey "rust" "async") (list :count 5 :last-access now)))
          (entries (list root child)))
-    (should-not (haystack--frecent-leaf-p root entries))
-    (should     (haystack--frecent-leaf-p child entries))))
+    (should-not (haystack-test--frecent-leaf-p root entries))
+    (should     (haystack-test--frecent-leaf-p child entries))))
 
 (ert-deftest haystack-test/frecent-leaf-p-higher-scored-root-is-leaf ()
   "A root with higher score than its child is still a leaf."
@@ -4987,8 +4995,8 @@ A note within the range must appear; a note outside the range must not."
          (root  (cons (haystack-test--tkey "rust")         (list :count 5 :last-access now)))
          (child (cons (haystack-test--tkey "rust" "async") (list :count 2 :last-access now)))
          (entries (list root child)))
-    (should (haystack--frecent-leaf-p root  entries))
-    (should (haystack--frecent-leaf-p child entries))))
+    (should (haystack-test--frecent-leaf-p root  entries))
+    (should (haystack-test--frecent-leaf-p child entries))))
 
 (ert-deftest haystack-test/frecent-leaves-filters-correctly ()
   "`haystack--frecent-leaves' keeps only leaf entries."
@@ -7521,7 +7529,8 @@ matching the behavior of ?s (search anyway)."
 (ert-deftest haystack-test/mentions-exclude-origin-removes-matching-lines ()
   "Origin file's lines are removed from the results buffer."
   (with-temp-buffer
-    (let ((marker (point-marker)))
+    (let ((haystack-notes-directory "/path/to/")
+          (marker (point-marker)))
       (insert "Header line\n")
       (set-marker marker (point))
       (insert "origin.org:1:some match\n"
@@ -7537,7 +7546,8 @@ matching the behavior of ?s (search anyway)."
 (ert-deftest haystack-test/mentions-exclude-origin-preserves-header ()
   "Header content is untouched even if it mentions the origin filename."
   (with-temp-buffer
-    (let ((marker (point-marker)))
+    (let ((haystack-notes-directory "/path/to/")
+          (marker (point-marker)))
       (insert "Header: origin.org stuff\n")
       (set-marker marker (point))
       (insert "origin.org:1:content\n"
@@ -7552,7 +7562,8 @@ matching the behavior of ?s (search anyway)."
 (ert-deftest haystack-test/mentions-exclude-origin-noop-when-absent ()
   "No changes when the origin file does not appear in results."
   (with-temp-buffer
-    (let ((marker (point-marker)))
+    (let ((haystack-notes-directory "/path/to/")
+          (marker (point-marker)))
       (insert "Header\n")
       (set-marker marker (point))
       (insert "foo.org:1:text\nbar.org:2:text\n")
@@ -7561,6 +7572,23 @@ matching the behavior of ?s (search anyway)."
       (let ((before (buffer-string)))
         (haystack--mentions-exclude-origin "/path/to/origin.org")
         (should (equal before (buffer-string)))))))
+
+(ert-deftest haystack-test/mentions-exclude-origin-subdirectory ()
+  "Origin in a subdirectory is excluded by relative path, not just basename."
+  (with-temp-buffer
+    (let ((haystack-notes-directory "/notes/")
+          (marker (point-marker)))
+      (insert "Header\n")
+      (set-marker marker (point))
+      (insert "subdir/origin.org:1:self mention\n"
+              "other.org:2:real mention\n"
+              "subdir/origin.org:5:another self\n")
+      (setq-local haystack--header-end-marker marker)
+      (setq-local haystack--search-descriptor (haystack-sd-create :root-term "x"))
+      (haystack--mentions-exclude-origin "/notes/subdir/origin.org")
+      (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "other.org:2:real mention" content))
+        (should-not (string-match-p "subdir/origin.org" content))))))
 
 ;;;; haystack-insert-mentions
 

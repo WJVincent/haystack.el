@@ -7,6 +7,59 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.17.0] — 2026-04-02
+
+### Changed
+
+- **Boolean query set operations** — AND, OR, and NOT in grouped queries
+  now use hash tables instead of `member` for set intersection, union,
+  and difference.  O(N+M) instead of O(N*M).
+- **Tokenizer prefix protection** — `~` (regex) and `=` (literal)
+  prefixes now protect parentheses as literal characters within the
+  term.  `~fn(x)` is tokenized as one term instead of being misrouted
+  to the grouped query parser.
+- **defcustom types** — `haystack-context-width`,
+  `haystack-discoverability-sparse-max`, and
+  `haystack-discoverability-ubiquitous-min` now use `natnum` type
+  instead of the invalid `(integer :min 1)`.
+- **`haystack-search-region`** now delegates to
+  `haystack-run-root-search-at-point`, eliminating duplicated
+  region-search logic.
+- **Volume gate** — extracted `haystack--rg-for-gate` helper; the
+  single-term root search path now shares gate logic with the xargs
+  path instead of reimplementing it inline.
+- **Scope prefix guards** — `haystack-filter-further` now rejects
+  scope (`>`/`<`) combined with filename (`/`) prefix.
+  `haystack--run-root-search-or` and `haystack--run-root-search-and`
+  now reject mixed scope prefixes across tokens.
+- **Mentions exclusion** — `haystack--mentions-exclude-origin` now
+  matches the path relative to the notes directory instead of just
+  the basename, fixing self-mention leaks for notes in subdirectories.
+
+### Fixed
+
+- **View mode state leak** — running the same search twice no longer
+  inherits the previous buffer's view mode.
+  `haystack--setup-results-buffer` now resets view state on buffer reuse.
+- **Frecency lazy-load guard** — `haystack--frecency-record` now uses a
+  dedicated `haystack--frecency-loaded` flag instead of checking whether
+  `haystack--frecency-data` is nil, preventing redundant disk reads when
+  no prior frecency data exists.
+
+### Removed
+
+- Dead struct slot `root` from `haystack-sd` (written but never read).
+- Dead function `haystack--multi-word-p` and `:multi-word` plist field
+  (computed but never consumed by production code).
+- Identity wrapper `haystack--group-all-members` (inlined at 7 call
+  sites).
+- Test-only helper `haystack--frecent-leaf-p` moved from production
+  code to test file.
+- Vestigial `root-pattern` parameter from `haystack--filter-by-content`.
+- Unreachable default branch from `haystack--format-moc-link`.
+
+---
+
 ## [0.16.0] — 2026-04-02
 
 ### Changed

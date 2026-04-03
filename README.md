@@ -78,11 +78,13 @@ M-x haystack-demo-stop
 This kills all demo buffers, deletes the temp directory, and restores
 your previous configuration.
 
-The corpus spans Emacs, Lisp, PKM, and Haystack topics across eight
-file types. It comes with pre-built expansion groups and frecency
-history so features like `C-u C-c h f` (leaf/all toggle) and synonym
-expansion work immediately. From any results buffer, try `/orphan` or
-`/synthesis` as filename filters to find the intentionally isolated
+The corpus spans Emacs, Lisp, PKM, Haystack, code, and humanistic
+topics across eight file types, plus deliberately messy files. It comes
+with pre-built expansion groups and an empty frecency history you can
+seed with `M-x haystack-demo-seed-frecency` — synonym expansion works
+immediately; run the seed command to see frecency features like
+`C-u C-c h f` (leaf/all toggle). From any results buffer, try `/orphan`
+or `/synthesis` as filename filters to find the intentionally isolated
 notes and the cross-topic synthesis candidates.
 
 See `demo/README.org` for a guided walkthrough.
@@ -733,6 +735,7 @@ of score.  Press `p` to toggle pin at point.
 | `v` | Toggle between all entries and leaf-only view |
 | `p` | Toggle pin at point |
 | `k` | Kill the entry at point (with confirmation) |
+| `K` | Kill all entries in the active region |
 | `?` | Show help |
 
 ### Persistence
@@ -758,9 +761,13 @@ to write immediately on every buffer visit instead.
 | `haystack-composite-all-matches` | `nil` | One section per match line rather than per file in composites. |
 | `haystack-composite-protect` | `t` | Intercept manual saves in composite buffers and redirect to `haystack-new-note`. |
 | `haystack-volume-gate-threshold` | `2000` | Prompt for confirmation when results exceed this many lines. `nil` disables. |
-| `haystack-volume-gate-style` | `'exact` | Volume gate counting: `'exact` uses `rg --count`, `'fast` estimates from buffer size. |
+| `haystack-volume-gate-style` | `'exact` | Volume gate counting: `'exact` runs full `rg --count`; `'fast` uses `--max-count=1` and caps output at threshold, bounding memory. |
 | `haystack-max-columns` | `500` | Drop result lines longer than this (prevents minified/base64 noise). |
 | `haystack-inherit-view-mode` | `nil` | When `t`, child buffers inherit the parent's view mode instead of starting in Full. |
+| `haystack-date-keywords` | _(6 built-ins)_ | Alist of keyword → resolver for date-range prompts. Add custom keywords like `"this-quarter"`. |
+| `haystack-tree-depth-faces` | _(5 font-lock faces)_ | Face list cycled through successive depth levels in the tree view. |
+| `haystack-discoverability-sparse-max` | `3` | Upper bound of the Sparse tier in discoverability analysis. |
+| `haystack-discoverability-ubiquitous-min` | `20` | Lower bound of the Ubiquitous tier in discoverability analysis. |
 
 ### Regenerating Frontmatter
 
@@ -777,22 +784,34 @@ times the pure Elisp processing — no disk I/O involved.
 Run `./bench.sh` to reproduce. Update this table before tagging a
 release or after touching a hot path.
 
-_Last recorded: 2026-03-24 — 13th Gen Intel Core i7-13700KF_
+_Last recorded: 2026-04-02 — 13th Gen Intel Core i7-13700KF_
 
 | Benchmark | Time |
 |-----------------------------------------------|---------|
-| count-search-stats 10k lines | 0.0099s |
-| count-search-stats 100k lines | 0.1159s |
-| extract-filenames 10k lines | 0.0231s |
-| extract-filenames 100k lines | 0.2813s |
-| extract-file-loci 10k lines | 0.0249s |
-| extract-file-loci 100k lines | 0.3023s |
-| strip-notes-prefix 10k lines | 0.0042s |
-| strip-notes-prefix 100k lines | 0.0707s |
-| truncate-output 10k lines | 0.0230s |
-| truncate-output 100k lines | 0.2633s |
-| tree-render realistic (~65 bufs) | 0.0013s |
-| tree-render stress (~570 bufs) | 0.0577s |
+| count-search-stats 10k lines | 0.0134s |
+| count-search-stats 100k lines | 0.1206s |
+| extract-filenames 10k lines | 0.0258s |
+| extract-filenames 100k lines | 0.2943s |
+| extract-file-loci 10k lines | 0.0263s |
+| extract-file-loci 100k lines | 0.3112s |
+| strip-notes-prefix 10k lines | 0.0045s |
+| strip-notes-prefix 100k lines | 0.0420s |
+| truncate-output 10k lines | 0.0255s |
+| truncate-output 100k lines | 0.2976s |
+| compact-overlays 10k lines | 0.0440s |
+| compact-overlays 100k lines | 0.2461s |
+| files-overlays 10k lines | 0.0567s |
+| files-overlays 100k lines | 0.3419s |
+| view-clear 10k overlays | 0.0011s |
+| view-clear 100k overlays | 0.0125s |
+| font-lock-highlight 10k lines | 0.1604s |
+| font-lock-highlight 100k lines | 1.8707s |
+| discoverability-tokenize 10k words | 0.0072s |
+| discoverability-tokenize 100k words | 0.1008s |
+| discoverability-render 1k terms | 0.0009s |
+| discoverability-render 10k terms | 0.0087s |
+| tree-render realistic (~65 bufs) | 0.0020s |
+| tree-render stress (~570 bufs) | 0.0849s |
 
 CI runs the same suite on GitHub Actions (ubuntu-latest) as a
 regression gate. If the 2s ceiling holds on that hardware it should be

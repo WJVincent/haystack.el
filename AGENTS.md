@@ -45,7 +45,12 @@ These are repository rules, not agent preferences:
 - Preserve `grep-mode` compatibility. Results buffers must continue to
   emit `filename:line:content` so `compile-goto-error` works.
 - Filters are file-level, not line-level. A filter means "notes
-  containing X", not "matching lines only".
+  containing X", not "matching lines only". Exception: date-range
+  filtering (`haystack-filter-further-by-date`) is intentionally
+  line-level — it keeps only lines with matching `hs:` timestamps,
+  because the user's mental model for "filter by date" is "show me
+  timestamped entries in this range," not "show me all content from
+  files that happen to contain a timestamp in range."
 - Bare user input is literal by default. Only treat input as regex
   when the `~` prefix or a documented expansion path says so.
 - Buffer-local state is canonical. Do not treat buffer names as the
