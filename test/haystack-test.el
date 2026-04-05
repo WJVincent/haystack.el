@@ -8478,5 +8478,324 @@ matching the behavior of ?s (search anyway)."
          (when (buffer-live-p buf) (kill-buffer buf))
          (when (file-exists-p file) (delete-file file)))))))
 
+;;;; Bug regression tests — demo testing round (2026-04-03)
+
+;; Bug 2: chain representation must include scope prefix
+
+(ert-deftest haystack-test/chain-scope-prefix-body ()
+  "Chain string for a body-scoped filter includes > prefix in the display."
+  (let* ((descriptor (haystack-sd-create
+                      :root-term "emacs"
+                      :root-expanded "emacs"
+                      :root-kind 'text
+                      :filters nil))
+         (chain (haystack--format-search-chain
+                 descriptor "macros" nil nil nil nil 'body)))
+    (should (string-match-p ">macros" chain))))
+
+(ert-deftest haystack-test/chain-scope-prefix-frontmatter ()
+  "Chain string for a frontmatter-scoped filter includes < prefix."
+  (let* ((descriptor (haystack-sd-create
+                      :root-term "emacs"
+                      :root-expanded "emacs"
+                      :root-kind 'text
+                      :filters nil))
+         (chain (haystack--format-search-chain
+                 descriptor "macros" nil nil nil nil 'frontmatter)))
+    (should (string-match-p "<macros" chain))))
+
+;; Bug 3: demo path resolution
+
+(ert-deftest haystack-test/demo-package-dir-stable ()
+  "haystack--demo-package-dir returns the haystack.el directory regardless
+of `buffer-file-name'."
+  (let ((expected (file-name-directory
+                   (or (locate-library "haystack")
+                       (expand-file-name "haystack.el" default-directory)))))
+    ;; Simulate being in a demo/ buffer
+    (cl-letf (((symbol-function 'buffer-file-name)
+               (lambda (&optional _buf)
+                 (expand-file-name "demo/README.org" expected))))
+      (let ((result (haystack--demo-package-dir)))
+        (should (string= (file-truename (expand-file-name result))
+                         (file-truename (expand-file-name expected))))))))
+
+;; Bug 4: literal indicator in chain display
+
+(ert-deftest haystack-test/chain-literal-indicator ()
+  "Literal filter shows = prefix in chain display to distinguish from
+non-expanded terms."
+  (let* ((descriptor (haystack-sd-create
+                      :root-term "lisp"
+                      :root-expanded "(lisp|common-lisp|cl|scheme|clojure)"
+                      :root-kind 'text
+                      :root-expansion '("lisp" "common-lisp" "cl" "scheme" "clojure")
+                      :filters nil))
+         (chain (haystack--format-search-chain
+                 descriptor "clojure" t nil nil nil nil t)))
+    ;; The negated literal should show exclude==clojure (= prefix for literal)
+    (should (string-match-p "exclude==clojure" chain))))
+
+(ert-deftest haystack-test/chain-literal-positive-filter ()
+  "Positive literal filter shows = prefix in chain display."
+  (let* ((descriptor (haystack-sd-create
+                      :root-term "emacs"
+                      :root-expanded "emacs"
+                      :root-kind 'text
+                      :filters nil))
+         (chain (haystack--format-search-chain
+                 descriptor "lisp" nil nil nil nil nil t)))
+    (should (string-match-p "filter==lisp" chain))))
+
+;; Bug 5: help menu conditional mentions entry
+
+(ert-deftest haystack-test/help-omits-mentions-when-no-origin ()
+  "Help content omits yank-to-origin when not in a mentions buffer."
+  (let ((haystack--mentions-origin nil))
+    (let ((content (haystack--help-content-one-col)))
+      (should-not (string-match-p "yank to origin" content)))))
+
+(ert-deftest haystack-test/help-includes-mentions-when-origin-set ()
+  "Help content includes yank-to-origin in a mentions buffer."
+  (let ((haystack--mentions-origin "/some/note.org"))
+    (let ((content (haystack--help-content-one-col)))
+      (should (string-match-p "yank to origin" content)))))
+
+;; Bug 6: help menu must not include prefix section
+
+(ert-deftest haystack-test/help-no-prefix-section ()
+  "Help content must not include Search/Filter Prefixes section."
+  (let ((content (haystack--help-content-one-col)))
+    (should-not (string-match-p "Search/Filter Prefixes" content))
+    (should-not (string-match-p "=term.*literal" content))))
+
+(ert-deftest haystack-test/help-two-col-no-prefix-section ()
+  "Two-column help content must not include Search/Filter Prefixes section."
+  (let ((content (haystack--help-content-two-col)))
+    (should-not (string-match-p "Search/Filter Prefixes" content))
+    (should-not (string-match-p "= literal" content))))
+
+;; Bug 10: discoverability spacing consistency
+
+(ert-deftest haystack-test/discoverability-consistent-section-spacing ()
+  "All discoverability tier sections have exactly one blank line before the
+next heading.  Tests with a mix of empty and non-empty tiers to catch
+the spacing bug where empty tiers produced an extra blank line."
+  (let* ((haystack-discoverability-sparse-max 2)
+         (haystack-discoverability-ubiquitous-min 10)
+         ;; sparse tier intentionally empty (no terms with count 1-2)
+         (term-counts '(("unique-term" . 0)
+                        ("connected-a" . 5)
+                        ("ubiquitous-a" . 20)))
+         (rendered (haystack--discoverability-render
+                    term-counts "/tmp/test-note.org")))
+    ;; Check that each heading (except the first) is preceded by exactly
+    ;; one blank line — the line before each * heading should be empty,
+    ;; and the line before THAT should be non-empty.
+    (let* ((lines (split-string rendered "\n"))
+           (heading-indices nil))
+      (cl-loop for line in lines
+               for i from 0
+               when (string-prefix-p "* " line)
+               do (push i heading-indices))
+      (setq heading-indices (nreverse heading-indices))
+      ;; Every heading after the first should be preceded by exactly 1 blank line
+      (dolist (idx (cdr heading-indices))
+        (should (string-empty-p (nth (1- idx) lines)))
+        (should-not (string-empty-p (nth (- idx 2) lines)))))))
+
+;;;; Phase 1A/1B — root search header prefix bugs
+
+(ert-deftest haystack-test/run-root-search-literal-prefix-in-header ()
+  "A =term root search shows root==term in header (double = for literal prefix)."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "=nomatchxyz99")
+     (let ((buf (get-buffer "*haystack:1:=nomatchxyz99*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "root==nomatchxyz99" (buffer-string))))
+         (kill-buffer buf))))))
+
+(ert-deftest haystack-test/run-root-search-regex-prefix-in-header ()
+  "A ~pattern root search shows root=~pattern in header."
+  (haystack-test--with-notes-dir
+   (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (haystack-run-root-search "~nomatchxyz99")
+     (let ((buf (get-buffer "*haystack:1:~nomatchxyz99*")))
+       (should buf)
+       (unwind-protect
+           (with-current-buffer buf
+             (should (string-match-p "root=~nomatchxyz99" (buffer-string))))
+         (kill-buffer buf))))))
+
+;;;; Phase 3A — tree terms colored by depth
+
+(ert-deftest haystack-test/tree-render-node-uses-depth-face ()
+  "Tree node face is chosen from `haystack-tree-depth-faces' by depth, not by filter type."
+  (let* ((root  (haystack-test--make-results-buf
+                 " *hs-df-root*" nil
+                 (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf
+                 " *hs-df-child*" root
+                 (haystack-sd-create :root-term "rust"
+                   :filters '((:term "async" :literal t))))))
+    (unwind-protect
+        (with-temp-buffer
+          (haystack--tree-render-node root nil "" "" 0)
+          (goto-char (point-min))
+          ;; Root at depth 0 should use first depth face
+          (let ((root-face (get-text-property (point) 'face)))
+            (should (or (eq root-face (nth 0 haystack-tree-depth-faces))
+                        (and (listp root-face)
+                             (memq (nth 0 haystack-tree-depth-faces) root-face)))))
+          ;; Child at depth 1 should use second depth face, NOT the literal face
+          (forward-line 1)
+          (let* ((term-start (next-single-property-change (point) 'action))
+                 (child-face (get-text-property (or term-start (point)) 'face)))
+            (should (or (eq child-face (nth 1 haystack-tree-depth-faces))
+                        (and (listp child-face)
+                             (memq (nth 1 haystack-tree-depth-faces) child-face))))))
+      (kill-buffer root)
+      (kill-buffer child))))
+
+;;;; Phase 3B — tree kill bindings
+
+(ert-deftest haystack-test/tree-mode-map-has-kill-bindings ()
+  "Tree mode map should bind k, K, and M-k."
+  (should (lookup-key haystack-tree-mode-map "k"))
+  (should (lookup-key haystack-tree-mode-map "K"))
+  (should (lookup-key haystack-tree-mode-map (kbd "M-k"))))
+
+(ert-deftest haystack-test/tree-kill-node-kills-buffer-at-point ()
+  "k in tree view kills the buffer on the current line and refreshes."
+  (let* ((root  (haystack-test--make-results-buf
+                 " *hs-tk-root*" nil
+                 (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf
+                 " *hs-tk-child*" root
+                 (haystack-sd-create :root-term "rust"
+                   :filters '((:term "async"))))))
+    (unwind-protect
+        (progn
+          (with-current-buffer root
+            (haystack-show-tree))
+          (with-current-buffer "*haystack-tree*"
+            ;; Move to child line
+            (goto-char (point-min))
+            (haystack-tree-next)    ; root
+            (haystack-tree-next)    ; child
+            (haystack-tree-kill-node)
+            (should-not (buffer-live-p child))
+            (should (buffer-live-p root))))
+      (when (buffer-live-p root)  (kill-buffer root))
+      (when (buffer-live-p child) (kill-buffer child))
+      (when (get-buffer "*haystack-tree*")
+        (kill-buffer "*haystack-tree*")))))
+
+(ert-deftest haystack-test/tree-kill-subtree-kills-descendants ()
+  "K in tree view kills the buffer at point and all its descendants."
+  (let* ((root  (haystack-test--make-results-buf
+                 " *hs-tks-root*" nil
+                 (haystack-sd-create :root-term "rust" :filters nil)))
+         (child (haystack-test--make-results-buf
+                 " *hs-tks-child*" root
+                 (haystack-sd-create :root-term "rust"
+                   :filters '((:term "async"))))))
+    (unwind-protect
+        (progn
+          (with-current-buffer root
+            (haystack-show-tree))
+          (with-current-buffer "*haystack-tree*"
+            (goto-char (point-min))
+            (haystack-tree-next)    ; root
+            (haystack-tree-kill-subtree)
+            (should-not (buffer-live-p root))
+            (should-not (buffer-live-p child))))
+      (when (buffer-live-p root)  (kill-buffer root))
+      (when (buffer-live-p child) (kill-buffer child))
+      (when (get-buffer "*haystack-tree*")
+        (kill-buffer "*haystack-tree*")))))
+
+;;;; Phase 6 — frecent picker sort order
+
+(ert-deftest haystack-test/frecent-completion-table-has-display-sort-function ()
+  "The frecent completing-read table metadata includes display-sort-function."
+  (haystack-test--with-notes-dir
+   (let* ((k1 (haystack-test--tkey "alpha"))
+          (k2 (haystack-test--tkey "beta"))
+          (haystack--frecency-data
+           `((,k1 :count 1 :last-access ,(float-time))
+             (,k2 :count 5 :last-access ,(float-time))))
+          (haystack--frecency-initialized t)
+          (table-fn nil))
+     (cl-letf (((symbol-function 'completing-read)
+                (lambda (_prompt table &rest _args)
+                  (setq table-fn table)
+                  ;; Return first candidate to avoid error
+                  (car (funcall table "" nil t))))
+               ((symbol-function 'haystack--frecency-replay) #'ignore))
+       (ignore-errors (haystack-frecent t))
+       (should table-fn)
+       (let ((metadata (funcall table-fn "" nil 'metadata)))
+         (should (assq 'display-sort-function (cdr metadata))))))))
+
+;;;; Phase 7A — frecent describe pin toggle preserves point
+
+(ert-deftest haystack-test/frecent-toggle-pin-preserves-point ()
+  "Toggling pin in the frecent buffer keeps point on the same entry."
+  (haystack-test--with-notes-dir
+   (let* ((k1 (haystack-test--tkey "alpha"))
+          (k2 (haystack-test--tkey "beta"))
+          (haystack--frecency-data
+           `((,k1 :count 3 :last-access ,(float-time))
+             (,k2 :count 1 :last-access ,(float-time))))
+          (haystack--frecency-initialized t))
+     (haystack-describe-frecent)
+     (unwind-protect
+         (with-current-buffer "*haystack-frecent*"
+           ;; Find the first entry with a chain text property
+           (goto-char (point-min))
+           (while (and (not (eobp))
+                       (not (get-text-property (point) 'haystack-frecent-chain)))
+             (forward-line 1))
+           (let ((chain-before (get-text-property (point) 'haystack-frecent-chain)))
+             (should chain-before)
+             (haystack-frecent-toggle-pin)
+             (should (equal chain-before
+                            (get-text-property (point) 'haystack-frecent-chain)))))
+       (when (get-buffer "*haystack-frecent*")
+         (kill-buffer "*haystack-frecent*"))))))
+
+;;;; Phase 7B — pin toggle in results shows indicator in header
+
+(ert-deftest haystack-test/pin-current-search-shows-indicator ()
+  "After pinning, the results buffer header should contain a [pinned] indicator."
+  (haystack-test--with-notes-dir
+   (let ((haystack--frecency-data nil)
+         (haystack--frecency-initialized t))
+     (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+       (haystack-run-root-search "nomatchxyz99")
+       (let ((buf (get-buffer "*haystack:1:nomatchxyz99*")))
+         (should buf)
+         (unwind-protect
+             (with-current-buffer buf
+               (haystack-pin-current-search)
+               (should (string-match-p "\\[pinned\\]" (buffer-string))))
+           (kill-buffer buf)))))))
+
+;;;; Phase 7C — results buffer revert binding
+
+(ert-deftest haystack-test/results-mode-map-has-revert-binding ()
+  "Results mode map should bind g."
+  (should (lookup-key haystack-results-mode-map "g")))
+
+;;;; Phase 7F — C-c h F for all-entries frecent picker
+
+(ert-deftest haystack-test/prefix-map-has-F-for-frecent-all ()
+  "Prefix map should bind F to a frecent-all command."
+  (should (lookup-key haystack-prefix-map "F")))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here

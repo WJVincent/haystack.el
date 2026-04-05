@@ -1,0 +1,29 @@
+#+TITLE: Invented Taxonomy for Fictional Ecosystems
+#+DATE: 2025-04-01
+# %%% haystack-end-frontmatter %%%
+This note catalogs a classification system for purely fictional organisms found
+in speculative xenobiology literature.  None of these terms appear in any other
+note in a typical knowledge base, making the vocabulary genuinely isolated.
+
+The phylum Crystallofauna encompasses organisms whose skeletal structure is
+silicon-based rather than carbon-based.  Subtypes include the Thermolattice
+order (heat-conducting crystal matrices) and the Piezoflora order (organisms
+that generate bioelectric fields through mechanical stress on their crystal
+lattices).
+
+The Nebulozoic era refers to a fictional geological period when atmospheric
+density was so high that airborne photosynthesizers called Aerochlorophytes
+dominated the biosphere.  Their closest analog in real biology would be
+cyanobacteria, but Aerochlorophytes used a hypothetical pigment called
+Helioxanthin rather than chlorophyll.
+
+Trophic interactions in this fictional ecosystem follow a Resonance Cascade
+model: energy transfer between organisms occurs through sympathetic vibration
+of crystal lattices rather than through chemical digestion.  The apex predator
+in this model is the Lithovore, a Crystallofauna that consumes geological
+substrates and excretes refined mineral matrices used by smaller organisms.
+
+The Xenotaxonomic Index is a fictional reference work that assigns each
+organism a Spectral Signature — a unique frequency fingerprint derived from its
+crystal lattice resonance pattern.  This replaces the Linnaean binomial system
+in the fictional universe.

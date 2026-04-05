@@ -386,10 +386,14 @@ implemented; remaining TODO items are ideas for future development.
 - Covered by =haystack-new-note-with-moc=: creates a note and inserts
   the results MOC in one step.  Org-capture integration is left to user
   config if preferred.
-** CANCELLED Per-filter-type match highlighting
-- Removed: font-lock-based highlighting did not render reliably in GUI
-  Emacs (grep-mode's fontification machinery interfered).  May revisit
-  with a different approach in the future.
+** TODO Match highlighting in results buffers
+- rg runs with =--color=never=; no =font-lock-keywords= are set up for
+  content highlighting.  Needs Emacs-side pattern from the descriptor
+  applied via =font-lock-keywords= using =haystack-match-*= faces.
+- Must handle OR/AND queries, scope filters, and coexist with grep-mode
+  font-lock.  Earlier attempt with =font-lock-face= properties was
+  cancelled due to grep-mode interference — revisit with a fresh approach.
+- See =docs/plan-manual-testing-fixes.md= Phase 2 for design notes.
 ** DONE Saved/pinned search paths (=:pinned t= on frecency entries)
 - =:pinned t= flag in frecency entry props; stored in =.haystack-frecency.el=
 - =haystack-frecent-toggle-pin= (=p= in frecent buffer): toggle at point

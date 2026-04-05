@@ -239,7 +239,9 @@ contains a dedicated clojure note to be excluded."
                                 (car (haystack--count-search-stats (buffer-string))))))
              (should (< child-count root-count))
              (with-current-buffer child-buf
-               (should (string-match-p "exclude=clojure" (buffer-string)))
+               ;; !=clojure is negated+literal; chain shows exclude==clojure
+               ;; (first = is label separator, second = is literal prefix)
+               (should (string-match-p "exclude==clojure" (buffer-string)))
                (dolist (path (haystack--extract-filenames (buffer-string)))
                  (should-not (string-match-p "clojure"
                                              (file-name-nondirectory path))))))
@@ -1161,6 +1163,85 @@ for standard haystack frontmatter: TITLE, DATE, sentinel)."
                (should (string-match-p "rust-async" content))
                (should (string-match-p "python-flask" content))))
          (when (buffer-live-p buf) (kill-buffer buf)))))))
+
+;;;; Test — Filter match count invariant (Bug 1b)
+
+(ert-deftest haystack-io-test/filter-match-count-never-increases ()
+  "Positive filter must produce ≤ parent match count — general invariant.
+When the filter pattern (expansion group) has more per-file hits than the
+root pattern, the child buffer must still not exceed the parent's match
+count because the filter should re-run the root pattern on the narrowed
+file set."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     ;; Root search for "emacs" then filter by "lisp" (expansion group
+     ;; with many per-file hits).  The filter should narrow files, not
+     ;; increase the match count.
+     (let* ((root-buf  (haystack-run-root-search "emacs"))
+            (child-buf (with-current-buffer root-buf
+                         (haystack-filter-further "=lisp"))))
+       (unwind-protect
+           (let ((root-matches  (with-current-buffer root-buf
+                                  (cdr (haystack--count-search-stats (buffer-string)))))
+                 (child-matches (with-current-buffer child-buf
+                                  (cdr (haystack--count-search-stats (buffer-string))))))
+             (should (> root-matches 0))
+             (should (> child-matches 0))
+             (should (<= child-matches root-matches)))
+         (when (buffer-live-p child-buf) (kill-buffer child-buf))
+         (when (buffer-live-p root-buf)  (kill-buffer root-buf)))))))
+
+(ert-deftest haystack-io-test/scoped-filter-match-count-never-increases ()
+  "Body-only filter must produce ≤ parent match count.
+Regression test: >lisp on a chain root=emacs previously returned more
+matches than the parent because the filter displayed its own pattern's
+matches instead of re-running the root pattern."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let* ((root-buf  (haystack-run-root-search "emacs"))
+            (child-buf (with-current-buffer root-buf
+                         (haystack-filter-further ">macros"))))
+       (unwind-protect
+           (let ((root-matches  (with-current-buffer root-buf
+                                  (cdr (haystack--count-search-stats (buffer-string)))))
+                 (child-matches (with-current-buffer child-buf
+                                  (cdr (haystack--count-search-stats (buffer-string))))))
+             (should (> root-matches 0))
+             (should (<= child-matches root-matches)))
+         (when (buffer-live-p child-buf) (kill-buffer child-buf))
+         (when (buffer-live-p root-buf)  (kill-buffer root-buf)))))))
+
+(ert-deftest haystack-io-test/expansion-group-filter-match-count-invariant ()
+  "Filtering by an expansion group (unscoped) must produce ≤ parent matches.
+This is the canonical case: root=emacs, filter by lisp (which expands to
+lisp|common-lisp|cl|scheme|clojure).  The expansion has many per-file hits
+but the child buffer must not exceed parent's match count."
+  (haystack-io-test--with-corpus
+   (cl-letf (((symbol-function 'pop-to-buffer)    #'ignore)
+             ((symbol-function 'switch-to-buffer) #'ignore)
+             ((symbol-function 'yes-or-no-p)      (lambda (_) t)))
+     (let* ((root-buf  (haystack-run-root-search "emacs"))
+            (child-buf (with-current-buffer root-buf
+                         (haystack-filter-further "lisp"))))
+       (unwind-protect
+           (let ((root-matches  (with-current-buffer root-buf
+                                  (cdr (haystack--count-search-stats (buffer-string)))))
+                 (child-matches (with-current-buffer child-buf
+                                  (cdr (haystack--count-search-stats (buffer-string)))))
+                 (root-files    (with-current-buffer root-buf
+                                  (car (haystack--count-search-stats (buffer-string)))))
+                 (child-files   (with-current-buffer child-buf
+                                  (car (haystack--count-search-stats (buffer-string))))))
+             (should (> root-matches 0))
+             (should (> child-matches 0))
+             (should (<= child-files root-files))
+             (should (<= child-matches root-matches)))
+         (when (buffer-live-p child-buf) (kill-buffer child-buf))
+         (when (buffer-live-p root-buf)  (kill-buffer root-buf)))))))
 
 (provide 'haystack-io-test)
 ;;; haystack-io-test.el ends here

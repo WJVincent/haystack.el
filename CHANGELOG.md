@@ -7,6 +7,95 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.18.0] — 2026-04-04
+
+### Fixed
+
+- **Positive filter match count invariant** — `haystack-filter-further`
+  now re-runs the root pattern on the narrowed file set for positive
+  content filters, matching the behavior of negation and filename
+  filters.  Previously, the child buffer displayed filter-pattern
+  matches and could exceed the parent's match count.
+- **Body-only filter with expansion group** — scoped filters (`>term`)
+  now correctly narrow files by the scoped pattern and re-run the root
+  pattern.  The chain display includes the scope prefix (`>` / `<`).
+- **Demo restart path** — `haystack--demo-package-dir` now uses a
+  load-time defconst instead of a runtime `buffer-file-name` fallback,
+  fixing the "demo/demo/notes" double-path error on restart.
+- **Demo functions not defined after eval-buffer** —
+  `haystack--source-directory` now falls back to `buffer-file-name`
+  when both `load-file-name` and `locate-library` are nil (i.e. during
+  interactive `eval-buffer`).  Previously the `error` call halted
+  evaluation, leaving all demo functions undefined.
+- **Chain display: scope prefix** — `haystack--format-search-chain`
+  now includes `>` / `<` prefix in the current filter's chain segment.
+- **Chain display: literal indicator** — literal filters (`=term`) now
+  show `=` in the chain display, distinguishing them from non-expanded
+  terms (e.g., `exclude==clojure` vs `exclude=foo`).
+- **Help menu: conditional mentions entry** — "yank to origin" is now
+  only shown in the help popup when the buffer is part of a mentions
+  tree (`haystack--mentions-origin` non-nil).
+- **Help menu: removed prefix section** — search/filter prefix
+  reference removed from the results buffer help popup (already shown
+  in the filter prompt).
+- **Tree help popup height** — tree buffer help now opens in a side
+  window instead of splitting the often-short tree window.
+- **Discoverability spacing** — empty tier sections no longer produce
+  an extra blank line before the next heading.
+- **`haystack-describe-frecent` overwrites in-memory data** — no longer
+  unconditionally reloads frecency from disk, which was clobbering
+  seeded or in-session data.  Now guarded like `haystack-frecent`.
+- **Composite org headings not nested** — org headings inside source
+  file content are now demoted by one level so they nest under the
+  composite section heading instead of appearing as siblings.
+
+- **Root header: literal prefix missing** — root search header now shows
+  `root==term` for literal (`=`) prefix searches.  Previously the `=`
+  was omitted (showed `root=term`), even though filter-further displayed
+  it correctly.
+- **Root header: regex prefix missing** — root search header now shows
+  `root=~pattern` for regex (`~`) prefix searches.
+- **Tree view: terms colored by type instead of depth** — tree node
+  faces now cycle through `haystack-tree-depth-faces` by depth level,
+  matching the documented behavior.  Previously used the filter-type
+  face (literal, regex, etc.).
+- **Frecent picker: not sorted by score** — the `completing-read` table
+  now includes `display-sort-function` in its metadata, preserving the
+  pre-sorted score order instead of letting the completion UI re-sort
+  alphabetically.
+- **Pin toggle: cursor jumps to bottom in frecent buffer** —
+  `haystack-frecent-toggle-pin` now preserves point on the same entry
+  after re-rendering.
+
+### Added
+
+- **Tree kill bindings** — `k` (kill node), `K` (kill subtree), and
+  `M-k` (kill whole tree) are now bound in `haystack-tree-mode-map`.
+  Each operates on the buffer at point and refreshes the tree display.
+- **Pin indicator in results header** — `haystack-pin-current-search`
+  (`P`) now adds or removes a `[pinned]` line in the header for
+  visual feedback.
+- **Results revert** — `g` in results buffers replays the full search
+  chain, refreshing results with current corpus state.
+- **`haystack-frecent-all`** — new command bound to `C-c h F` that
+  opens the frecent picker showing all entries (equivalent to `C-u C-c h f`).
+
+### Changed
+
+- **MOC code style default** — `haystack-moc-code-style` default
+  changed from `'comment` to `'data`, so yanking MOC into code files
+  produces structured data blocks by default.
+- **Describe buffers: theme-aware highlighting** —
+  `haystack-describe-expansion-groups` and `haystack--frecent-render`
+  now use standard Emacs faces (bold, shadow, font-lock-keyword-face,
+  etc.) that inherit from the user's theme.
+- **Tree view: clickable items** — tree node terms are now text buttons
+  (mouse-1 visits the buffer).
+- **Demo corpus** — added `orphan-invented-taxonomy.org` with genuinely
+  isolated vocabulary for discoverability demonstrations.
+
+---
+
 ## [0.17.0] — 2026-04-02
 
 ### Changed

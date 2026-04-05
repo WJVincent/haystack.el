@@ -17,14 +17,14 @@ directory, and restores your previous ~haystack-notes-directory~.
 The 110 notes span six topic areas and include deliberately messy
 files to demonstrate that Haystack handles real-world imperfection:
 
-| Topic      | Notes | File types                    |
-|------------+-------+-------------------------------|
-| Emacs      |    18 | .org                          |
-| Lisp       |    20 | .org, .md                     |
-| PKM        |    19 | .org, .md                     |
-| Haystack   |    19 | .org, .md                     |
-| Code       |    13 | .el .py .js .lua .rb .rs      |
-| Humanities |     8 | .org, .md, .txt               |
+| Topic      | Notes | File types                                             |
+|------------+-------+--------------------------------------------------------|
+| Emacs      |    18 | .org                                                   |
+| Lisp       |    20 | .org, .md                                              |
+| PKM        |    19 | .org, .md                                              |
+| Haystack   |    19 | .org, .md                                              |
+| Code       |    13 | .el .py .js .lua .rb .rs                               |
+| Humanities |     8 | .org, .md, .txt                                        |
 | Messy      |    13 | .org, .md, .txt (some no frontmatter, spaces in names) |
 
 * Pre-built expansion groups
@@ -108,8 +108,11 @@ ones dominated by their deeper siblings.
    - *Connected* — terms shared with several notes
    - *Ubiquitous* — terms that appear almost everywhere
 
-   Try it on =orphan-vocabulary-gap= — its Isolated tier is large,
-   confirming that the note's vocabulary is genuinely unique.
+   Try it on =orphan-invented-taxonomy= — its Isolated tier is large
+   because its vocabulary (xenobiology, Crystallofauna, Piezoflora,
+   etc.) is genuinely unique to that note.  Compare with
+   =orphan-vocabulary-gap=, which has a well-connected profile because
+   its PKM and search terms overlap with much of the corpus.
 
 ** 7 · Messy files
    The corpus includes deliberately imperfect files: notes without
