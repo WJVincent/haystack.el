@@ -386,14 +386,10 @@ implemented; remaining TODO items are ideas for future development.
 - Covered by =haystack-new-note-with-moc=: creates a note and inserts
   the results MOC in one step.  Org-capture integration is left to user
   config if preferred.
-** TODO Match highlighting in results buffers
-- rg runs with =--color=never=; no =font-lock-keywords= are set up for
-  content highlighting.  Needs Emacs-side pattern from the descriptor
-  applied via =font-lock-keywords= using =haystack-match-*= faces.
-- Must handle OR/AND queries, scope filters, and coexist with grep-mode
-  font-lock.  Earlier attempt with =font-lock-face= properties was
-  cancelled due to grep-mode interference — revisit with a fresh approach.
-- See =docs/plan-manual-testing-fixes.md= Phase 2 for design notes.
+** CANCELLED Match highlighting in results buffers
+- Cancelled: grep-mode's default font-lock is sufficient; the complexity
+  of handling OR/AND queries and coexisting with grep-mode font-lock
+  outweighs the benefit.
 ** DONE Saved/pinned search paths (=:pinned t= on frecency entries)
 - =:pinned t= flag in frecency entry props; stored in =.haystack-frecency.el=
 - =haystack-frecent-toggle-pin= (=p= in frecent buffer): toggle at point
@@ -453,18 +449,10 @@ implemented; remaining TODO items are ideas for future development.
   before-and-after rather than inheriting a pre-baked history
 - Confirmed as a word-of-mouth blocker by the most relevant adoption
   audience (Org-roam migrants, professor persona)
-** TODO Font-lock performance — adaptive highlighting for large buffers
-- =font-lock-ensure= on 100k-line results buffers takes ~1.9s locally,
-  well above the 500ms target for other 100k-scale operations
-- Investigate whether font-lock keywords can be conditionally reduced
-  or disabled above a line-count threshold (e.g., skip match
-  highlighting when the buffer exceeds =haystack-font-lock-max-lines=)
-- Alternatives: lazy/viewport-only fontification via
-  =jit-lock-register=, coarser regex patterns at scale, or deferring
-  highlight to an idle timer so the buffer appears instantly
-- Goal: results buffers should feel instant regardless of size; syntax
-  highlighting is cosmetic and should degrade gracefully rather than
-  block display
+** DONE Font-lock performance — adaptive highlighting for large buffers
+- Non-issue: haystack results buffers inherit grep-mode's default
+  =jit-lock= (viewport-only) fontification.  No eager =font-lock-ensure=
+  call exists, so large buffers render instantly.
 ** TODO Keymap audit — mnemonic review of all default bindings
 - Revisit both =haystack-prefix-map= and =haystack-results-mode-map=
   bindings with fresh eyes once the feature set has stabilised
