@@ -57,6 +57,30 @@ Set your notes directory and bind the prefix map:
 The prefix map is intentionally unbound by default — `C-c <letter>`
 bindings are reserved for users.
 
+## Switching Notes Directories
+
+Haystack keeps a pool of notes directories you can switch between at
+runtime, handy when you use it across multiple projects or contexts.
+
+```
+C-c h c   switch the active directory (completing-read over the pool)
+C-c h a   add a directory to the pool (prompt inherits `default-directory`)
+C-c h X   remove a directory from the pool
+C-c h K   kill haystack buffers not scoped to the active directory
+```
+
+The pool is persisted to `haystack-directories-file` — by default
+`~/.emacs.d/haystack-directories.el` — as a plain list of paths.  The
+file is human-readable and you can hand-edit it; the switcher re-reads
+the file every time it prompts.  On first use, the pool is seeded with
+`haystack-notes-directory`.
+
+Existing results buffers are scoped to the directory they were born
+under — switching does not retroactively rebind them.  Use
+`haystack-directory-kill-other-buffers` to sweep out buffers from
+directories you are no longer working in.  Removing the active directory
+asks for confirmation and kills its associated buffers on your approval.
+
 ## Demo Mode
 
 Not sure if Haystack's workflow fits you? Try it on a bundled corpus
@@ -111,6 +135,10 @@ See `demo/README.org` for a guided walkthrough.
 | `C-c h i` | Prompt for a date; insert timestamp at chosen precision |
 | `C-c h I` | Insert current date and time as an `hs:` timestamp |
 | `C-c h D` | Start demo mode |
+| `C-c h c` | Switch the active notes directory (change-dir) |
+| `C-c h a` | Add a directory to the pool |
+| `C-c h X` | Remove a directory from the pool |
+| `C-c h K` | Kill haystack buffers for non-active directories |
 
 ## Creating Notes
 
@@ -750,6 +778,7 @@ to write immediately on every buffer visit instead.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `haystack-notes-directory` | `nil` | Root directory for notes. Must be set. |
+| `haystack-directories-file` | `~/.emacs.d/haystack-directories.el` | Human-editable state file listing directories available to the switcher. |
 | `haystack-default-extension` | `"org"` | Default extension for new notes. |
 | `haystack-context-width` | `60` | Characters of context shown around each match. |
 | `haystack-file-glob` | `nil` | Restrict searches to files matching these globs (e.g. `("*.org" "*.md")`). |

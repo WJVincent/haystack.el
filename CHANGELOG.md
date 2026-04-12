@@ -5,6 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Notes-directory switcher** — manage a pool of notes directories and
+  switch between them at runtime.  New commands:
+  `haystack-directory-switch` (`C-c h c`),
+  `haystack-directory-add` (`C-c h a`),
+  `haystack-directory-remove` (`C-c h X`), and
+  `haystack-directory-kill-other-buffers` (`C-c h K`).  The pool is
+  persisted to `haystack-directories-file` (default
+  `~/.emacs.d/haystack-directories.el`) as a hand-editable list of
+  paths; the switcher re-reads the file on every prompt so manual
+  edits take effect immediately.  On first use, the pool is seeded
+  with `haystack-notes-directory`.  Existing results buffers keep
+  their original directory scope after a switch; removing the active
+  directory prompts for confirmation and kills its associated buffers
+  on approval.  The four commands refuse to run while demo mode is
+  active.
+
 ---
 
 ## [0.18.0] — 2026-04-04

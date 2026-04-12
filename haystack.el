@@ -6366,6 +6366,212 @@ if the file is inside `haystack-notes-directory'."
       (add-hook 'after-save-hook #'haystack--save-mode-handler nil t)
     (remove-hook 'after-save-hook #'haystack--save-mode-handler t)))
 
+;;;; Directory switcher
+
+(defcustom haystack-directories-file
+  (expand-file-name "haystack-directories.el" user-emacs-directory)
+  "Path to the state file listing haystack notes directories.
+The file contains a single Elisp sexp — a list of absolute directory
+paths.  It is intended to be human-readable and hand-editable; manual
+edits are picked up the next time `haystack-directory-switch' is run."
+  :type 'file
+  :group 'haystack)
+
+(defvar haystack-notes-directories nil
+  "In-memory pool of haystack notes directories.
+Authoritative state lives in `haystack-directories-file'; this variable
+is refreshed from disk by `haystack-directory-switch' and mutated by
+`haystack-directory-add' and `haystack-directory-remove'.")
+
+(defun haystack--directory-canonicalize (path)
+  "Return PATH as an absolute, truename'd directory without trailing slash."
+  (directory-file-name (file-truename (expand-file-name path))))
+
+(defun haystack--directories-read ()
+  "Read and return the directory list from `haystack-directories-file'.
+Returns nil if the file does not exist.  Signals an error if the file
+exists but cannot be parsed as an Elisp list."
+  (when (file-exists-p haystack-directories-file)
+    (with-temp-buffer
+      (insert-file-contents haystack-directories-file)
+      (goto-char (point-min))
+      (let ((data (read (current-buffer))))
+        (unless (listp data)
+          (error "Haystack: %s does not contain a list"
+                 haystack-directories-file))
+        data))))
+
+(defun haystack--directories-write (dirs)
+  "Write DIRS to `haystack-directories-file' as a readable sexp list."
+  (let ((dir (file-name-directory haystack-directories-file)))
+    (when (and dir (not (file-directory-p dir)))
+      (make-directory dir t)))
+  (with-temp-file haystack-directories-file
+    (insert ";; haystack notes directories — managed by\n")
+    (insert ";; haystack-directory-add / -remove.  Edit by hand if you like;\n")
+    (insert ";; changes are picked up on the next haystack-directory-switch.\n")
+    (let ((print-length nil)
+          (print-level nil))
+      (insert "(")
+      (when dirs
+        (insert "\n")
+        (dolist (d dirs)
+          (insert " ")
+          (prin1 d (current-buffer))
+          (insert "\n")))
+      (insert ")\n"))))
+
+(defun haystack--directories-refresh ()
+  "Refresh `haystack-notes-directories' from disk.
+Auto-seeds the pool with `haystack-notes-directory' when the state file
+is absent or empty and the active directory is set."
+  (let ((disk (haystack--directories-read)))
+    (setq haystack-notes-directories
+          (mapcar #'haystack--directory-canonicalize disk))
+    (when (and (null haystack-notes-directories)
+               haystack-notes-directory)
+      (let ((seed (haystack--directory-canonicalize
+                   haystack-notes-directory)))
+        (setq haystack-notes-directories (list seed))
+        (haystack--directories-write haystack-notes-directories)))))
+
+(defun haystack--directory-assert-not-demo ()
+  "Signal a user-error if haystack demo mode is active."
+  (when (and (boundp 'haystack--demo-active) haystack--demo-active)
+    (user-error
+     "Haystack demo mode is active; run `haystack-demo-stop' first")))
+
+(defun haystack--kill-buffers-for-dir (dir)
+  "Kill every haystack buffer whose notes dir canonicalizes to DIR.
+Returns the number of buffers killed."
+  (let ((target (haystack--directory-canonicalize dir))
+        (count  0))
+    (dolist (buf (buffer-list))
+      (let ((bdir (buffer-local-value 'haystack--buffer-notes-dir buf)))
+        (when (and bdir
+                   (equal target
+                          (haystack--directory-canonicalize bdir)))
+          (kill-buffer buf)
+          (setq count (1+ count)))))
+    count))
+
+;;;###autoload
+(defun haystack-directory-switch ()
+  "Switch `haystack-notes-directory' to a directory from the pool.
+Re-reads `haystack-directories-file' first so manual edits are honored.
+Existing haystack results buffers keep their original notes dir — only
+new searches use the new active directory."
+  (interactive)
+  (haystack--directory-assert-not-demo)
+  (haystack--directories-refresh)
+  (unless haystack-notes-directories
+    (user-error "Haystack: directory pool is empty; use `haystack-directory-add'"))
+  (let* ((default (and haystack-notes-directory
+                       (haystack--directory-canonicalize
+                        haystack-notes-directory)))
+         (choice (completing-read
+                  "Haystack notes directory: "
+                  haystack-notes-directories nil t nil nil default))
+         (canon  (haystack--directory-canonicalize choice)))
+    (unless (file-directory-p canon)
+      (if (y-or-n-p
+           (format "Directory %s no longer exists; remove from pool? "
+                   (abbreviate-file-name canon)))
+          (progn
+            (setq haystack-notes-directories
+                  (delete canon haystack-notes-directories))
+            (haystack--directories-write haystack-notes-directories)
+            (user-error "Haystack: %s removed from pool; pick another"
+                        (abbreviate-file-name canon)))
+        (user-error "Haystack: %s does not exist"
+                    (abbreviate-file-name canon))))
+    (setq haystack-notes-directory canon)
+    (message "Haystack notes directory: %s"
+             (abbreviate-file-name canon))))
+
+;;;###autoload
+(defun haystack-directory-add ()
+  "Add a directory to the haystack notes-directory pool.
+The prompt inherits the current buffer's `default-directory' as its
+initial value.  If the chosen directory does not exist, you are asked
+whether to create it."
+  (interactive)
+  (haystack--directory-assert-not-demo)
+  (haystack--directories-refresh)
+  (let* ((chosen (read-directory-name "Add notes directory: "
+                                      default-directory nil nil))
+         (canon  (haystack--directory-canonicalize chosen)))
+    (when (member canon haystack-notes-directories)
+      (user-error "Haystack: %s is already in the pool"
+                  (abbreviate-file-name canon)))
+    (unless (file-directory-p canon)
+      (unless (y-or-n-p
+               (format "Directory %s does not exist; create it? "
+                       (abbreviate-file-name canon)))
+        (user-error "Haystack: aborted; %s does not exist"
+                    (abbreviate-file-name canon)))
+      (make-directory canon t))
+    (setq haystack-notes-directories
+          (append haystack-notes-directories (list canon)))
+    (haystack--directories-write haystack-notes-directories)
+    (message "Haystack: added %s to pool"
+             (abbreviate-file-name canon))))
+
+;;;###autoload
+(defun haystack-directory-remove ()
+  "Remove a directory from the haystack notes-directory pool.
+Removing the currently active directory requires y-or-n-p confirmation;
+on confirm, all haystack buffers scoped to that directory are killed
+and `haystack-notes-directory' becomes nil."
+  (interactive)
+  (haystack--directory-assert-not-demo)
+  (haystack--directories-refresh)
+  (unless haystack-notes-directories
+    (user-error "Haystack: directory pool is empty"))
+  (let* ((choice (completing-read
+                  "Remove notes directory: "
+                  haystack-notes-directories nil t))
+         (canon  (haystack--directory-canonicalize choice))
+         (active (and haystack-notes-directory
+                      (haystack--directory-canonicalize
+                       haystack-notes-directory))))
+    (unless (member canon haystack-notes-directories)
+      (user-error "Haystack: %s is not in the pool"
+                  (abbreviate-file-name canon)))
+    (when (equal canon active)
+      (unless (y-or-n-p
+               (format "%s is the active notes directory; remove anyway? "
+                       (abbreviate-file-name canon)))
+        (user-error "Haystack: removal declined"))
+      (let ((killed (haystack--kill-buffers-for-dir canon)))
+        (setq haystack-notes-directory nil)
+        (message "Haystack: cleared active directory; killed %d buffer%s"
+                 killed (if (= killed 1) "" "s"))))
+    (setq haystack-notes-directories
+          (delete canon haystack-notes-directories))
+    (haystack--directories-write haystack-notes-directories)
+    (message "Haystack: removed %s from pool"
+             (abbreviate-file-name canon))))
+
+;;;###autoload
+(defun haystack-directory-kill-other-buffers ()
+  "Kill haystack buffers whose notes dir differs from the active one.
+Buffers without `haystack--buffer-notes-dir' are untouched."
+  (interactive)
+  (let ((active (and haystack-notes-directory
+                     (haystack--directory-canonicalize
+                      haystack-notes-directory)))
+        (count  0))
+    (dolist (buf (buffer-list))
+      (let ((bdir (buffer-local-value 'haystack--buffer-notes-dir buf)))
+        (when (and bdir
+                   (not (equal active
+                               (haystack--directory-canonicalize bdir))))
+          (kill-buffer buf)
+          (setq count (1+ count)))))
+    (message "Haystack: killed %d orphan buffer%s"
+             count (if (= count 1) "" "s"))))
+
 ;;;; Global prefix map
 
 ;;;###autoload
@@ -6392,6 +6598,10 @@ Not bound by default.  Add to your config, e.g.:
 (define-key haystack-prefix-map "i" #'haystack-insert-timestamp)
 (define-key haystack-prefix-map "I" #'haystack-insert-timestamp-now)
 (define-key haystack-prefix-map "D" #'haystack-demo)
+(define-key haystack-prefix-map "a" #'haystack-directory-add)
+(define-key haystack-prefix-map "c" #'haystack-directory-switch)
+(define-key haystack-prefix-map "X" #'haystack-directory-remove)
+(define-key haystack-prefix-map "K" #'haystack-directory-kill-other-buffers)
 
 (provide 'haystack)
 ;;; haystack.el ends here

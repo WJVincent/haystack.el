@@ -8797,5 +8797,316 @@ the spacing bug where empty tiers produced an extra blank line."
   "Prefix map should bind F to a frecent-all command."
   (should (lookup-key haystack-prefix-map "F")))
 
+;;;; Directory switcher
+
+(defmacro haystack-test--with-directories (&rest body)
+  "Run BODY with isolated directory-switcher state.
+Binds `haystack-directories-file' to a fresh temp path (removed before
+BODY so the state starts missing), `haystack-notes-directory' to nil,
+`haystack-notes-directories' to nil, and `haystack--demo-active' to nil.
+Cleans up the state file afterwards."
+  (declare (indent 0) (debug t))
+  `(let* ((haystack--demo-active nil)
+          (state-file (make-temp-file "haystack-dirs-" nil ".el"))
+          (haystack-directories-file state-file)
+          (haystack-notes-directory nil)
+          (haystack-notes-directories nil))
+     (unwind-protect
+         (progn
+           (when (file-exists-p state-file) (delete-file state-file))
+           ,@body)
+       (when (file-exists-p state-file) (delete-file state-file)))))
+
+(ert-deftest haystack-test/directory-canonicalize-strips-trailing-slash ()
+  "Canonicalize returns the same value for /foo and /foo/."
+  (let ((dir (make-temp-file "haystack-canon-" t)))
+    (unwind-protect
+        (should (equal (haystack--directory-canonicalize dir)
+                       (haystack--directory-canonicalize (concat dir "/"))))
+      (delete-directory dir t))))
+
+(ert-deftest haystack-test/directory-canonicalize-resolves-symlinks ()
+  "Canonicalize resolves symlinks via `file-truename'."
+  (let* ((target (make-temp-file "haystack-canon-target-" t))
+         (link (make-temp-name
+                (expand-file-name "haystack-canon-link-"
+                                  temporary-file-directory))))
+    (unwind-protect
+        (progn
+          (make-symbolic-link target link)
+          (should (equal (haystack--directory-canonicalize link)
+                         (haystack--directory-canonicalize target))))
+      (when (file-symlink-p link) (delete-file link))
+      (delete-directory target t))))
+
+(ert-deftest haystack-test/directories-read-missing-file-returns-nil ()
+  "Reading a missing state file returns nil, not an error."
+  (haystack-test--with-directories
+    (should (null (haystack--directories-read)))))
+
+(ert-deftest haystack-test/directories-read-malformed-file-errors ()
+  "Reading a malformed state file signals an error."
+  (haystack-test--with-directories
+    (with-temp-file haystack-directories-file
+      (insert "this is not a sexp ))))"))
+    (should-error (haystack--directories-read))))
+
+(ert-deftest haystack-test/directories-save-load-roundtrip ()
+  "Writing then reading the state file roundtrips the list."
+  (haystack-test--with-directories
+    (let ((dirs (list "/tmp/foo" "/tmp/bar")))
+      (haystack--directories-write dirs)
+      (should (equal dirs (haystack--directories-read))))))
+
+(ert-deftest haystack-test/directory-auto-seed-on-first-load ()
+  "First refresh with empty state seeds pool from `haystack-notes-directory'."
+  (haystack-test--with-directories
+    (let ((dir (make-temp-file "haystack-seed-" t)))
+      (unwind-protect
+          (let ((haystack-notes-directory dir))
+            (haystack--directories-refresh)
+            (should (member (haystack--directory-canonicalize dir)
+                            haystack-notes-directories))
+            (should (file-exists-p haystack-directories-file))
+            (should (member (haystack--directory-canonicalize dir)
+                            (haystack--directories-read))))
+        (delete-directory dir t)))))
+
+(ert-deftest haystack-test/directory-add-appends-new-dir ()
+  "Add inserts a canonicalized dir into the pool and writes the file."
+  (haystack-test--with-directories
+    (let ((dir (make-temp-file "haystack-add-" t)))
+      (unwind-protect
+          (let ((canon (haystack--directory-canonicalize dir)))
+            (cl-letf (((symbol-function 'read-directory-name)
+                       (lambda (&rest _) dir)))
+              (haystack-directory-add))
+            (should (member canon haystack-notes-directories))
+            (should (member canon (haystack--directories-read))))
+        (delete-directory dir t)))))
+
+(ert-deftest haystack-test/directory-add-duplicate-errors ()
+  "Adding a directory already in the pool signals a user-error."
+  (haystack-test--with-directories
+    (let ((dir (make-temp-file "haystack-add-dup-" t)))
+      (unwind-protect
+          (progn
+            (haystack--directories-write
+             (list (haystack--directory-canonicalize dir)))
+            (cl-letf (((symbol-function 'read-directory-name)
+                       (lambda (&rest _) dir)))
+              (should-error (haystack-directory-add) :type 'user-error)))
+        (delete-directory dir t)))))
+
+(ert-deftest haystack-test/directory-add-nonexistent-decline-aborts ()
+  "Declining to create a missing dir leaves the pool unchanged."
+  (haystack-test--with-directories
+    (let ((missing (expand-file-name
+                    (make-temp-name "haystack-add-missing-")
+                    temporary-file-directory)))
+      (cl-letf (((symbol-function 'read-directory-name)
+                 (lambda (&rest _) missing))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) nil)))
+        (should-error (haystack-directory-add) :type 'user-error))
+      (should (null haystack-notes-directories))
+      (should (not (file-exists-p missing))))))
+
+(ert-deftest haystack-test/directory-add-nonexistent-confirm-creates ()
+  "Confirming creation makes the dir and adds it to the pool."
+  (haystack-test--with-directories
+    (let ((missing (expand-file-name
+                    (make-temp-name "haystack-add-create-")
+                    temporary-file-directory)))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'read-directory-name)
+                       (lambda (&rest _) missing))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (&rest _) t)))
+              (haystack-directory-add))
+            (should (file-directory-p missing))
+            (should (member (haystack--directory-canonicalize missing)
+                            haystack-notes-directories)))
+        (when (file-directory-p missing)
+          (delete-directory missing t))))))
+
+(ert-deftest haystack-test/directory-remove-non-active-shrinks-pool ()
+  "Removing a non-active dir drops it from the pool and state file."
+  (haystack-test--with-directories
+    (let ((active (make-temp-file "haystack-rm-active-" t))
+          (other (make-temp-file "haystack-rm-other-" t)))
+      (unwind-protect
+          (let* ((ca (haystack--directory-canonicalize active))
+                 (co (haystack--directory-canonicalize other))
+                 (haystack-notes-directory ca))
+            (haystack--directories-write (list ca co))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (&rest _) co)))
+              (haystack-directory-remove))
+            (should (equal haystack-notes-directories (list ca)))
+            (should (equal (haystack--directories-read) (list ca)))
+            (should (equal haystack-notes-directory ca)))
+        (delete-directory active t)
+        (delete-directory other t)))))
+
+(ert-deftest haystack-test/directory-remove-active-confirmed-clears-and-kills ()
+  "Removing active dir (confirmed) clears active and kills its buffers."
+  (haystack-test--with-directories
+    (let ((active (make-temp-file "haystack-rm-active2-" t)))
+      (unwind-protect
+          (let* ((ca (haystack--directory-canonicalize active))
+                 (haystack-notes-directory ca)
+                 (buf (generate-new-buffer "*haystack:test-active*")))
+            (with-current-buffer buf
+              (setq-local haystack--buffer-notes-dir ca))
+            (haystack--directories-write (list ca))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (&rest _) ca))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (&rest _) t)))
+              (haystack-directory-remove))
+            (should (null haystack-notes-directories))
+            (should (null haystack-notes-directory))
+            (should (not (buffer-live-p buf))))
+        (delete-directory active t)))))
+
+(ert-deftest haystack-test/directory-remove-active-declined-no-change ()
+  "Declining removal of active dir leaves pool and active unchanged."
+  (haystack-test--with-directories
+    (let ((active (make-temp-file "haystack-rm-active3-" t)))
+      (unwind-protect
+          (let* ((ca (haystack--directory-canonicalize active))
+                 (haystack-notes-directory ca))
+            (haystack--directories-write (list ca))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (&rest _) ca))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (&rest _) nil)))
+              (should-error (haystack-directory-remove) :type 'user-error))
+            (should (equal haystack-notes-directories (list ca)))
+            (should (equal haystack-notes-directory ca)))
+        (delete-directory active t)))))
+
+(ert-deftest haystack-test/directory-switch-changes-active ()
+  "Switch sets `haystack-notes-directory' to the chosen pool entry."
+  (haystack-test--with-directories
+    (let ((dir1 (make-temp-file "haystack-sw1-" t))
+          (dir2 (make-temp-file "haystack-sw2-" t)))
+      (unwind-protect
+          (let* ((c1 (haystack--directory-canonicalize dir1))
+                 (c2 (haystack--directory-canonicalize dir2))
+                 (haystack-notes-directory c1))
+            (haystack--directories-write (list c1 c2))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (&rest _) c2)))
+              (haystack-directory-switch))
+            (should (equal haystack-notes-directory c2)))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest haystack-test/directory-switch-preserves-existing-buffer-dir ()
+  "Existing results buffers keep their original buffer-notes-dir after switch."
+  (haystack-test--with-directories
+    (let ((dir1 (make-temp-file "haystack-swb1-" t))
+          (dir2 (make-temp-file "haystack-swb2-" t)))
+      (unwind-protect
+          (let* ((c1 (haystack--directory-canonicalize dir1))
+                 (c2 (haystack--directory-canonicalize dir2))
+                 (haystack-notes-directory c1)
+                 (buf (generate-new-buffer "*haystack:test-preserve*")))
+            (with-current-buffer buf
+              (setq-local haystack--buffer-notes-dir c1))
+            (unwind-protect
+                (progn
+                  (haystack--directories-write (list c1 c2))
+                  (cl-letf (((symbol-function 'completing-read)
+                             (lambda (&rest _) c2)))
+                    (haystack-directory-switch))
+                  (should (equal (buffer-local-value
+                                  'haystack--buffer-notes-dir buf)
+                                 c1)))
+              (when (buffer-live-p buf) (kill-buffer buf))))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest haystack-test/directory-switch-errors-in-demo-mode ()
+  "Switch refuses while demo mode is active."
+  (haystack-test--with-directories
+    (let ((haystack--demo-active t))
+      (should-error (haystack-directory-switch) :type 'user-error))))
+
+(ert-deftest haystack-test/directory-add-errors-in-demo-mode ()
+  "Add refuses while demo mode is active."
+  (haystack-test--with-directories
+    (let ((haystack--demo-active t))
+      (should-error (haystack-directory-add) :type 'user-error))))
+
+(ert-deftest haystack-test/directory-remove-errors-in-demo-mode ()
+  "Remove refuses while demo mode is active."
+  (haystack-test--with-directories
+    (let ((haystack--demo-active t))
+      (should-error (haystack-directory-remove) :type 'user-error))))
+
+(ert-deftest haystack-test/directory-switch-picks-up-external-edits ()
+  "Switch re-reads the state file so manual edits appear in the prompt."
+  (haystack-test--with-directories
+    (let ((dir1 (make-temp-file "haystack-ext1-" t))
+          (dir2 (make-temp-file "haystack-ext2-" t)))
+      (unwind-protect
+          (let* ((c1 (haystack--directory-canonicalize dir1))
+                 (c2 (haystack--directory-canonicalize dir2))
+                 (haystack-notes-directory c1))
+            ;; Pool in memory only knows about c1.
+            (setq haystack-notes-directories (list c1))
+            ;; Someone hand-edits the state file to add c2.
+            (haystack--directories-write (list c1 c2))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_p coll &rest _)
+                         ;; Verify c2 appears in the completion table.
+                         (should (member c2 coll))
+                         c2)))
+              (haystack-directory-switch))
+            (should (equal haystack-notes-directory c2))
+            (should (member c2 haystack-notes-directories)))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest haystack-test/directory-kill-other-buffers-kills-orphans ()
+  "Kill-other-buffers kills non-active haystack buffers, spares others."
+  (haystack-test--with-directories
+    (let ((active (make-temp-file "haystack-kob-active-" t))
+          (other (make-temp-file "haystack-kob-other-" t)))
+      (unwind-protect
+          (let* ((ca (haystack--directory-canonicalize active))
+                 (co (haystack--directory-canonicalize other))
+                 (haystack-notes-directory ca)
+                 (alive (generate-new-buffer "*haystack:kob-alive*"))
+                 (orphan (generate-new-buffer "*haystack:kob-orphan*"))
+                 (plain (generate-new-buffer "*haystack:kob-plain*")))
+            (with-current-buffer alive
+              (setq-local haystack--buffer-notes-dir ca))
+            (with-current-buffer orphan
+              (setq-local haystack--buffer-notes-dir co))
+            ;; plain: no haystack--buffer-notes-dir
+            (unwind-protect
+                (progn
+                  (haystack-directory-kill-other-buffers)
+                  (should (buffer-live-p alive))
+                  (should (not (buffer-live-p orphan)))
+                  (should (buffer-live-p plain)))
+              (dolist (b (list alive orphan plain))
+                (when (buffer-live-p b) (kill-buffer b)))))
+        (delete-directory active t)
+        (delete-directory other t)))))
+
+(ert-deftest haystack-test/prefix-map-has-directory-bindings ()
+  "Prefix map binds a/c/X/K to the four directory commands."
+  (should (eq (lookup-key haystack-prefix-map "a") #'haystack-directory-add))
+  (should (eq (lookup-key haystack-prefix-map "c") #'haystack-directory-switch))
+  (should (eq (lookup-key haystack-prefix-map "X") #'haystack-directory-remove))
+  (should (eq (lookup-key haystack-prefix-map "K")
+              #'haystack-directory-kill-other-buffers)))
+
 (provide 'haystack-test)
 ;;; haystack-test.el ends here
