@@ -1,4 +1,4 @@
-g# Changelog
+# Changelog
 
 All notable changes to Haystack are documented here.  Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/).
